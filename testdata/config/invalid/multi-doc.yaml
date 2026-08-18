@@ -1,0 +1,11 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: first
+spec: {}
+---
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: second
+spec: {}

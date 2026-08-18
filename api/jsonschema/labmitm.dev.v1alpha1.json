@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://labmitm.dev/schema/v1alpha1",
+  "title": "LabMITM v1alpha1",
+  "description": "Normative field list for apiVersion labmitm.dev/v1alpha1, kind LabMITM. Unknown fields are rejected. Durations use Go time.ParseDuration syntax (30s, 10m). Byte sizes use IEC units (10MiB, 256KiB). Reserved attack/compat keys are rejected. tls.upstream.verify is not an input field.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "labmitm.dev/v1alpha1" },
+    "kind": { "const": "LabMITM" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": { "$ref": "#/$defs/spec" }
+  },
+  "$defs": {
+    "duration": {
+      "type": "string",
+      "description": "Go time.ParseDuration syntax, exported in a single-unit canonical form (30s, 5m, 1h)."
+    },
+    "byteSize": {
+      "type": "string",
+      "description": "IEC byte size (10MiB, 256KiB, 1B). Bare numbers are rejected."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "listeners": { "$ref": "#/$defs/listeners" },
+        "proxy": { "$ref": "#/$defs/proxy" },
+        "tls": { "$ref": "#/$defs/tls" },
+        "rules": { "$ref": "#/$defs/rules" },
+        "store": { "$ref": "#/$defs/store" },
+        "ui": { "$ref": "#/$defs/ui" },
+        "management": { "$ref": "#/$defs/management" },
+        "observability": { "$ref": "#/$defs/observability" }
+      }
+    },
+    "listeners": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "proxy": { "$ref": "#/$defs/proxyListener" },
+        "management": { "$ref": "#/$defs/mgmtListener" }
+      }
+    },
+    "proxyListener": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "address": { "type": "string", "description": "host:port; default 127.0.0.1:8888; empty materializes that default, not :8888" }
+      }
+    },
+    "mgmtListener": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "address": { "type": "string", "description": "host:port; default 127.0.0.1:8088" },
+        "restPath": { "type": "string", "description": "default /v1" },
+        "mcpPath": { "type": "string", "description": "default /mcp" },
+        "tls": { "$ref": "#/$defs/listenerTLS" }
+      }
+    },
+    "listenerTLS": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "certFile": { "type": "string" },
+        "keyFile": { "type": "string" }
+      }
+    },
+    "proxy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hostname": { "type": "string", "description": "default labmitm.lab" },
+        "admission": { "$ref": "#/$defs/admission" },
+        "targets": { "$ref": "#/$defs/targets" }
+      }
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxSessions": { "type": "integer", "minimum": 1, "description": "default 256" },
+        "maxSessionsPerIP": { "type": "integer", "minimum": 1, "description": "default 32" },
+        "maxInFlight": { "type": "integer", "minimum": 1, "description": "default 64" },
+        "maxInFlightBytes": { "$ref": "#/$defs/byteSize", "description": "default 64MiB" },
+        "sessionTimeout": { "$ref": "#/$defs/duration", "description": "default 10m" },
+        "idleTimeout": { "$ref": "#/$defs/duration", "description": "default 120s" },
+        "headerTimeout": { "$ref": "#/$defs/duration", "description": "default 10s" },
+        "dialTimeout": { "$ref": "#/$defs/duration", "description": "default 10s" },
+        "upstreamTimeout": { "$ref": "#/$defs/duration", "description": "default 60s" }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "denyCloudMetadata": { "type": "boolean", "description": "default true" },
+        "denyLinkLocal": { "type": "boolean", "description": "default true" },
+        "allowLoopback": { "type": "boolean", "description": "default true" },
+        "allowHosts": { "type": "array", "items": { "type": "string" }, "description": "empty = any name" },
+        "denyHosts": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intercept": { "type": "boolean", "description": "default false" },
+        "hosts": { "type": "array", "items": { "type": "string" }, "description": "empty + intercept true = all CONNECT hosts" },
+        "ports": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 65535 }, "description": "omitted or empty materializes [443]" },
+        "ca": { "$ref": "#/$defs/ca" },
+        "upstream": { "$ref": "#/$defs/upstream" }
+      }
+    },
+    "ca": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["generate", "files"], "description": "default generate" },
+        "certFile": { "type": "string" },
+        "keyFile": { "type": "string" }
+      }
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The only input verify knob is insecureSkipVerify. verify is not a field.",
+      "properties": {
+        "insecureSkipVerify": { "type": "boolean", "description": "default false; explicit lab opt-in" },
+        "extraCAFiles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "default false; master switch" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/rule" } }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+        "enabled": { "type": "boolean" },
+        "phase": { "enum": ["request", "response"] },
+        "match": { "$ref": "#/$defs/ruleMatch" },
+        "action": { "$ref": "#/$defs/ruleAction" }
+      }
+    },
+    "ruleMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": { "type": "string" },
+        "pathPrefix": { "type": "string" },
+        "pathExact": { "type": "string" },
+        "method": { "type": "string" },
+        "headerName": { "type": "string" },
+        "headerContains": { "type": "string" }
+      }
+    },
+    "ruleAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["breakpoint", "drop", "delay", "status", "header", "body"] },
+        "delay": { "$ref": "#/$defs/duration", "description": "0–30s" },
+        "status": { "type": "integer", "description": "empty/0 or 400–599" },
+        "headers": { "$ref": "#/$defs/ruleHeaders" },
+        "body": { "$ref": "#/$defs/ruleBody" },
+        "breakpoint": { "$ref": "#/$defs/ruleBreakpoint" }
+      }
+    },
+    "ruleHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "set": { "type": "object", "additionalProperties": { "type": "string" } },
+        "remove": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ruleBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replace": { "type": "string", "description": "raw UTF-8; max 64KiB in spec" }
+      }
+    },
+    "ruleBreakpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout": { "$ref": "#/$defs/duration", "description": "1s–60s" }
+      }
+    },
+    "store": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxFlows": { "type": "integer", "minimum": 1, "description": "default 1000" },
+        "maxBytes": { "$ref": "#/$defs/byteSize", "description": "default 256MiB; minimum 1MiB" },
+        "maxBodyBytes": { "$ref": "#/$defs/byteSize", "description": "default 1MiB; minimum 1KiB" },
+        "fullPolicy": { "enum": ["reject", "evict_oldest"], "description": "default reject" },
+        "maxWait": { "$ref": "#/$defs/duration", "description": "default 60s" },
+        "spillDirectory": { "type": "string" },
+        "spillThreshold": { "$ref": "#/$defs/byteSize", "description": "default 256KiB" }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "default true; false hides SPA only" }
+      }
+    },
+    "management": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "auth": { "$ref": "#/$defs/mgmtAuth" },
+        "mcp": { "$ref": "#/$defs/mcp" },
+        "originAllowlist": { "type": "array", "items": { "type": "string" } },
+        "bodyLimit": { "$ref": "#/$defs/byteSize", "description": "default 1MiB" },
+        "requestsPerSecond": { "type": "integer", "minimum": 1, "description": "default 32" },
+        "burst": { "type": "integer", "minimum": 1, "description": "default 64" },
+        "maxConcurrent": { "type": "integer", "minimum": 1, "description": "default 256" }
+      }
+    },
+    "mgmtAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["bearer", "dev-loopback-unauth"], "description": "default bearer" },
+        "tokens": { "type": "array", "items": { "$ref": "#/$defs/token" } }
+      }
+    },
+    "token": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "secretFile": { "type": "string" },
+        "role": { "enum": ["viewer", "operator", "administrator"] },
+        "scopes": {
+          "type": "array",
+          "items": { "enum": ["mitm.read", "mitm.write", "mitm.admin", "mitm.audit.read"] }
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowLegacyClients": { "type": "boolean", "description": "default false" }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logLevel": { "enum": ["debug", "info", "warn", "error"], "description": "default info" },
+        "metrics": { "$ref": "#/$defs/metrics" },
+        "audit": { "$ref": "#/$defs/audit" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "listen": { "type": "string", "description": "default 127.0.0.1:9090; empty disables" },
+        "publicPath": { "type": "boolean" }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ring": { "type": "integer", "minimum": 0, "description": "default 128" }
+      }
+    }
+  }
+}

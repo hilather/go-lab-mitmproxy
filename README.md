@@ -10,7 +10,7 @@ LabMITM is a **lab appliance**, not a public edge proxy and not an attack framew
 [![Go](https://img.shields.io/github/go-mod/go-version/hilather/go-lab-mitmproxy?label=Go)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/hilather/go-lab-mitmproxy/blob/main/LICENSE)
 
-Status: **foundation + design pack**. The `labmitm` binary prints `version` / `help` only. There is **no proxy listener**, TLS intercept, flow store, REST, MCP, auth, UI, or container image yet.
+Status: **foundation + fail-closed YAML**. The `labmitm` binary prints `version` / `help` and runs `validate` / `canonicalize`. There is **no proxy listener**, TLS intercept, flow store, REST, MCP, auth, UI, or container image yet.
 
 Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-lab-mitmproxy) · Binary `labmitm` · Image (later) `ghcr.io/hilather/labmitm` · YAML `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`
 
@@ -35,7 +35,7 @@ Standalone defaults bind loopback (an intercepting proxy is an open-proxy loaded
 
 The labinfo catalog id will be **`labmitm`** (no legacy id to preserve). Compose-in to mcp-integration-lab is a follow-on lab PR after this repo’s SWAP-001 overlays land.
 
-## Quick start (stub)
+## Quick start
 
 ```bash
 git clone https://github.com/hilather/go-lab-mitmproxy.git
@@ -43,10 +43,11 @@ cd go-lab-mitmproxy
 go version   # go1.26.x
 go build -o bin/labmitm ./cmd/labmitm
 ./bin/labmitm version
-./bin/labmitm help
+./bin/labmitm validate --config testdata/config/valid/defaults.yaml
+./bin/labmitm canonicalize --config testdata/config/valid/defaults.yaml --format json
 ```
 
-`serve` is not implemented. Do not expect a bind on `127.0.0.1:8888` or `127.0.0.1:8088`.
+`serve` is not implemented. Do not expect a bind on `127.0.0.1:8888` or `127.0.0.1:8088`. Empty `spec: {}` materializes those loopback defaults.
 
 ## Build and test
 
@@ -54,11 +55,12 @@ go build -o bin/labmitm ./cmd/labmitm
 make format
 make lint
 make test
+make test-config-compat
 make test-docs
 make build
 ```
 
-Required CI jobs: format, lint, unit, documentation. There is no optional or bypassable job.
+Required CI jobs: format, lint, unit, documentation, config-compat. There is no optional or bypassable job.
 
 ## Documentation
 

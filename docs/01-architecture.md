@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (CFG-001)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007
 
 ## Problem statement
@@ -280,7 +280,7 @@ labmitm help
 
 There is **no** `serve --token-file`. `labmitm send` / `labmitm request` are **not** shipped.
 
-FND-001 implements `version` and `help` only.
+CFG-001 implements `version`, `help`, `validate`, and `canonicalize`. There is no listener yet.
 
 ## Invariants
 

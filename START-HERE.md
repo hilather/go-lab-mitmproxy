@@ -4,14 +4,15 @@ LabMITM is a laboratory HTTP(S) intercepting proxy in the LabDNS / LabMail / Tac
 
 If you want to run what exists today, stay on this page, then follow the [README](README.md). If you want to change it, read [AGENTS.md](AGENTS.md) before touching code.
 
-## Five-minute path (foundation stub)
+## Five-minute path
 
 1. Install **Go 1.26** and clone this repository.
 2. `go build -o bin/labmitm ./cmd/labmitm`
 3. `./bin/labmitm version`
-4. `./bin/labmitm help`
+4. `./bin/labmitm validate --config testdata/config/valid/defaults.yaml`
+5. `./bin/labmitm canonicalize --config testdata/config/valid/defaults.yaml --format yaml`
 
-There is **no proxy listener** in this foundation slice. `serve`, `validate`, `canonicalize`, `healthcheck`, and `mcp-stdio` are planned commands and currently exit 2.
+There is **no proxy listener** yet. `serve`, `healthcheck`, and `mcp-stdio` remain unimplemented and exit 2.
 
 YAML field rules, revisions, and reset live in [docs/06-state-and-configuration.md](docs/06-state-and-configuration.md). Proxy accept/reject tables live in [docs/02-proxy-semantics.md](docs/02-proxy-semantics.md). REST and MCP twins are in [docs/08-rest-api.md](docs/08-rest-api.md) and [docs/09-mcp-api.md](docs/09-mcp-api.md).
 

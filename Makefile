@@ -28,7 +28,7 @@ help:
 		'  test-docs           required documents, metadata, and links' \
 		'  security-scan       govulncheck' \
 		'  test-parity         unimplemented until MCP-001 (PR 9); fail-closed' \
-		'  test-config-compat  unimplemented until CFG-001 (PR 2); fail-closed' \
+		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
 		'  web-test            unimplemented until UI-001 (PR 13); fail-closed' \
 		'  web-build           unimplemented until UI-001 (PR 13); fail-closed' \
 		'  test-container      unimplemented until DEP-001 (PR 12); fail-closed' \
@@ -62,6 +62,7 @@ test-race:
 
 test-fuzz-smoke:
 	$(GO) test ./internal/buildinfo -fuzz=FuzzInfoString -fuzztime=5s -count=1
+	$(GO) test ./internal/config -fuzz=FuzzDecode -fuzztime=5s -count=1
 
 test-docs:
 	$(GO) run ./scripts/checkdocs
@@ -73,7 +74,7 @@ test-parity:
 	@echo 'test-parity: unimplemented until MCP-001 (PR 9)' >&2; exit 1
 
 test-config-compat:
-	@echo 'test-config-compat: unimplemented until CFG-001 (PR 2)' >&2; exit 1
+	$(GO) test ./internal/config -run TestConfigCompat -count=1
 
 web-test:
 	@echo 'web-test: unimplemented until UI-001 (PR 13)' >&2; exit 1

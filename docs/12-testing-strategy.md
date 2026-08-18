@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (CFG-001)
 Related ADRs: 0002, 0004
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -38,11 +38,11 @@ make test-container security-scan test-changelog
 make web-test web-build
 ```
 
-FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-fuzz-smoke`, `test-docs`, and `security-scan`. `generate`, `verify-generated`, `test-parity`, `test-config-compat`, `test-container`, `test-changelog`, `web-test`, and `web-build` fail closed until their owning PR.
+FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-fuzz-smoke`, `test-docs`, and `security-scan`. CFG-001 implements `test-config-compat` (`testdata/config/valid` + `invalid`) and extends `test-fuzz-smoke` with `FuzzDecode`. `generate`, `verify-generated`, `test-parity`, `test-container`, `test-changelog`, `web-test`, and `web-build` fail closed until their owning PR.
 
-## Required CI (FND-001)
+## Required CI (CFG-001)
 
-Jobs: format, lint, unit, documentation. There is no optional or bypassable job. Later PRs add race, fuzz-smoke, generated-file, security-scan, container-test, changelog, parity, config-compat, and web when those targets first exist.
+Jobs: format, lint, unit, documentation, config-compat. There is no optional or bypassable job. Later PRs add race, fuzz-smoke, generated-file, security-scan, container-test, changelog, parity, and web when those targets first exist.
 
 Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`. govulncheck `v1.1.4`. Actions SHA-pinned.
 
@@ -51,4 +51,4 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 - `testdata/proxy/absolute-https.txt`, `connect-no-port.txt`, `connect-two-gets.txt`, `connect-hijack.txt`, `upgrade-websocket.txt`.
 - Name→IMDS and name→link-local resolve-then-guard transcripts.
 - TLS fixture (PR 4): generate a test origin cert, run `labmitm` with `intercept: true` + `ca.mode: generate`, trust the downloaded CA, `curl --proxy` HTTPS, assert `/v1/flows` has `intercepted: true`.
-- Invalid config fixtures: unknown field, reserved socks/tproxy/publicca, bare numbers, multi-doc, alias, missing kind, **`upstream.verify` present**.
+- Invalid config fixtures (CFG-001): unknown field, reserved socks/tproxy/publicca/mitmproxy, bare numbers, multi-doc, alias, missing kind, **`upstream.verify` present**.
