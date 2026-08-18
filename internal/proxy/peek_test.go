@@ -3,6 +3,7 @@ package proxy
 import (
 	"io"
 	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -100,6 +101,35 @@ func TestHTTP2PrefaceNotParsedAsRequest(t *testing.T) {
 	b, err := io.ReadAll(c)
 	if err == nil && len(b) > 0 && string(b[:min(12, len(b))]) == "HTTP/1.1 400" {
 		t.Fatalf("preface became 400: %q", b)
+	}
+}
+
+func TestSilentPeerDoesNotBlockAccept(t *testing.T) {
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	px := startProxy(t, Options{})
+	silent, err := net.DialTimeout("tcp", px.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = silent.Close() }()
+
+	tr := &http.Transport{
+		Proxy:                 http.ProxyURL(mustURL(t, "http://"+px.Addr().String())),
+		ForceAttemptHTTP2:     false,
+		ResponseHeaderTimeout: 2 * time.Second,
+	}
+	defer tr.CloseIdleConnections()
+	req := mustRequest(t, http.MethodGet, originURL+"/hello")
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("second client blocked by silent peer: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(b) != "ok" {
+		t.Fatalf("status %d body %q", resp.StatusCode, b)
 	}
 }
 

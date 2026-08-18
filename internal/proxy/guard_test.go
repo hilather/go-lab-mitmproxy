@@ -118,6 +118,35 @@ func TestPickAddrPrefersIPv6(t *testing.T) {
 	}
 }
 
+func TestSplitAuthorityIPv6(t *testing.T) {
+	host, port, err := splitAuthority("[::1]", "80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host != "::1" || port != "80" {
+		t.Fatalf("got %q %q", host, port)
+	}
+	if _, _, err := splitAuthority("[::1]", ""); err == nil {
+		t.Fatal("CONNECT [::1] without port must fail")
+	}
+	host, port, err = splitAuthority("[::1]:8080", "80")
+	if err != nil || host != "::1" || port != "8080" {
+		t.Fatalf("got %q %q err=%v", host, port, err)
+	}
+}
+
+func TestOriginHostIPv6(t *testing.T) {
+	if got := originHost("::1", "80"); got != "[::1]" {
+		t.Fatalf("port 80 Host=%q", got)
+	}
+	if got := originHost("::1", "8080"); got != "[::1]:8080" {
+		t.Fatalf("non-80 Host=%q", got)
+	}
+	if got := originHost("127.0.0.1", "80"); got != "127.0.0.1" {
+		t.Fatalf("IPv4 Host=%q", got)
+	}
+}
+
 func TestMatchHost(t *testing.T) {
 	if !matchHost("*.lab", "app.lab") {
 		t.Fatal("*.lab should match app.lab")

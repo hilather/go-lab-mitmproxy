@@ -168,14 +168,50 @@ func splitAuthority(authority, defaultPort string) (host, port string, err error
 	if h, p, e := net.SplitHostPort(authority); e == nil {
 		return h, p, nil
 	}
-	if defaultPort == "" {
-		return "", "", fmt.Errorf("missing port")
+	// Bracketed IPv6 without a port: "[::1]" (url.URL.Host for http://[::1]/).
+	if inner, ok := unbracketIP(authority); ok {
+		if defaultPort == "" {
+			return "", "", fmt.Errorf("missing port")
+		}
+		return inner, defaultPort, nil
 	}
-	if strings.Contains(authority, ":") && net.ParseIP(authority) == nil {
+	if net.ParseIP(authority) != nil {
+		if defaultPort == "" {
+			return "", "", fmt.Errorf("missing port")
+		}
+		return authority, defaultPort, nil
+	}
+	if strings.Contains(authority, ":") {
 		// Ambiguous IPv6-without-brackets-and-port. Require [ip]:port.
 		return "", "", fmt.Errorf("missing port")
 	}
+	if defaultPort == "" {
+		return "", "", fmt.Errorf("missing port")
+	}
 	return authority, defaultPort, nil
+}
+
+func unbracketIP(s string) (string, bool) {
+	if len(s) < 2 || s[0] != '[' || s[len(s)-1] != ']' {
+		return "", false
+	}
+	inner := s[1 : len(s)-1]
+	if net.ParseIP(inner) == nil {
+		return "", false
+	}
+	return inner, true
+}
+
+// originHost is the RFC 9110 Host value sent upstream. IPv6 literals stay
+// bracketed; default port 80 is omitted.
+func originHost(host, port string) string {
+	if port != "" && port != "80" {
+		return net.JoinHostPort(host, port)
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return "[" + host + "]"
+	}
+	return host
 }
 
 func pinnedAddr(ip net.IP, port string) string {

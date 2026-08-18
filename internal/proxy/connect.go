@@ -16,9 +16,10 @@ const established = "HTTP/1.1 200 Connection Established\r\n\r\n"
 
 func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 	started := time.Now()
-	authority := req.Host
+	// RFC 9110: CONNECT request-target is host:port (req.URL.Host).
+	authority := req.URL.Host
 	if authority == "" {
-		authority = req.URL.Host
+		authority = req.Host
 	}
 	host, port, err := splitAuthority(authority, "")
 	if err != nil || port == "" {
@@ -36,6 +37,8 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		return
 	}
+	s.beginHijacked()
+	defer s.endHijacked()
 	s.track(client)
 	defer s.untrack(client)
 	defer func() { _ = client.Close() }()
@@ -75,7 +78,7 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 
 	s.capture(connectFlow(req, host, http.StatusOK, "", started))
 	s.metrics.session("ok")
-	tunnel(client, bufrw, up)
+	s.tunnel(client, bufrw, up)
 }
 
 func (s *Server) rejectCONNECT(c net.Conn, req *http.Request, host string, err error) {
@@ -104,7 +107,7 @@ func connectFlow(req *http.Request, host string, status int, ferr string, starte
 		State:       state,
 		Method:      method,
 		Host:        host,
-		Scheme:      "https",
+		Scheme:      "", // raw tunnel; TLS-001 sets https after handshake
 		Protocol:    model.FlowProtocolConnect,
 		Status:      status,
 		Error:       ferr,

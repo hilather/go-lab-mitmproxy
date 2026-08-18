@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -37,11 +38,7 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 
 	ws := httputilx.IsWebSocketUpgrade(req.Header)
 	hadExpect := headerHasExpect(req.Header)
-	out, reqCap, err := s.originRequest(ctx, req, res, host, port)
-	if err != nil {
-		writeProxyError(w, http.StatusBadRequest, domainerr.CodeValidationFailed, err.Error(), "")
-		return
-	}
+	out, reqCap := s.originRequest(ctx, req, res, host, port)
 
 	var (
 		resp   *http.Response
@@ -117,18 +114,33 @@ func (s *Server) forwardNo100(w http.ResponseWriter, req *http.Request, out *htt
 	if err != nil {
 		return
 	}
+	s.beginHijacked()
+	defer s.endHijacked()
 	s.track(client)
 	defer s.untrack(client)
 	defer func() { _ = client.Close() }()
 
-	var body io.Reader = http.NoBody
-	if req.ContentLength > 0 {
-		body = io.LimitReader(bufrw, req.ContentLength)
+	max := s.specNow().Store.MaxBodyBytes
+	switch {
+	case req.ContentLength > 0:
+		teed, capw := teeBody(io.NopCloser(io.LimitReader(bufrw, req.ContentLength)), max)
+		out.Body = teed
+		out.ContentLength = req.ContentLength
+		reqCap = capw
+	case requestHasChunkedBody(req):
+		slurp, _ := io.ReadAll(io.LimitReader(httputilx.NewChunkedReader(bufrw), max+1))
+		truncated := int64(len(slurp)) > max
+		if truncated {
+			slurp = slurp[:max]
+		}
+		out.Body = io.NopCloser(bytes.NewReader(slurp))
+		out.ContentLength = int64(len(slurp))
+		out.TransferEncoding = nil
+		reqCap = &cappedWriter{buf: append([]byte(nil), slurp...), max: int(max), truncated: truncated}
+	default:
+		out.Body = http.NoBody
+		out.ContentLength = 0
 	}
-	teed, capw := teeBody(io.NopCloser(body), s.specNow().Store.MaxBodyBytes)
-	out.Body = teed
-	out.ContentLength = req.ContentLength
-	reqCap = capw
 
 	resp, err := s.tr.RoundTrip(out)
 	if err != nil {
@@ -158,7 +170,7 @@ func (s *Server) forwardNo100(w http.ResponseWriter, req *http.Request, out *htt
 	s.metrics.session("ok")
 }
 
-func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string) (*http.Request, *cappedWriter, error) {
+func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string) (*http.Request, *cappedWriter) {
 	out := req.Clone(ctx)
 	out.RequestURI = ""
 	out.URL = &url.URL{
@@ -171,11 +183,7 @@ func (s *Server) originRequest(ctx context.Context, req *http.Request, res resol
 	if out.URL.Path == "" {
 		out.URL.Path = "/"
 	}
-	if port != "" && port != "80" {
-		out.Host = net.JoinHostPort(host, port)
-	} else {
-		out.Host = host
-	}
+	out.Host = originHost(host, port)
 	httputilx.PrepareRequest(out.Header)
 	max := s.specNow().Store.MaxBodyBytes
 	var capw *cappedWriter
@@ -184,7 +192,19 @@ func (s *Server) originRequest(ctx context.Context, req *http.Request, res resol
 		teed, capw = teeBody(out.Body, max)
 		out.Body = teed
 	}
-	return out, capw, nil
+	return out, capw
+}
+
+func requestHasChunkedBody(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	for _, te := range req.TransferEncoding {
+		if strings.EqualFold(te, "chunked") {
+			return true
+		}
+	}
+	return req.ContentLength < 0
 }
 
 func (s *Server) rejectResolve(w http.ResponseWriter, req *http.Request, host string, err error) {
@@ -269,6 +289,8 @@ func (s *Server) hijackUpgrade(w http.ResponseWriter, req *http.Request, resp *h
 		writeProxyError(w, http.StatusInternalServerError, domainerr.CodeInternalError, "upgrade hijack failed", "")
 		return
 	}
+	s.beginHijacked()
+	defer s.endHijacked()
 	s.track(client)
 	s.track(upstream)
 	defer s.untrack(client)
@@ -288,10 +310,10 @@ func (s *Server) hijackUpgrade(w http.ResponseWriter, req *http.Request, resp *h
 	s.capture(f)
 	s.metrics.session("ok")
 	// Read leftover 101 payload from resp.Body (Transport buffered it).
-	tunnelUpgrade(client, bufrw, upstream, resp.Body)
+	s.tunnelUpgrade(client, bufrw, upstream, resp.Body)
 }
 
-func tunnelUpgrade(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn, fromUp io.Reader) {
+func (s *Server) tunnelUpgrade(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn, fromUp io.Reader) {
 	if bufrw != nil && bufrw.Reader.Buffered() > 0 {
 		n := bufrw.Reader.Buffered()
 		b, _ := bufrw.Peek(n)
@@ -301,14 +323,15 @@ func tunnelUpgrade(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn, 
 	if fromUp == nil {
 		fromUp = upstream
 	}
+	s.setSessionDeadline(client, upstream)
 	done := make(chan struct{}, 2)
 	go func() {
-		drainCopy(upstream, client)
+		s.deadlineCopy(upstream, client)
 		closeWrite(upstream)
 		done <- struct{}{}
 	}()
 	go func() {
-		drainCopy(client, fromUp)
+		s.deadlineCopy(client, fromUp)
 		closeWrite(client)
 		done <- struct{}{}
 	}()
@@ -329,24 +352,72 @@ func writeSwitching(bw *bufio.ReadWriter, resp *http.Response) error {
 	return bw.Flush()
 }
 
-func tunnel(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn) {
+func (s *Server) tunnel(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn) {
 	if bufrw != nil && bufrw.Reader.Buffered() > 0 {
 		n := bufrw.Reader.Buffered()
 		b, _ := bufrw.Peek(n)
 		_, _ = upstream.Write(b)
 		_, _ = bufrw.Discard(n)
 	}
+	s.setSessionDeadline(client, upstream)
 	done := make(chan struct{}, 2)
 	go func() {
-		drainCopy(upstream, client)
+		s.deadlineCopy(upstream, client)
 		closeWrite(upstream)
 		done <- struct{}{}
 	}()
 	go func() {
-		drainCopy(client, upstream)
+		s.deadlineCopy(client, upstream)
 		closeWrite(client)
 		done <- struct{}{}
 	}()
 	<-done
 	<-done
+}
+
+func (s *Server) setSessionDeadline(conns ...net.Conn) {
+	ad := s.specNow().Proxy.Admission
+	if ad.SessionTimeout <= 0 {
+		return
+	}
+	dl := time.Now().Add(ad.SessionTimeout)
+	for _, c := range conns {
+		if c != nil {
+			_ = c.SetDeadline(dl)
+		}
+	}
+}
+
+func (s *Server) deadlineCopy(dst io.Writer, src io.Reader) {
+	ad := s.specNow().Proxy.Admission
+	sessionEnd := time.Time{}
+	if ad.SessionTimeout > 0 {
+		sessionEnd = time.Now().Add(ad.SessionTimeout)
+	}
+	idle := ad.IdleTimeout
+	if idle <= 0 {
+		idle = defaultIdleTimeout
+	}
+	buf := make([]byte, streamSlack)
+	for {
+		dl := time.Now().Add(idle)
+		if !sessionEnd.IsZero() && dl.After(sessionEnd) {
+			dl = sessionEnd
+		}
+		if rc, ok := src.(interface{ SetReadDeadline(time.Time) error }); ok {
+			_ = rc.SetReadDeadline(dl)
+		}
+		n, err := src.Read(buf)
+		if n > 0 {
+			if wc, ok := dst.(interface{ SetWriteDeadline(time.Time) error }); ok {
+				_ = wc.SetWriteDeadline(dl)
+			}
+			if _, werr := dst.Write(buf[:n]); werr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }

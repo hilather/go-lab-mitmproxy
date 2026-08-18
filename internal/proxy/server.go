@@ -49,6 +49,7 @@ type Server struct {
 
 	mu        sync.Mutex
 	hijacked  map[net.Conn]struct{}
+	hijackWG  sync.WaitGroup
 	started   bool
 	stopped   bool
 	accepting atomic.Bool
@@ -137,7 +138,20 @@ func withSpecDefaults(spec model.Spec) model.Spec {
 	if len(spec.TLS.Ports) == 0 {
 		spec.TLS.Ports = []int{443}
 	}
+	// Zero Targets (caller skipped the loader) must still deny IMDS/link-local.
+	// A loaded spec has at least one bool true (allowLoopback default), so
+	// explicit denyCloudMetadata:false is preserved.
+	if zeroTargets(spec.Proxy.Targets) {
+		spec.Proxy.Targets.DenyCloudMetadata = true
+		spec.Proxy.Targets.DenyLinkLocal = true
+		spec.Proxy.Targets.AllowLoopback = true
+	}
 	return spec
+}
+
+func zeroTargets(t model.TargetsSpec) bool {
+	return !t.DenyCloudMetadata && !t.DenyLinkLocal && !t.AllowLoopback &&
+		len(t.AllowHosts) == 0 && len(t.DenyHosts) == 0
 }
 
 func (s *Server) specNow() model.Spec {
@@ -204,7 +218,6 @@ func (s *Server) Start() error {
 	ad := s.specNow().Proxy.Admission
 	peeked := &peekListener{
 		Listener: ln,
-		timeout:  ad.HeaderTimeout,
 		reject: func() {
 			s.metrics.reject("socks")
 		},
@@ -262,13 +275,34 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			first = err
 		}
 	}
-	s.closeHijacked()
+	done := make(chan struct{})
+	go func() {
+		s.hijackWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		s.closeHijacked()
+		<-done
+		if first == nil {
+			first = ctx.Err()
+		}
+	}
 	s.mu.Lock()
 	if s.tr != nil {
 		s.tr.CloseIdleConnections()
 	}
 	s.mu.Unlock()
 	return first
+}
+
+func (s *Server) beginHijacked() {
+	s.hijackWG.Add(1)
+}
+
+func (s *Server) endHijacked() {
+	s.hijackWG.Done()
 }
 
 func (s *Server) track(c net.Conn) {

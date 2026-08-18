@@ -83,6 +83,30 @@ func startOrigin(t *testing.T, h http.Handler) (addr, urlstr string) {
 	return addr, "http://" + addr
 }
 
+func startOriginOn(t *testing.T, network, bind string, h http.Handler) (addr, urlstr string) {
+	t.Helper()
+	ln, err := net.Listen(network, bind)
+	if err != nil {
+		t.Skipf("listen %s %s: %v", network, bind, err)
+	}
+	proto := http1Only()
+	srv := &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		Protocols:         proto,
+		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+		_ = ln.Close()
+	})
+	addr = ln.Addr().String()
+	return addr, "http://" + addr
+}
+
 type mapResolver map[string][]net.IP
 
 func (m mapResolver) LookupIP(_ context.Context, _ string, host string) ([]net.IP, error) {

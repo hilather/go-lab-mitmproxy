@@ -1,13 +1,16 @@
 package proxy
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxytest"
 )
 
@@ -126,6 +129,100 @@ func TestExpectStripped(t *testing.T) {
 	}
 	if resp.StatusCode == http.StatusContinue {
 		t.Fatal("client saw 100 Continue as the final status")
+	}
+}
+
+func TestExpectChunked(t *testing.T) {
+	var got, expect string
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expect = r.Header.Get("Expect")
+		b, _ := io.ReadAll(r.Body)
+		got = string(b)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	px := startProxy(t, Options{})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	host := mustURL(t, originURL).Host
+	msg := "POST http://" + host + "/e HTTP/1.1\r\nHost: " + host + "\r\nExpect: 100-continue\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nping\r\n0\r\n\r\n"
+	if err := c.WriteRaw([]byte(msg)); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if expect != "" {
+		t.Fatalf("origin saw Expect=%q", expect)
+	}
+	if got != "ping" {
+		t.Fatalf("origin body %q", got)
+	}
+	if resp.StatusCode == http.StatusContinue {
+		t.Fatal("client saw 100 Continue")
+	}
+}
+
+func TestAbsoluteFormIPv6(t *testing.T) {
+	var sawHost string
+	_, originURL := startOriginOn(t, "tcp", "[::1]:0", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawHost = r.Host
+		_, _ = io.WriteString(w, "v6")
+	}))
+	px := startProxy(t, Options{})
+	via := throughProxy(t, px.Addr().String(), originURL+"/hello")
+	if via != "v6" {
+		t.Fatalf("body %q", via)
+	}
+	want := mustURL(t, originURL).Host
+	if sawHost != want {
+		t.Fatalf("origin Host=%q want %q", sawHost, want)
+	}
+	if !strings.HasPrefix(sawHost, "[::1]") {
+		t.Fatalf("IPv6 Host not bracketed: %q", sawHost)
+	}
+}
+
+func TestNewZeroSpecDeniesIMDS(t *testing.T) {
+	rec := &recordingDial{}
+	s, err := New(Options{
+		Address:     "127.0.0.1:0",
+		Spec:        model.Spec{},
+		DialContext: rec.wrap(nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	})
+	c, err := proxytest.Dial(s.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.WriteRequest("GET http://169.254.169.254/ HTTP/1.1", "Host: 169.254.169.254"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if got := rec.Addrs(); len(got) != 0 {
+		t.Fatalf("dialed %v", got)
 	}
 }
 

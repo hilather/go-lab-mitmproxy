@@ -214,6 +214,77 @@ func TestWebSocketTranscript(t *testing.T) {
 	})
 }
 
+func TestCONNECTUsesRequestTargetNotHost(t *testing.T) {
+	origin, _ := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	px := startProxy(t, Options{})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.WriteRequest("CONNECT "+origin+" HTTP/1.1", "Host: 169.254.169.254:80"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := c.ReadLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != "HTTP/1.1 200 Connection Established" {
+		t.Fatalf("used Host header instead of request-target: %q", st)
+	}
+}
+
+func TestCONNECTSessionTimeout(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_, _ = io.Copy(io.Discard, c)
+	}()
+	spec := loadSpec(t)
+	spec.Proxy.Admission.SessionTimeout = 200 * time.Millisecond
+	spec.Proxy.Admission.IdleTimeout = 200 * time.Millisecond
+	px := startProxy(t, Options{Spec: spec})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	host := ln.Addr().String()
+	if err := c.WriteRequest("CONNECT "+host+" HTTP/1.1", "Host: "+host); err != nil {
+		t.Fatal(err)
+	}
+	st, err := c.ReadLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != "HTTP/1.1 200 Connection Established" {
+		t.Fatalf("status %q", st)
+	}
+	if blank, err := c.ReadLine(); err != nil || blank != "" {
+		t.Fatalf("blank %q err=%v", blank, err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	_ = c.Conn.SetDeadline(time.Now().Add(time.Second))
+	_, err = c.Conn.Write([]byte("still-here"))
+	if err == nil {
+		buf := make([]byte, 8)
+		_, err = c.Conn.Read(buf)
+	}
+	if err == nil {
+		t.Fatal("sessionTimeout did not close hijacked tunnel")
+	}
+}
+
 func TestInterceptTrueStillTunnels(t *testing.T) {
 	// TLS-001 will honor intercept; PROXY-001 must not 4xx CONNECT :443.
 	origin, _ := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

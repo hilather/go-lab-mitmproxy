@@ -1,0 +1,9 @@
+# Expect: 100-continue + Transfer-Encoding: chunked. Played in
+# TestExpectChunked (raw write). Origin must see the decoded body; no 100.
+C: POST http://{{HOST}}/e HTTP/1.1
+C: Host: {{HOST}}
+C: Expect: 100-continue
+C: Transfer-Encoding: chunked
+C:
+# 4\r\nping\r\n0\r\n\r\n
+S: HTTP/1.1 200 *
