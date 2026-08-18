@@ -20,8 +20,8 @@ var durationFields = map[string]bool{
 }
 
 // convertDurations rewrites ParseDuration strings to nanoseconds for
-// encoding/json → time.Duration. Non-string numbers (except literal 0) are
-// rejected: YAML `sessionTimeout: 30` must not silently become 30ns.
+// encoding/json → time.Duration. Every non-string duration is rejected:
+// YAML `sessionTimeout: 30` and `sessionTimeout: 0` must not become 30ns / 0.
 func convertDurations(v any, path string) []domainerr.FieldViolation {
 	switch x := v.(type) {
 	case map[string]any:
