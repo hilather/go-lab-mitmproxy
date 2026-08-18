@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/store"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
@@ -368,5 +369,44 @@ func (s *Server) capture(f *model.Flow) {
 	if s.sink == nil || f == nil {
 		return
 	}
+	if ss, ok := s.sink.(*storeSink); ok {
+		_, err := ss.s.Insert(s.ctx, ss.s.Epoch(), f)
+		if err != nil && errors.Is(err, store.ErrFull) {
+			s.metrics.storeFullInc()
+			if ss.onFull != nil {
+				ss.onFull()
+			}
+		}
+		return
+	}
 	s.sink.Insert(s.ctx, f)
+}
+
+// AdaptStore wraps a store.Store as a best-effort Sink. Insert errors
+// (including ErrFull) are ignored so the client hop still succeeds.
+func AdaptStore(s store.Store) Sink {
+	return AdaptStoreNotify(s, nil)
+}
+
+// AdaptStoreNotify is AdaptStore with an optional full-reject hook (tests/metrics).
+func AdaptStoreNotify(s store.Store, onFull func()) Sink {
+	if s == nil {
+		return NewNull()
+	}
+	return &storeSink{s: s, onFull: onFull}
+}
+
+type storeSink struct {
+	s      store.Store
+	onFull func()
+}
+
+func (a *storeSink) Insert(ctx context.Context, f *model.Flow) {
+	if a == nil || a.s == nil || f == nil {
+		return
+	}
+	_, err := a.s.Insert(ctx, a.s.Epoch(), f)
+	if err != nil && errors.Is(err, store.ErrFull) && a.onFull != nil {
+		a.onFull()
+	}
 }

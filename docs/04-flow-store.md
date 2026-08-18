@@ -2,10 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Store, Proxy, Application
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (STORE-001)
 Related ADRs: 0003
 
 Package `internal/store`. Captured HTTP is runtime evidence, not desired state. Restart or reset wipes flows. Pattern is LabMail `docs/03-message-store.md`.
+
+STORE-001 implements `store.Memory` (ULID ids via `github.com/oklog/ulid/v2`, stacked caps, Wait, Wipe epoch, Pause/Resume/Drop/WaitPaused, optional spill). The proxy inserts completed flows through `proxy.AdaptStore` (epoch is the live store epoch at capture). A mismatch under the insert lock returns `store.ErrStaleEpoch` and the flow is not stored. `fullPolicy: reject` returns `store.ErrFull`; the proxy **still forwards** (capture is best-effort). A single flow whose resident size exceeds `maxBytes` returns `store.ErrTooLarge`. Bodies larger than `maxBodyBytes` are truncated and flagged. `store.Null` remains a discard Sink for tests. `labmitm serve` constructs Memory from `spec.store` and `Wipe`s on process shutdown. STA-001 will thread the accept-time epoch through in-flight sessions.
 
 ## Interface
 

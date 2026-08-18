@@ -10,7 +10,7 @@ LabMITM is a **lab appliance**, not a public edge proxy and not an attack framew
 [![Go](https://img.shields.io/github/go-mod/go-version/hilather/go-lab-mitmproxy?label=Go)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/hilather/go-lab-mitmproxy/blob/main/LICENSE)
 
-Status: **HTTP/1.1 forward proxy plus optional TLS intercept**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT). `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). There is **no** management REST/MCP, flow store, auth, UI, or container image yet.
+Status: **HTTP/1.1 forward proxy plus optional TLS intercept and a bounded in-memory flow store**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). There is **no** management REST/MCP, auth, UI, or container image yet.
 
 Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-lab-mitmproxy) · Binary `labmitm` · Image (later) `ghcr.io/hilather/labmitm` · YAML `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`
 

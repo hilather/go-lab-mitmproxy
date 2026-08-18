@@ -10,8 +10,8 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
 
-// Sink is a best-effort flow capture. STORE-001 replaces this with the
-// bounded inbox. Insert must not fail the client hop.
+// Sink is a best-effort flow capture. Insert must not fail the client hop.
+// AdaptStore wraps store.Store; NewNull remains the test/fallback sink.
 type Sink interface {
 	Insert(ctx context.Context, f *model.Flow)
 }

@@ -16,6 +16,6 @@ LabMITM is a laboratory intercepting proxy, not a public edge proxy and not an a
 - Intercept **breaks origin mTLS and certificate pinning**.
 - Default metadata CIDRs are AWS/GCP IPv4 + AWS IPv6 IMDS. Alibaba `100.100.100.200/32` and RFC1918 are **not** default-deny (lab SUTs).
 - Not a general attack tool. No fuzzer, payload generator, SSL-strip, or exploit UX.
-- TLS-001 intercepts HTTPS on listed ports (`ports` default `[443]`) with an in-process lab CA. Capture is a Null sink until STORE-001. Management, REST, MCP, auth, UI, and the image are not shipped yet.
+- TLS-001 intercepts HTTPS on listed ports (`ports` default `[443]`) with an in-process lab CA. STORE-001 captures completed flows in a process-local Memory inbox (wipe on shutdown/reset). Management, REST, MCP, auth, UI, and the image are not shipped yet.
 
 See [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations-10) for the architecture-pack copy of these residuals.

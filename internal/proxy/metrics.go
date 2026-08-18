@@ -4,10 +4,11 @@ import "sync"
 
 // Metrics is a process-local reject/session counter until OBS-001.
 type Metrics struct {
-	mu       sync.Mutex
-	rejected map[string]int64
-	sessions map[string]int64
-	tls      map[string]int64
+	mu        sync.Mutex
+	rejected  map[string]int64
+	sessions  map[string]int64
+	tls       map[string]int64
+	storeFull int64
 }
 
 func newMetrics() *Metrics {
@@ -43,6 +44,25 @@ func (m *Metrics) tlsIntercept(result string) {
 	m.mu.Lock()
 	m.tls[result]++
 	m.mu.Unlock()
+}
+
+func (m *Metrics) storeFullInc() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.storeFull++
+	m.mu.Unlock()
+}
+
+// StoreFull is labmitm_store_full_total (capture rejected; proxy still forwarded).
+func (m *Metrics) StoreFull() int64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.storeFull
 }
 
 // Rejected returns the count for reason (admission, http2, socks,
