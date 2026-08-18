@@ -89,6 +89,11 @@ func materializeDefaults(sp *model.Spec) {
 	if sp.Management.Auth.Tokens == nil {
 		sp.Management.Auth.Tokens = []model.TokenSpec{}
 	}
+	for i := range sp.Management.Auth.Tokens {
+		if sp.Management.Auth.Tokens[i].Scopes == nil {
+			sp.Management.Auth.Tokens[i].Scopes = []string{}
+		}
+	}
 	if sp.Management.OriginAllowlist == nil {
 		sp.Management.OriginAllowlist = []string{}
 	}

@@ -65,12 +65,6 @@ func coerceDurationField(obj map[string]any, key string, child any, path string)
 		obj[key] = int64(d)
 		return domainerr.FieldViolation{}, true
 	default:
-		if d, ok := jsonNumberDuration(n); ok {
-			if d == 0 {
-				obj[key] = int64(0)
-				return domainerr.FieldViolation{}, true
-			}
-		}
 		return domainerr.FieldViolation{
 			Path:    path,
 			Code:    violationInvalidValue,

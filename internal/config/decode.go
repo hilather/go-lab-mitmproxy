@@ -311,7 +311,9 @@ func ensureMap(parent map[string]any, key string) map[string]any {
 	if m, ok := parent[key].(map[string]any); ok {
 		return m
 	}
-	if _, exists := parent[key]; exists {
+	// Present-but-null (YAML `targets:`, JSON `"targets": null`) is absent.
+	// A non-map value is a type error; leave it for later decode rejection.
+	if v, exists := parent[key]; exists && v != nil {
 		return nil
 	}
 	m := map[string]any{}
@@ -399,12 +401,14 @@ func inspectYAMLNode(n *yaml.Node, path string) []domainerr.FieldViolation {
 				})
 			}
 			seen[name] = true
-			if why := reservedReason(normalizeKey(name)); why != "" {
-				vs = append(vs, domainerr.FieldViolation{
-					Path:    joinPath(path, name),
-					Code:    violationReservedName,
-					Message: fmt.Sprintf("reserved key %q %s — not a 1.0 LabMITM surface", name, why),
-				})
+			if !isFreeFormStringMap(path) {
+				if why := reservedReason(normalizeKey(name)); why != "" {
+					vs = append(vs, domainerr.FieldViolation{
+						Path:    joinPath(path, name),
+						Code:    violationReservedName,
+						Message: fmt.Sprintf("reserved key %q %s — not a 1.0 LabMITM surface", name, why),
+					})
+				}
 			}
 			vs = append(vs, inspectYAMLNode(k, joinPath(path, name))...)
 			vs = append(vs, inspectYAMLNode(v, joinPath(path, name))...)

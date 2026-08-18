@@ -125,15 +125,16 @@ The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://githu
 
 ## Validate rules (fail closed)
 
-- `listeners.proxy.address` and `listeners.management.address` must parse via `net.ResolveTCPAddr`.
-- Standalone defaults materialize to loopback (D10). Empty address → those defaults, **not** `:8888`.
+- `listeners.proxy.address` and `listeners.management.address` (and `metrics.listen` when non-empty) must parse as `host:port` via `net.SplitHostPort` with port `1–65535`. Validate is offline (no DNS). `:8888` and `[::1]:8088` are legal. Empty listener address materializes the loopback defaults first, **not** `:8888`.
+- Standalone defaults materialize to loopback (D10).
 - `tls.ca.mode: files` requires existing cert+key; reject empty key PEM; reject world-writable key file; `mode: generate` with non-empty cert/key files → `validation_failed`.
 - The only upstream input field is `insecureSkipVerify`. `tls.upstream.verify` is **not** on the struct.
 - `tls.ports` entries are `1–65535`. After normalize, empty → `[443]`.
 - `tls.intercept: true` with `ca.mode: files` and unreadable key → validate fail (do not bind).
-- `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML.
+- `rules.items[].id` unique and `[a-z0-9-]{1,64}`. Every item requires `phase` (`request`|`response`) and `action.type`. `action.delay` ∈ [0, 30s]. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML.
 - `store.maxBodyBytes` ≥ 1 KiB and ≤ `store.maxBytes`. `maxFlows` ≥ 1. `maxBytes` ≥ 1 MiB.
-- `management.auth.mode: bearer` requires ≥1 token with resolvable `secretFile` (≥256 bits after trim). Binding management with `mode: bearer` and zero usable tokens is **refused**. `dev-loopback-unauth` is rejected in the container default fixture.
+- Loader: `management.auth.mode: bearer` with **zero tokens is valid** (empty `spec: {}` must load). Each listed token requires `id`, `secretFile`, and `role`. Overlay `secretFile` paths that are not mounted do not fail validate; if the file exists, the first non-comment line must be ≥32 bytes (256 bits) after trim. `scopes` materialize to `[]` when omitted.
+- Serve/bind (DEP-001 / SEC-001): binding management with `mode: bearer` and zero usable tokens is **refused**. `dev-loopback-unauth` is rejected in the container default fixture. Keep ADR 0005’s listen-refuse sentence as serve-time.
 
 ## Revisions
 

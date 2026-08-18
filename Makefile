@@ -24,7 +24,7 @@ help:
 		'  verify-generated    unimplemented until API-001 (PR 8); fail-closed' \
 		'  test                go test ./...' \
 		'  test-race           go test -race ./...' \
-		'  test-fuzz-smoke     execute the buildinfo seed corpus' \
+		'  test-fuzz-smoke     buildinfo + config FuzzDecode seed corpora (5s each)' \
 		'  test-docs           required documents, metadata, and links' \
 		'  security-scan       govulncheck' \
 		'  test-parity         unimplemented until MCP-001 (PR 9); fail-closed' \

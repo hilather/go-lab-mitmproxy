@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,19 +85,35 @@ func validateListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation) {
 }
 
 func validateTCPAddr(path, addr string, vs *[]domainerr.FieldViolation) {
+	validateHostPort(path, addr, false, vs)
+}
+
+func validateHostPort(path, addr string, allowEmpty bool, vs *[]domainerr.FieldViolation) {
 	if strings.TrimSpace(addr) == "" {
-		*vs = append(*vs, domainerr.FieldViolation{
-			Path:    path,
-			Code:    violationRequired,
-			Message: "listen address is required",
-		})
+		if !allowEmpty {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path,
+				Code:    violationRequired,
+				Message: "listen address is required",
+			})
+		}
 		return
 	}
-	if _, err := net.ResolveTCPAddr("tcp", addr); err != nil {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
 		*vs = append(*vs, domainerr.FieldViolation{
 			Path:    path,
 			Code:    violationInvalidValue,
 			Message: "listen address must parse as host:port",
+		})
+		return
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    path,
+			Code:    violationInvalidValue,
+			Message: "listen address port must be 1–65535",
 		})
 	}
 }
@@ -228,14 +245,26 @@ func validateRules(r *model.RulesSpec, vs *[]domainerr.FieldViolation) {
 		} else {
 			ids[id] = path + ".id"
 		}
-		if item.Phase != "" && !model.KnownRulePhase(item.Phase) {
+		if strings.TrimSpace(item.Phase) == "" {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".phase",
+				Code:    violationRequired,
+				Message: "phase is required",
+			})
+		} else if !model.KnownRulePhase(item.Phase) {
 			*vs = append(*vs, domainerr.FieldViolation{
 				Path:    path + ".phase",
 				Code:    violationInvalidValue,
 				Message: "phase must be request or response",
 			})
 		}
-		if item.Action.Type != "" && !model.KnownRuleAction(item.Action.Type) {
+		if strings.TrimSpace(item.Action.Type) == "" {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".action.type",
+				Code:    violationRequired,
+				Message: "action.type is required",
+			})
+		} else if !model.KnownRuleAction(item.Action.Type) {
 			*vs = append(*vs, domainerr.FieldViolation{
 				Path:    path + ".action.type",
 				Code:    violationInvalidValue,
@@ -331,7 +360,9 @@ func validateManagement(m *model.ManagementSpec, vs *[]domainerr.FieldViolation)
 		} else {
 			checkTokenSecretLength(path+".secretFile", tok.SecretFile, vs)
 		}
-		if tok.Role != "" && !model.KnownRole(tok.Role) {
+		if strings.TrimSpace(tok.Role) == "" {
+			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".role", Code: violationRequired, Message: "token role is required"})
+		} else if !model.KnownRole(tok.Role) {
 			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".role", Code: violationInvalidValue, Message: "role must be viewer, operator, or administrator"})
 		}
 		for si, sc := range tok.Scopes {
@@ -368,15 +399,7 @@ func validateObservability(o *model.ObservabilitySpec, vs *[]domainerr.FieldViol
 			Message: "logLevel must be debug, info, warn, or error",
 		})
 	}
-	if o.Metrics.Listen != "" {
-		if _, err := net.ResolveTCPAddr("tcp", o.Metrics.Listen); err != nil {
-			*vs = append(*vs, domainerr.FieldViolation{
-				Path:    "spec.observability.metrics.listen",
-				Code:    violationInvalidValue,
-				Message: "metrics.listen must be host:port or empty",
-			})
-		}
-	}
+	validateHostPort("spec.observability.metrics.listen", o.Metrics.Listen, true, vs)
 	if o.Audit.Ring < 0 {
 		*vs = append(*vs, domainerr.FieldViolation{Path: "spec.observability.audit.ring", Code: violationInvalidValue, Message: "audit.ring must be >= 0"})
 	}

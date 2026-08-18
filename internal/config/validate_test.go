@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
@@ -110,9 +111,65 @@ func TestValidateStoreCaps(t *testing.T) {
 }
 
 func TestValidateDuplicateRuleID(t *testing.T) {
-	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: same\n        action:\n          type: drop\n      - id: same\n        action:\n          type: drop\n"
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: same\n        phase: request\n        action:\n          type: drop\n      - id: same\n        phase: request\n        action:\n          type: drop\n"
 	_, err := Load([]byte(doc))
 	_ = requireValidation(t, err, violationDuplicateID)
+}
+
+func TestValidateRuleRequiresPhaseAndAction(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: drop-all\n        action:\n          type: drop\n"
+	_, err := Load([]byte(doc))
+	_ = requireValidation(t, err, violationRequired)
+
+	doc = "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: drop-all\n        phase: request\n        action: {}\n"
+	_, err = Load([]byte(doc))
+	_ = requireValidation(t, err, violationRequired)
+}
+
+func TestValidateTokenRequiresRole(t *testing.T) {
+	dir := t.TempDir()
+	tok := filepath.Join(dir, "token")
+	if err := os.WriteFile(tok, []byte("0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: t\nspec:\n  management:\n    auth:\n      mode: bearer\n      tokens:\n        - id: admin\n          secretFile: " + tok + "\n"
+	_, err := Load([]byte(doc))
+	_ = requireValidation(t, err, violationRequired)
+}
+
+func TestValidateHostPortOffline(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: h\nspec:\n  listeners:\n    proxy:\n      address: \"does-not-resolve.invalid:8888\"\n"
+	st, err := Load([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Spec.Listeners.Proxy.Address != "does-not-resolve.invalid:8888" {
+		t.Fatalf("addr=%q", st.Spec.Listeners.Proxy.Address)
+	}
+}
+
+func TestValidateTokenScopesMaterializeEmpty(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	st, err := LoadFile(testdata(t, "valid", "rules-and-token.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Spec.Management.Auth.Tokens) != 1 {
+		t.Fatalf("tokens=%d", len(st.Spec.Management.Auth.Tokens))
+	}
+	if st.Spec.Management.Auth.Tokens[0].Scopes == nil {
+		t.Fatal("scopes must be empty slice, not nil")
+	}
+	raw, err := CanonicalJSON(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"scopes":[]`) {
+		t.Fatalf("canonical scopes: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"X-Attack":"blocked"`) {
+		t.Fatalf("missing header set: %s", raw)
+	}
 }
 
 func TestValidateUpstreamVerifyFixture(t *testing.T) {

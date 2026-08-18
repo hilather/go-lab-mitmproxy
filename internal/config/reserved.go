@@ -80,9 +80,20 @@ func reservedReason(normalized string) string {
 	return ""
 }
 
+// isFreeFormStringMap reports schema leaves whose keys are operator strings
+// (HTTP header names, document labels), not config field names.
+func isFreeFormStringMap(path string) bool {
+	return path == "metadata.labels" ||
+		strings.HasSuffix(path, ".labels") ||
+		strings.HasSuffix(path, ".headers.set")
+}
+
 func reservedFields(v any, path string) []domainerr.FieldViolation {
 	switch x := v.(type) {
 	case map[string]any:
+		if isFreeFormStringMap(path) {
+			return nil
+		}
 		var vs []domainerr.FieldViolation
 		for k, child := range x {
 			p := joinPath(path, k)

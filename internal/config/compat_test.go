@@ -17,6 +17,7 @@ var expectedInvalid = map[string]string{
 	"missing-apiversion.yaml":   violationRequired,
 	"missing-kind.yaml":         violationRequired,
 	"bare-duration.yaml":        violationInvalidValue,
+	"bare-duration-zero.yaml":   violationInvalidValue,
 	"bare-bytes.yaml":           violationInvalidValue,
 	"reserved-socks.yaml":       violationReservedName,
 	"reserved-tproxy.yaml":      violationReservedName,
@@ -30,6 +31,7 @@ var expectedInvalid = map[string]string{
 
 // TestConfigCompat is the positive+negative fixture matrix for make test-config-compat.
 func TestConfigCompat(t *testing.T) {
+	t.Chdir(repoRoot(t))
 	validDir := testdata(t, "valid")
 	ents, err := os.ReadDir(validDir)
 	if err != nil {

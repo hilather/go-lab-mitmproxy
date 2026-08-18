@@ -178,6 +178,34 @@ func TestDecodeEmptyAddressMaterializesLoopback(t *testing.T) {
 	}
 }
 
+func TestDecodeNullTargetsAndUIGetFailClosedDefaults(t *testing.T) {
+	yamlDoc := mustLoad(t, "valid", "null-targets.yaml")
+	st, err := Load([]byte(yamlDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Proxy.Targets.DenyCloudMetadata || !st.Spec.Proxy.Targets.DenyLinkLocal || !st.Spec.Proxy.Targets.AllowLoopback {
+		t.Fatalf("YAML null targets: denyCloud=%v denyLink=%v allowLoop=%v",
+			st.Spec.Proxy.Targets.DenyCloudMetadata, st.Spec.Proxy.Targets.DenyLinkLocal, st.Spec.Proxy.Targets.AllowLoopback)
+	}
+	if !st.Spec.UI.Enabled {
+		t.Fatal("YAML null ui must materialize enabled=true")
+	}
+
+	jsonDoc := `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"proxy":{"targets":null},"ui":null}}`
+	st, err = Load([]byte(jsonDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Proxy.Targets.DenyCloudMetadata || !st.Spec.Proxy.Targets.DenyLinkLocal || !st.Spec.Proxy.Targets.AllowLoopback {
+		t.Fatalf("JSON null targets: denyCloud=%v denyLink=%v allowLoop=%v",
+			st.Spec.Proxy.Targets.DenyCloudMetadata, st.Spec.Proxy.Targets.DenyLinkLocal, st.Spec.Proxy.Targets.AllowLoopback)
+	}
+	if !st.Spec.UI.Enabled {
+		t.Fatal("JSON null ui must materialize enabled=true")
+	}
+}
+
 func TestDecodeEmptyPortsMaterialize443(t *testing.T) {
 	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  tls:\n    ports: []\n"
 	st, err := Load([]byte(doc))
