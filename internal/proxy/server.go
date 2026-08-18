@@ -237,6 +237,11 @@ func http1Only() *http.Protocols {
 }
 
 func (s *Server) dialPinned(ctx context.Context, network, addr string) (net.Conn, error) {
+	// Process-wide cleartext Transport: Start-time spec (not live apply).
+	return s.dialPinnedTO(ctx, network, addr, s.specNow().Proxy.Admission.DialTimeout)
+}
+
+func (s *Server) dialPinnedTO(ctx context.Context, network, addr string, dialTO time.Duration) (net.Conn, error) {
 	if s.dialFn != nil {
 		host, _, err := net.SplitHostPort(addr)
 		if err != nil {
@@ -247,7 +252,10 @@ func (s *Server) dialPinned(ctx context.Context, network, addr string) (net.Conn
 		}
 		return s.dialFn(ctx, network, addr)
 	}
-	return dialTCP(ctx, network, addr, s.specNow().Proxy.Admission.DialTimeout)
+	if dialTO <= 0 {
+		dialTO = defaultDialTimeout
+	}
+	return dialTCP(ctx, network, addr, dialTO)
 }
 
 // Start binds the listener and serves in the background.
@@ -385,18 +393,19 @@ func (s *Server) closeHijacked() {
 	}
 }
 
-func (s *Server) capture(f *model.Flow) {
+func (s *Server) capture(f *model.Flow, sess *ruleSession) {
 	if s.sink == nil || f == nil {
 		return
 	}
 	if ss, ok := s.sink.(*storeSink); ok {
-		_, err := ss.s.Insert(s.ctx, ss.s.Epoch(), f)
+		_, err := ss.s.Insert(s.ctx, s.sessionEpoch(sess), f)
 		if err != nil && errors.Is(err, store.ErrFull) {
 			s.metrics.storeFullInc()
 			if ss.onFull != nil {
 				ss.onFull()
 			}
 		}
+		// ErrStaleEpoch: hop started before reset; capture is discarded.
 		return
 	}
 	s.sink.Insert(s.ctx, f)

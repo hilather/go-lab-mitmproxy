@@ -51,12 +51,17 @@ func TestPlanApplyReplaceRules(t *testing.T) {
 		t.Fatal("replaceRules must reuse the CA handle")
 	}
 
+	var hooks int
+	svc.OnApply(func() { hooks++ })
 	again, err := svc.Apply(ctx, actor(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if again.Generation != res.Generation {
 		t.Fatal("idempotent apply must not swap again")
+	}
+	if hooks != 0 {
+		t.Fatalf("idempotent apply must not fire OnApply, hooks=%d", hooks)
 	}
 
 	in.Reason = "different"

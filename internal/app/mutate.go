@@ -79,7 +79,8 @@ func (s *App) applyLocked(ctx context.Context, actor Actor, in ChangeIn) (*Apply
 	if hit, err := s.idemp.lookup(in.IdempotencyKey, fp); err != nil {
 		return nil, nil, err
 	} else if hit != nil && hit.apply != nil {
-		return cloneApply(hit.apply), append([]func(){}, s.applyHooks...), nil
+		// Replay is not a new commit — do not fire OnApply (cursor rotation).
+		return cloneApply(hit.apply), nil, nil
 	}
 	cand, err := s.buildCandidate(ctx, in, true)
 	if err != nil {

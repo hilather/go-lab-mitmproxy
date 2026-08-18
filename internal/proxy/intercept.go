@@ -29,7 +29,7 @@ func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net
 		auth = s.auth
 	}
 	if auth == nil {
-		s.failIntercept(req, host, started, tlsmitm.ResultMintFail)
+		s.failIntercept(req, host, started, tlsmitm.ResultMintFail, sess)
 		return
 	}
 	rawClient := wrapHijacked(client, bufrw)
@@ -43,14 +43,14 @@ func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net
 
 	clientTLS, err := auth.HandshakeServer(hsCtx, rawClient, host)
 	if err != nil {
-		s.failIntercept(req, host, started, tlsmitm.ResultTLSHandshake)
+		s.failIntercept(req, host, started, tlsmitm.ResultTLSHandshake, sess)
 		return
 	}
 
 	sni := clientTLS.ConnectionState().ServerName
 	if sni != "" && !strings.EqualFold(sni, host) && !hostNameAllowed(sess.spec.Proxy.Targets, sni) {
 		s.metrics.reject("target_denied")
-		s.capture(connectErrFlow(req, host, model.FlowStateError, string(domainerr.CodeTargetDenied), started))
+		s.capture(connectErrFlow(req, host, model.FlowStateError, string(domainerr.CodeTargetDenied), started), sess)
 		return
 	}
 	upName := sni
@@ -65,20 +65,20 @@ func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net
 		if tlsmitm.IsVerifyError(err) {
 			result = tlsmitm.ResultUpstreamVerifyFail
 		}
-		s.failIntercept(req, host, started, result)
+		s.failIntercept(req, host, started, result, sess)
 		return
 	}
 	_ = client.SetDeadline(time.Time{})
 	_ = up.SetDeadline(time.Time{})
-	s.setSessionDeadline(clientTLS, upTLS)
+	s.setSessionDeadline(sess.spec.Proxy.Admission, clientTLS, upTLS)
 
 	s.metrics.tlsIntercept(tlsmitm.ResultOK)
 	s.innerHTTP(clientTLS, upTLS, req, host, port, res, started, auth, sni, sess)
 }
 
-func (s *Server) failIntercept(req *http.Request, host string, started time.Time, result string) {
+func (s *Server) failIntercept(req *http.Request, host string, started time.Time, result string, sess *ruleSession) {
 	s.metrics.tlsIntercept(result)
-	s.capture(connectErrFlow(req, host, model.FlowStateError, result, started))
+	s.capture(connectErrFlow(req, host, model.FlowStateError, result, started), sess)
 }
 
 func connectErrFlow(req *http.Request, host, state, ferr string, started time.Time) *model.Flow {
@@ -169,7 +169,7 @@ func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host,
 		}
 		if inner.Method == "PRI" {
 			s.metrics.tlsIntercept(tlsmitm.ResultHTTP2Inner)
-			s.capture(connectErrFlow(creq, host, model.FlowStateError, tlsmitm.ResultHTTP2Inner, time.Now()))
+			s.capture(connectErrFlow(creq, host, model.FlowStateError, tlsmitm.ResultHTTP2Inner, time.Now()), sess)
 			return
 		}
 		if s.roundTripInner(tr, clientTLS, upTLS, br, inner, host, port, res, info, sess) {
@@ -226,7 +226,7 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 	if err != nil {
 		drainBody(inner)
 		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, sess.reqCap, nil)
-		s.captureRule(f, inner, sess.reqCap, nil, nil, sess.reqHit)
+		s.captureRule(f, inner, sess.reqCap, nil, nil, sess, sess.reqHit)
 		writeHijackedError(clientTLS, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed")
 		_ = clientTLS.Close()
 		_ = upTLS.Close()
@@ -247,14 +247,14 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 			_, _ = br.Discard(n)
 		}
 		if err := writeSwitching(clientTLS, resp); err != nil {
-			s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, sess.reqCap, nil))
+			s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, sess.reqCap, nil), sess)
 			return true
 		}
 		f := s.innerFlow(inner, host, port, http.StatusSwitchingProtocols, "", started, info, sess.reqCap, nil)
 		f.Protocol = model.FlowProtocolWebSocket
-		s.capture(f)
+		s.capture(f, sess)
 		s.metrics.session("ok")
-		s.tunnelUpgrade(clientTLS, nil, upTLS, resp.Body)
+		s.tunnelUpgrade(clientTLS, nil, upTLS, resp.Body, s.specOf(sess).Proxy.Admission)
 		return true
 	}
 

@@ -192,7 +192,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `op` | Body | Notes |
 |---|---|---|
 | `replaceStoreCaps` | `store`: `{maxFlows, maxBytes, maxBodyBytes, fullPolicy}` | Shrink + `reject` fails unless `force` |
-| `replaceAdmission` | `admission` object | Live on next accept |
+| `replaceAdmission` | `admission` object | Live on next accept for the session gate, CONNECT dial timeout, and pinned tunnel idle/session deadlines. `http.Server.IdleTimeout` / `ReadHeaderTimeout` and the process-wide cleartext `Transport` stay at Start (`Options.Spec`). |
 | `replaceTLS` | `tls` object | Recompile CA/host list; in-flight CONNECT unchanged |
 | `replaceRules` | `rules` object | `{}` / empty items + `enabled: false` is stock capture |
 | `replaceTargets` | `targets` object | Live on next request |
@@ -210,7 +210,7 @@ Idempotency LRU default 256; reset clears it.
 3. Builds `rules.Engine` from `spec.rules`.
 4. Generates or loads the lab CA (`tlsmitm.Authority`). Generate-mode mints even when `intercept: false` so `GetCA` works. `replaceRules` / `replaceAdmission` / `replaceTargets` / `replaceStoreCaps` reuse the previous CA handle when the TLS spec is unchanged. `replaceTLS` and `Reset` recompile (generate-mode rotates).
 
-`internal/snapshot.Store` holds active / previous / bootstrap behind atomic pointers. The proxy loads once per request / CONNECT (`Options.Snapshots`) and pins spec, engine, and CA for the session. In-flight sessions keep the pointer they loaded; new accepts see the swapped snapshot.
+`internal/snapshot.Store` holds active / previous / bootstrap behind atomic pointers. The proxy loads once per request / CONNECT (`Options.Snapshots`) and pins spec, engine, CA, and store epoch for the session. In-flight sessions keep the pointer they loaded; new accepts see the swapped snapshot. An in-flight `Insert` after `ResetTo` uses the accept-time epoch and is discarded (`ErrStaleEpoch`).
 
 `internal/app.Service` is HTTP-less (no `net/http`, no MCP types, no Dial). Mutations copy Canonical, apply typed operations, compile a full candidate, then `Store.Swap` only after success. Failures leave config **and** flows unchanged. Reset rereads the bootstrap path, preflights store options (including spill), `store.ResetTo` (the only epoch bump), swaps, and clears the idempotency LRU.
 

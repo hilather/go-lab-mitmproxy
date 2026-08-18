@@ -19,13 +19,14 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
-// ruleSession is one HTTP exchange (or CONNECT) pin. The Engine, CA, and
-// spec are loaded once so a later live apply cannot change mid-hop.
+// ruleSession is one HTTP exchange (or CONNECT) pin. Spec, Engine, CA, and
+// store epoch are loaded once so a later live apply/reset cannot change mid-hop.
 type ruleSession struct {
 	spec       model.Spec
 	snap       *snapshot.Snapshot
 	eng        *rules.Engine
 	auth       *tlsmitm.Authority
+	epoch      uint64
 	reqHit     *rules.Hit
 	reqCap     *cappedWriter
 	skipInsert bool
@@ -45,11 +46,25 @@ func (s *Server) beginSession() *ruleSession {
 			if auth == nil {
 				auth = s.auth
 			}
-			return &ruleSession{spec: spec, snap: snap, eng: eng, auth: auth}
+			return &ruleSession{spec: spec, snap: snap, eng: eng, auth: auth, epoch: s.liveEpoch()}
 		}
 	}
 	spec := s.specNow()
-	return &ruleSession{spec: spec, eng: rules.New(spec.Rules), auth: s.auth}
+	return &ruleSession{spec: spec, eng: rules.New(spec.Rules), auth: s.auth, epoch: s.liveEpoch()}
+}
+
+func (s *Server) liveEpoch() uint64 {
+	if s != nil && s.inbox != nil {
+		return s.inbox.Epoch()
+	}
+	return 0
+}
+
+func (s *Server) sessionEpoch(sess *ruleSession) uint64 {
+	if sess != nil && sess.epoch != 0 {
+		return sess.epoch
+	}
+	return s.liveEpoch()
 }
 
 func (sess *ruleSession) fork() *ruleSession {
@@ -332,7 +347,7 @@ func (s *Server) waitBreakpoint(ctx context.Context, f *model.Flow, hit *rules.H
 	if f.StartedAt.IsZero() {
 		f.StartedAt = time.Now().UTC()
 	}
-	res, err := s.inbox.Insert(ctx, s.inbox.Epoch(), f)
+	res, err := s.inbox.Insert(ctx, s.sessionEpoch(sess), f)
 	if err != nil {
 		s.metrics.ruleHit(rules.ActionBreakpointTO)
 		return bpResult{timedOut: true}
@@ -490,9 +505,9 @@ func (s *Server) annotateFlow(f *model.Flow, req *http.Request, reqCap, respCap 
 	}
 }
 
-func (s *Server) captureRule(f *model.Flow, req *http.Request, reqCap, respCap *cappedWriter, respHdr http.Header, hits ...*rules.Hit) {
+func (s *Server) captureRule(f *model.Flow, req *http.Request, reqCap, respCap *cappedWriter, respHdr http.Header, sess *ruleSession, hits ...*rules.Hit) {
 	s.annotateFlow(f, req, reqCap, respCap, respHdr, hits...)
-	s.capture(f)
+	s.capture(f, sess)
 }
 
 // runRequestRules applies the request-phase hit. handled means the client
@@ -524,7 +539,7 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 		body, _ := rules.BodyReplace(hit)
 		respCap := &cappedWriter{buf: body, max: len(body)}
 		f := s.flowFromReq(req, host, scheme, syn.StatusCode, "", started)
-		s.captureRule(f, req, sess.reqCap, respCap, syn.Header, hit)
+		s.captureRule(f, req, sess.reqCap, respCap, syn.Header, sess, hit)
 		s.metrics.session("ok")
 		return true
 	case model.ActionBreakpoint:
@@ -589,7 +604,7 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 			syn := s.syntheticResponse(respHit)
 			_ = write(syn)
 			f := s.completedFlow(req, host, port, scheme, syn.StatusCode, started, info, reqCap, respCap)
-			s.captureRule(f, req, reqCap, respCap, syn.Header, reqHit, respHit)
+			s.captureRule(f, req, reqCap, respCap, syn.Header, sess, reqHit, respHit)
 			s.metrics.session("ok")
 			return
 		case model.ActionBreakpoint:
@@ -624,7 +639,7 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 		return
 	}
 	f := s.completedFlow(req, host, port, scheme, resp.StatusCode, started, info, reqCap, respCap)
-	s.captureRule(f, req, reqCap, respCap, resp.Header, reqHit, respHit)
+	s.captureRule(f, req, reqCap, respCap, resp.Header, sess, reqHit, respHit)
 	s.metrics.session("ok")
 }
 

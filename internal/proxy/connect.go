@@ -51,13 +51,13 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request, sess *ru
 
 	res, err := resolveThenGuard(ctx, s.resolver, sess.spec.Proxy.Targets, host, port)
 	if err != nil {
-		s.rejectCONNECT(client, req, host, err)
+		s.rejectCONNECT(client, req, host, err, sess)
 		return
 	}
 
-	up, err := s.dialPinned(ctx, "tcp", pinnedAddr(res.Selected, res.Port))
+	up, err := s.dialPinnedTO(ctx, "tcp", pinnedAddr(res.Selected, res.Port), sess.spec.Proxy.Admission.DialTimeout)
 	if err != nil {
-		s.capture(connectFlow(req, host, http.StatusBadGateway, "dial", started))
+		s.capture(connectFlow(req, host, http.StatusBadGateway, "dial", started), sess)
 		writeHijackedError(client, http.StatusBadGateway, domainerr.CodeInternalError, "dial failed")
 		return
 	}
@@ -81,19 +81,19 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request, sess *ru
 		return
 	}
 
-	s.capture(connectFlow(req, host, http.StatusOK, "", started))
+	s.capture(connectFlow(req, host, http.StatusOK, "", started), sess)
 	s.metrics.session("ok")
-	s.tunnel(client, bufrw, up)
+	s.tunnel(client, bufrw, up, sess.spec.Proxy.Admission)
 }
 
-func (s *Server) rejectCONNECT(c net.Conn, req *http.Request, host string, err error) {
+func (s *Server) rejectCONNECT(c net.Conn, req *http.Request, host string, err error, sess *ruleSession) {
 	if isDNS(err) {
-		s.capture(connectFlow(req, host, http.StatusBadGateway, "dns", time.Now()))
+		s.capture(connectFlow(req, host, http.StatusBadGateway, "dns", time.Now()), sess)
 		writeHijackedError(c, http.StatusBadGateway, domainerr.CodeInternalError, "dns lookup failed")
 		return
 	}
 	s.metrics.reject("target_denied")
-	s.capture(connectFlow(req, host, http.StatusForbidden, string(domainerr.CodeTargetDenied), time.Now()))
+	s.capture(connectFlow(req, host, http.StatusForbidden, string(domainerr.CodeTargetDenied), time.Now()), sess)
 	writeHijackedError(c, http.StatusForbidden, domainerr.CodeTargetDenied, "target denied")
 }
 

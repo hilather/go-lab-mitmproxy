@@ -49,7 +49,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			State:    model.FlowStateError,
 			Error:    string(domainerr.CodeValidationFailed),
 			Status:   http.StatusBadRequest,
-		})
+		}, sess)
 		writeProxyError(w, http.StatusBadRequest, domainerr.CodeValidationFailed,
 			"https absolute-form is not supported", "use CONNECT")
 		return

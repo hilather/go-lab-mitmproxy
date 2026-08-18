@@ -141,39 +141,25 @@ func TestInFlightRequestKeepsPinnedSnapshot(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	origin := startLiveOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(started)
-		<-release
+		if r.URL.Path == "/slow" {
+			close(started)
+			<-release
+		}
 		_, _ = io.WriteString(w, "slow")
 	}))
-	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
-		ExpectedRevision: boot.Revision,
-		Operations: []model.Operation{{
-			Op: model.OpReplaceRules,
-			Rules: &model.RulesSpec{
-				Enabled: true,
-				Items: []model.RuleSpec{{
-					ID:      "delay-first",
-					Enabled: true,
-					Phase:   model.RulePhaseRequest,
-					Action:  model.RuleActionSpec{Type: model.ActionDelay, Delay: 200 * time.Millisecond},
-				}},
-			},
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	px := startLiveProxy(t, svc)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	var firstStatus int
+	var firstBody string
 	go func() {
 		defer wg.Done()
 		resp := viaProxy(t, px.Addr().String(), origin+"/slow")
 		firstStatus = resp.StatusCode
-		_, _ = io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
+		firstBody = string(b)
 	}()
 
 	select {
@@ -182,16 +168,17 @@ func TestInFlightRequestKeepsPinnedSnapshot(t *testing.T) {
 		t.Fatal("origin never saw in-flight request")
 	}
 
-	_, err = svc.Apply(context.Background(), actor(), ChangeIn{
-		ExpectedRevision: svc.Active().Revision,
+	// Response-phase drop would rewrite this hop if it reloaded the live snapshot.
+	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
 		Operations: []model.Operation{{
 			Op: model.OpReplaceRules,
 			Rules: &model.RulesSpec{
 				Enabled: true,
 				Items: []model.RuleSpec{{
-					ID:      "drop-all",
+					ID:      "drop-resp",
 					Enabled: true,
-					Phase:   model.RulePhaseRequest,
+					Phase:   model.RulePhaseResponse,
 					Action:  model.RuleActionSpec{Type: model.ActionDrop, Status: 403},
 				}},
 			},
@@ -202,15 +189,69 @@ func TestInFlightRequestKeepsPinnedSnapshot(t *testing.T) {
 	}
 	close(release)
 	wg.Wait()
-	if firstStatus != 200 {
-		t.Fatalf("in-flight request must keep the old snapshot, status=%d", firstStatus)
+	if firstStatus != 200 || firstBody != "slow" {
+		t.Fatalf("in-flight hop must keep the pinned engine, status=%d body=%q", firstStatus, firstBody)
 	}
 
 	resp := viaProxy(t, px.Addr().String(), origin+"/next")
 	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("next request should see drop, status=%d", resp.StatusCode)
+		t.Fatalf("next request should see response drop, status=%d", resp.StatusCode)
+	}
+}
+
+func TestResetDiscardsInFlightCapture(t *testing.T) {
+	svc, _ := mustBoot(t)
+	insertRaw(t, svc, "already.lab")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	origin := startLiveOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/inflight" {
+			close(started)
+			<-release
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	px := startLiveProxy(t, svc)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var status int
+	go func() {
+		defer wg.Done()
+		resp := viaProxy(t, px.Addr().String(), origin+"/inflight")
+		status = resp.StatusCode
+		_, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("origin never saw in-flight request")
+	}
+
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "wipe mid-hop"}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	wg.Wait()
+	if status != 200 {
+		t.Fatalf("in-flight hop must still forward, status=%d", status)
+	}
+	if svc.Inbox().Stats().FlowCount != 0 {
+		t.Fatalf("stale-epoch capture must not refill inbox, count=%d", svc.Inbox().Stats().FlowCount)
+	}
+
+	resp := viaProxy(t, px.Addr().String(), origin+"/after")
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("post-reset request status=%d", resp.StatusCode)
+	}
+	if svc.Inbox().Stats().FlowCount != 1 {
+		t.Fatalf("new request should insert, count=%d", svc.Inbox().Stats().FlowCount)
 	}
 }
 
