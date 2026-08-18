@@ -41,10 +41,13 @@ type Memory struct {
 }
 
 type record struct {
-	flow      *model.Flow
-	resident  int64
-	reqSpill  string
-	respSpill string
+	flow        *model.Flow
+	resident    int64
+	reqSpill    string
+	respSpill   string
+	wasPaused   bool
+	pauseDone   bool
+	pauseResult pauseResult
 }
 
 type recSnap struct {
@@ -174,15 +177,23 @@ func (m *Memory) Insert(ctx context.Context, epoch uint64, f *model.Flow) (model
 	}
 	id := ulid.Make().String()
 	prepared.ID = id
-	applyBodyCaps(prepared, m.maxBodyBytes)
+
+	m.mu.Lock()
+	maxBody := m.maxBodyBytes
+	maxBytes := m.maxBytes
+	spillDir := m.spillDir
+	spillTh := m.spillThreshold
+	m.mu.Unlock()
+
+	applyBodyCaps(prepared, maxBody)
 	candidate := prepared.ResidentBytes()
-	if candidate > m.maxBytes {
+	if candidate > maxBytes {
 		return model.InsertResult{}, ErrTooLarge
 	}
 
 	// Spill to temp names before taking the index lock so a write failure
 	// cannot evict existing flows. Rename + evict + index happen atomically.
-	job, err := m.writeSpillTemps(prepared)
+	job, err := writeSpillTemps(spillDir, spillTh, prepared)
 	if err != nil {
 		return model.InsertResult{}, err
 	}
@@ -201,7 +212,7 @@ func (m *Memory) Insert(ctx context.Context, epoch uint64, f *model.Flow) (model
 	if err := m.canAcceptLocked(candidate); err != nil {
 		return model.InsertResult{}, err
 	}
-	rec := &record{flow: prepared, resident: candidate}
+	rec := &record{flow: prepared, resident: candidate, wasPaused: prepared.State == model.FlowStatePaused}
 	if err := commitSpill(rec, job); err != nil {
 		return model.InsertResult{}, err
 	}
@@ -261,6 +272,30 @@ func (m *Memory) evictUntilFitsLocked(candidate int64) error {
 		m.removeLocked(m.order[0], true)
 	}
 	if !m.fitsLocked(candidate) {
+		return ErrFull
+	}
+	return nil
+}
+
+// evictOthersUntilFitsLocked frees extra bytes without removing keepID.
+func (m *Memory) evictOthersUntilFitsLocked(keepID string, extra int64) error {
+	if extra < 0 {
+		extra = 0
+	}
+	for m.bytes+extra > m.maxBytes {
+		victim := ""
+		for _, id := range m.order {
+			if id != keepID {
+				victim = id
+				break
+			}
+		}
+		if victim == "" {
+			break
+		}
+		m.removeLocked(victim, true)
+	}
+	if m.bytes+extra > m.maxBytes {
 		return ErrFull
 	}
 	return nil
@@ -444,9 +479,12 @@ func (m *Memory) Wait(ctx context.Context, filter model.FlowFilter) (*model.Flow
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if m.maxWait > 0 {
+	m.mu.Lock()
+	maxWait := m.maxWait
+	m.mu.Unlock()
+	if maxWait > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, m.maxWait)
+		ctx, cancel = context.WithTimeout(ctx, maxWait)
 		defer cancel()
 	}
 	stop := make(chan struct{})

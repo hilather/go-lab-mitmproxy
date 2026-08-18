@@ -224,6 +224,108 @@ func TestDeletePausedWakesWaiter(t *testing.T) {
 	}
 }
 
+func TestWaitPausedAfterResumeReturnsPatch(t *testing.T) {
+	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyReject})
+	f := sampleFlow("POST", "http://h/login", 0, []byte("old"))
+	f.State = model.FlowStatePaused
+	f.PausedPhase = model.RulePhaseRequest
+	res, err := s.Insert(context.Background(), s.Epoch(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("patched")
+	if err := s.Resume(res.ID, &ResumePatch{Body: want}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	patch, err := s.WaitPaused(ctx, res.ID)
+	if err != nil {
+		t.Fatalf("late WaitPaused err=%v", err)
+	}
+	if !bytes.Equal(patch.Body, want) {
+		t.Fatalf("patch %q", patch.Body)
+	}
+}
+
+func TestWaitPausedAfterDrop(t *testing.T) {
+	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyReject})
+	f := sampleFlow("GET", "http://h/", 0, nil)
+	f.State = model.FlowStatePaused
+	res, err := s.Insert(context.Background(), s.Epoch(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Drop(res.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.WaitPaused(context.Background(), res.ID)
+	if !errors.Is(err, ErrDropped) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestResumeEvictOldestGrowsUnderCap(t *testing.T) {
+	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 20, FullPolicy: model.FullPolicyEvictOldest})
+	old, err := s.Insert(context.Background(), s.Epoch(), sampleFlow("GET", "http://h/old", 200, []byte("abcdefghij")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := sampleFlow("GET", "http://h/paused", 0, []byte("ab"))
+	f.State = model.FlowStatePaused
+	f.PausedPhase = model.RulePhaseResponse
+	paused, err := s.Insert(context.Background(), s.Epoch(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := []byte("0123456789ABCDEF")
+	if err := s.Resume(paused.ID, &ResumePatch{Body: big}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(old.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected evict of other flow: %v", err)
+	}
+	got, err := s.Get(paused.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Response.Body) != string(big) {
+		t.Fatalf("body=%q", got.Response.Body)
+	}
+	if s.Stats().Bytes > 20 {
+		t.Fatalf("bytes %d over cap", s.Stats().Bytes)
+	}
+}
+
+func TestResumeEmptyBodyClearsSpill(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestStore(t, Options{
+		MaxFlows:       10,
+		MaxBytes:       1 << 20,
+		FullPolicy:     model.FullPolicyReject,
+		SpillDirectory: dir,
+		SpillThreshold: 8,
+	})
+	body := []byte("zzzzzzzzzzzz")
+	f := sampleFlow("GET", "http://h/spill", 200, body)
+	f.State = model.FlowStatePaused
+	f.PausedPhase = model.RulePhaseResponse
+	res, err := s.Insert(context.Background(), s.Epoch(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Resume(res.ID, &ResumePatch{Body: []byte{}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Response.Body) != 0 || got.Response.Size != 0 {
+		t.Fatalf("empty replace resurrected body=%q size=%d", got.Response.Body, got.Response.Size)
+	}
+}
+
 func TestResumePatchOverMaxBody(t *testing.T) {
 	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, MaxBodyBytes: 4, FullPolicy: model.FullPolicyReject})
 	f := sampleFlow("GET", "http://h/", 0, []byte("ab"))

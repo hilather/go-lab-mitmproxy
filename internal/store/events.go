@@ -23,8 +23,9 @@ type subscriber struct {
 	ch chan Event
 }
 
-// Subscribe receives membership events. The buffer drops events if the
-// consumer is slower than inserts. cancel must be called.
+// Subscribe receives membership events. The buffer is a ring: a slow
+// consumer drops the oldest event so wipe/resume/drop stay visible.
+// cancel must be called.
 func (m *Memory) Subscribe(cap int) (<-chan Event, func()) {
 	if m == nil {
 		ch := make(chan Event)
@@ -57,9 +58,21 @@ func (m *Memory) Subscribe(cap int) (<-chan Event, func()) {
 
 func (m *Memory) emitLocked(ev Event) {
 	for _, s := range m.subs {
+		pushEvent(s.ch, ev)
+	}
+}
+
+func pushEvent(ch chan Event, ev Event) {
+	for {
 		select {
-		case s.ch <- ev:
+		case ch <- ev:
+			return
 		default:
+			select {
+			case <-ch:
+			default:
+				return
+			}
 		}
 	}
 }

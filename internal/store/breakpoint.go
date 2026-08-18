@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
@@ -31,6 +32,9 @@ func (m *Memory) Pause(id string) error {
 		return nil
 	}
 	rec.flow.State = model.FlowStatePaused
+	rec.wasPaused = true
+	rec.pauseDone = false
+	rec.pauseResult = pauseResult{}
 	m.generation++
 	m.cond.Broadcast()
 	m.emitLocked(Event{Kind: EventPaused, ID: id, Gen: m.generation})
@@ -110,6 +114,11 @@ func (m *Memory) WaitPaused(ctx context.Context, id string) (ResumePatch, error)
 		m.mu.Unlock()
 		return ResumePatch{}, ErrNotFound
 	}
+	if rec.pauseDone {
+		res := rec.pauseResult
+		m.mu.Unlock()
+		return res.patch, res.err
+	}
 	if rec.flow.State != model.FlowStatePaused {
 		m.mu.Unlock()
 		return ResumePatch{}, ErrBreakpointInactive
@@ -122,8 +131,12 @@ func (m *Memory) WaitPaused(ctx context.Context, id string) (ResumePatch, error)
 	case <-ctx.Done():
 		m.mu.Lock()
 		m.removeWaiterLocked(id, w)
+		if rec, ok := m.byID[id]; ok && rec.pauseDone {
+			res := rec.pauseResult
+			m.mu.Unlock()
+			return res.patch, res.err
+		}
 		m.mu.Unlock()
-		// Resume/Drop may have won the race; prefer that result.
 		select {
 		case res := <-w.ch:
 			return res.patch, res.err
@@ -140,8 +153,9 @@ func (m *Memory) applyPatchLocked(rec *record, patch ResumePatch) error {
 		return ErrTooLarge
 	}
 	trial := cloneFlow(rec.flow)
+	respSide := trial.PausedPhase == model.RulePhaseResponse
 	side := &trial.Request
-	if trial.PausedPhase == model.RulePhaseResponse {
+	if respSide {
 		side = &trial.Response
 	}
 	if patch.Headers != nil {
@@ -157,12 +171,59 @@ func (m *Memory) applyPatchLocked(rec *record, patch ResumePatch) error {
 		return ErrTooLarge
 	}
 	old := rec.resident
-	if next-old > 0 && m.bytes+(next-old) > m.maxBytes && m.fullPolicy != model.FullPolicyEvictOldest {
-		return ErrFull
+	extra := next - old
+
+	var newSpill string
+	if patch.Body != nil {
+		sideName := "req"
+		if respSide {
+			sideName = "resp"
+		}
+		path, err := writeSideSpill(m.spillDir, m.spillThreshold, rec.flow.ID, sideName, patch.Body)
+		if err != nil {
+			return err
+		}
+		newSpill = path
 	}
+
+	if extra > 0 && m.bytes+extra > m.maxBytes {
+		if m.fullPolicy != model.FullPolicyEvictOldest {
+			if newSpill != "" {
+				_ = os.Remove(newSpill)
+			}
+			return ErrFull
+		}
+		if err := m.evictOthersUntilFitsLocked(rec.flow.ID, extra); err != nil {
+			if newSpill != "" {
+				_ = os.Remove(newSpill)
+			}
+			return err
+		}
+	}
+
+	if patch.Body != nil {
+		if respSide {
+			if rec.respSpill != "" {
+				_ = os.Remove(rec.respSpill)
+			}
+			rec.respSpill = newSpill
+			if newSpill != "" {
+				trial.Response.Body = nil
+			}
+		} else {
+			if rec.reqSpill != "" {
+				_ = os.Remove(rec.reqSpill)
+			}
+			rec.reqSpill = newSpill
+			if newSpill != "" {
+				trial.Request.Body = nil
+			}
+		}
+	}
+
 	rec.flow = trial
 	rec.resident = next
-	m.bytes += next - old
+	m.bytes += extra
 	if m.bytes < 0 {
 		m.bytes = 0
 	}
@@ -200,6 +261,10 @@ func currentSide(f *model.Flow) *model.HTTPMessage {
 }
 
 func (m *Memory) finishPausedLocked(id string, res pauseResult) {
+	if rec, ok := m.byID[id]; ok {
+		rec.pauseDone = true
+		rec.pauseResult = res
+	}
 	for _, w := range m.paused[id] {
 		select {
 		case w.ch <- res:

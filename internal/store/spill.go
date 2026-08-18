@@ -19,32 +19,48 @@ type spillJob struct {
 	respFinal string
 }
 
-func (m *Memory) writeSpillTemps(f *model.Flow) (*spillJob, error) {
-	if m.spillDir == "" || m.spillThreshold <= 0 {
+func writeSpillTemps(dir string, threshold int64, f *model.Flow) (*spillJob, error) {
+	if dir == "" || threshold <= 0 {
 		return nil, nil
 	}
 	job := &spillJob{}
-	if int64(len(f.Request.Body)) >= m.spillThreshold {
-		tmp := filepath.Join(m.spillDir, f.ID+"-req.body.tmp")
+	if int64(len(f.Request.Body)) >= threshold {
+		tmp := filepath.Join(dir, f.ID+"-req.body.tmp")
 		if err := os.WriteFile(tmp, f.Request.Body, 0o600); err != nil {
 			return nil, fmt.Errorf("%w: request: %v", ErrSpill, err)
 		}
 		job.reqTmp = tmp
-		job.reqFinal = filepath.Join(m.spillDir, f.ID+"-req.body")
+		job.reqFinal = filepath.Join(dir, f.ID+"-req.body")
 	}
-	if int64(len(f.Response.Body)) >= m.spillThreshold {
-		tmp := filepath.Join(m.spillDir, f.ID+"-resp.body.tmp")
+	if int64(len(f.Response.Body)) >= threshold {
+		tmp := filepath.Join(dir, f.ID+"-resp.body.tmp")
 		if err := os.WriteFile(tmp, f.Response.Body, 0o600); err != nil {
 			unlinkSpillJob(job)
 			return nil, fmt.Errorf("%w: response: %v", ErrSpill, err)
 		}
 		job.respTmp = tmp
-		job.respFinal = filepath.Join(m.spillDir, f.ID+"-resp.body")
+		job.respFinal = filepath.Join(dir, f.ID+"-resp.body")
 	}
 	if job.reqTmp == "" && job.respTmp == "" {
 		return nil, nil
 	}
 	return job, nil
+}
+
+func writeSideSpill(dir string, threshold int64, id, side string, body []byte) (string, error) {
+	if dir == "" || threshold <= 0 || int64(len(body)) < threshold {
+		return "", nil
+	}
+	tmp := filepath.Join(dir, id+"-"+side+".body.tmp")
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		return "", fmt.Errorf("%w: %s: %v", ErrSpill, side, err)
+	}
+	final := filepath.Join(dir, id+"-"+side+".body")
+	if err := os.Rename(tmp, final); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("%w: rename %s: %v", ErrSpill, side, err)
+	}
+	return final, nil
 }
 
 func commitSpill(rec *record, job *spillJob) error {
@@ -124,14 +140,15 @@ func unlinkRecord(rec *record) {
 }
 
 func loadSpill(s recSnap) error {
-	if s.reqSpill != "" && len(s.flow.Request.Body) == 0 {
+	// Size==0 after an explicit empty Resume replace must not refill.
+	if s.reqSpill != "" && len(s.flow.Request.Body) == 0 && s.flow.Request.Size > 0 {
 		b, err := os.ReadFile(s.reqSpill)
 		if err != nil {
 			return err
 		}
 		s.flow.Request.Body = b
 	}
-	if s.respSpill != "" && len(s.flow.Response.Body) == 0 {
+	if s.respSpill != "" && len(s.flow.Response.Body) == 0 && s.flow.Response.Size > 0 {
 		b, err := os.ReadFile(s.respSpill)
 		if err != nil {
 			return err

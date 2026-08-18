@@ -33,6 +33,31 @@ func TestSubscribeInsertDeleteWipe(t *testing.T) {
 	}
 }
 
+func TestSubscribeRingKeepsLatestWipe(t *testing.T) {
+	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyReject})
+	ch, cancel := s.Subscribe(1)
+	defer cancel()
+	for i := 0; i < 8; i++ {
+		if _, err := s.Insert(context.Background(), s.Epoch(), sampleFlow("GET", "http://h/", 200, []byte("x"))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Wipe()
+	var kinds []string
+drain:
+	for {
+		select {
+		case ev := <-ch:
+			kinds = append(kinds, ev.Kind)
+		default:
+			break drain
+		}
+	}
+	if len(kinds) == 0 || kinds[len(kinds)-1] != EventWiped {
+		t.Fatalf("ring dropped wipe: kinds=%v", kinds)
+	}
+}
+
 func TestSubscribePausedInsert(t *testing.T) {
 	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyReject})
 	ch, cancel := s.Subscribe(4)

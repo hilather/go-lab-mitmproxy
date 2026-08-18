@@ -49,6 +49,17 @@ func TestRaceInsertDeleteWaitWipe(t *testing.T) {
 			s.Wipe()
 		}
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 8; i++ {
+			time.Sleep(3 * time.Millisecond)
+			_ = s.ReplaceCaps(Options{MaxFlows: 200, MaxBytes: 8 << 20, FullPolicy: model.FullPolicyEvictOldest}, false)
+			if i%2 == 0 {
+				_ = s.ResetTo(Options{MaxFlows: 200, MaxBytes: 8 << 20, FullPolicy: model.FullPolicyEvictOldest, MaxWait: 50 * time.Millisecond})
+			}
+		}
+	}()
 	wg.Wait()
 }
 
