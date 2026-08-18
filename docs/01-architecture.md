@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-18 (TLS-001)
+Last reviewed: 2026-08-18 (RULES-001)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007
 
 ## Problem statement
@@ -191,7 +191,7 @@ UI (static) -----> REST only                    -> store / snapshot / audit / ru
 |   |-- proxy/                       # HTTP/1.1 forward proxy listener + session
 |   |-- tlsmitm/                     # lab CA, leaf mint, dual TLS
 |   |-- httputilx/                   # hop-by-hop strip, header fold; NOT httputil.ReverseProxy
-|   |-- rules/                       # compile + first-match evaluate
+|   |-- rules/                       # first-match evaluate (compiler snapshot is STA-001)
 |   |-- app/                         # Service (no HTTP/MCP types)
 |   |-- capabilities/                # registry
 |   |-- control/rest/

@@ -2,10 +2,21 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (RULES-001)
 Related ADRs: 0002
 
-Package `internal/rules`. Compiled into the snapshot. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
+Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
+
+RULES-001 implements match/eval only. `rules.Engine` is constructed from a `model.RulesSpec` (tests and the proxy). YAML compile into an immutable snapshot is STA-001 (`internal/compiler`) — not this package. The proxy loads an Engine from `spec.rules` on each request so a later live `replaceRules` swap keeps in-flight sessions on the Engine they already matched.
+
+Proxy hooks (cleartext absolute-form and intercepted inner HTTP/1.1):
+
+1. After request parse + target guards: request-phase match.
+2. After upstream response headers (before any client body byte): response-phase match.
+3. Stream vs mutate (D21): capture-only tees to `maxBodyBytes`; `body` / `status` / `drop` / `breakpoint` buffer to `maxBodyBytes` and fail-closed (`body_skipped`) beyond that.
+4. Breakpoint: `Insert` paused, `WaitPaused(ctx)` with ctx deadline `min(rule.timeout, store.maxWait)` (1s–60s). Timeout / stale epoch continues unmodified. `Resume` / `Drop` are store primitives (REST in API-001). Unit test Resume without HTTP.
+
+Raw CONNECT tunnels have no inner HTTP, so rules do not apply. Mutating response rules after a WebSocket `101` are `late_skip`. Replay is **not** a rule action (API-001).
 
 ## Schema
 
@@ -58,7 +69,7 @@ Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. `action.status
 5. `POST /v1/flows/{id}:drop` → `store.Drop` (client gets 502 if headers not sent).
 6. Timeout / `ErrStaleEpoch` → continue unmodified (do not hang the SUT). Audit `flow.breakpoint_timeout`.
 
-PR 6 unit test: `Insert` paused → goroutine `WaitPaused` → `Resume` with patch → assert patch and `State=completed` path without opening a socket. Compile of YAML → rule index is PR 7 only; PR 6 uses a test-constructed snapshot.
+PR 6 unit test (`internal/rules` + store): `Insert` paused → goroutine `WaitPaused` → `Resume` with patch → assert patch and `State=open` (request-phase) without opening a socket. Compile of YAML → rule index is STA-001 only; RULES-001 uses a test-constructed `model.RulesSpec`.
 
 ## Replay
 

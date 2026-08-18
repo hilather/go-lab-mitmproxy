@@ -16,6 +16,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/httputilx"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
@@ -204,11 +205,23 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 	ctx, cancel := context.WithTimeout(s.ctx, s.specNow().Proxy.Admission.UpstreamTimeout)
 	defer cancel()
 
-	out, reqCap := s.innerOriginRequest(ctx, inner, res, host, port)
+	reqHit := s.matchRules(model.RulePhaseRequest, host, inner, inner.Header)
+	var reqCap *cappedWriter
+	if handled := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, reqHit, &reqCap, func(resp *http.Response) {
+		_ = writeConnResponse(clientTLS, resp)
+	}); handled {
+		return false
+	}
+
+	out, cap := s.innerOriginRequest(ctx, inner, res, host, port, reqCap)
+	if cap != nil {
+		reqCap = cap
+	}
 	resp, err := tr.RoundTrip(out)
 	if err != nil {
 		drainBody(inner)
-		s.capture(s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, reqCap, nil))
+		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, reqCap, nil)
+		s.captureRule(f, inner, reqCap, nil, nil, reqHit)
 		writeHijackedError(clientTLS, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed")
 		_ = clientTLS.Close()
 		_ = upTLS.Close()
@@ -219,6 +232,9 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 	ws := httputilx.IsWebSocketUpgrade(inner.Header) && resp.StatusCode == http.StatusSwitchingProtocols
 	httputilx.PrepareResponse(resp.Header, ws)
 	if ws {
+		if hit := s.matchRules(model.RulePhaseResponse, host, inner, resp.Header); rules.Mutates(hit) {
+			s.metrics.ruleHit(rules.ActionLateSkip)
+		}
 		if br != nil && br.Buffered() > 0 {
 			n := br.Buffered()
 			b, _ := br.Peek(n)
@@ -237,14 +253,7 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		return true
 	}
 
-	respBody, respCap := teeBody(resp.Body, s.specNow().Store.MaxBodyBytes)
-	resp.Body = respBody
-	if err := resp.Write(clientTLS); err != nil {
-		s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, reqCap, respCap))
-		return true
-	}
-	s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "", started, info, reqCap, respCap))
-	s.metrics.session("ok")
+	s.finishConnResponse(s.ctx, clientTLS, inner, resp, host, port, "https", started, reqHit, reqCap, info)
 	return false
 }
 
@@ -256,7 +265,7 @@ func drainBody(req *http.Request) {
 	_ = req.Body.Close()
 }
 
-func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res resolved, host, port string) (*http.Request, *cappedWriter) {
+func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter) (*http.Request, *cappedWriter) {
 	out := req.Clone(ctx)
 	out.RequestURI = ""
 	// Scheme http: the one-shot DialContext already returns a handshaked tls.Conn.
@@ -275,6 +284,9 @@ func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res 
 		out.Host = req.Host
 	}
 	httputilx.PrepareRequest(out.Header)
+	if preCap != nil {
+		return out, preCap
+	}
 	max := s.specNow().Store.MaxBodyBytes
 	var capw *cappedWriter
 	if out.Body != nil {

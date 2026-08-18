@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Store, Proxy, Application
-Last reviewed: 2026-08-18 (STORE-001)
+Last reviewed: 2026-08-18 (RULES-001)
 Related ADRs: 0003
 
 Package `internal/store`. Captured HTTP is runtime evidence, not desired state. Restart or reset wipes flows. Pattern is LabMail `docs/03-message-store.md`.
@@ -48,7 +48,7 @@ type Store interface {
 
 ## Breakpoint contract
 
-Implementable in PR 6 **without HTTP**:
+RULES-001 wires the proxy session to these primitives **without REST**. The HTTP-free unit test remains the contract:
 
 - `Insert` of a paused flow **or** `Pause(id)` sets `State=paused` and emits `Event{Kind:"paused"}`.
 - The **proxy session** calls `WaitPaused(ctx, id)` with a context whose deadline is `min(rule.breakpoint.timeout, store.maxWait)`. Timeout lives in that ctx — **not** a store timer that outlives `Wipe`.

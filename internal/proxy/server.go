@@ -26,6 +26,10 @@ type Options struct {
 	Address string
 	Spec    model.Spec
 	Sink    Sink
+	// Store is the breakpoint inbox (WaitPaused). When nil, AdaptStore's
+	// wrapped store is used if Sink is AdaptStore; otherwise breakpoint
+	// times out and the session continues unmodified.
+	Store store.Store
 	// Resolver overrides net.DefaultResolver (tests: name→IMDS).
 	Resolver Resolver
 	// DialContext, when set, replaces dialTCP (tests record outbound).
@@ -40,6 +44,7 @@ type Server struct {
 	addr     string
 	spec     atomic.Pointer[model.Spec]
 	sink     Sink
+	inbox    store.Store
 	resolver Resolver
 	dialFn   func(ctx context.Context, network, addr string) (net.Conn, error)
 	auth     *tlsmitm.Authority
@@ -79,6 +84,7 @@ func New(opts Options) (*Server, error) {
 	s := &Server{
 		addr:     opts.Address,
 		sink:     sink,
+		inbox:    opts.Store,
 		resolver: res,
 		dialFn:   opts.DialContext,
 		gate:     newGate(),
@@ -86,6 +92,11 @@ func New(opts Options) (*Server, error) {
 		ctx:      ctx,
 		cancel:   cancel,
 		hijacked: make(map[net.Conn]struct{}),
+	}
+	if s.inbox == nil {
+		if ss, ok := sink.(*storeSink); ok {
+			s.inbox = ss.s
+		}
 	}
 	s.spec.Store(&spec)
 	s.tr = s.newCleartextTransport()

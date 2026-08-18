@@ -99,6 +99,7 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 		Address: addr,
 		Spec:    st.Spec,
 		Sink:    proxy.AdaptStore(inbox),
+		Store:   inbox,
 	})
 	if err != nil {
 		inbox.Wipe()

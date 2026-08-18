@@ -8,6 +8,7 @@ type Metrics struct {
 	rejected  map[string]int64
 	sessions  map[string]int64
 	tls       map[string]int64
+	rules     map[string]int64
 	storeFull int64
 }
 
@@ -16,6 +17,7 @@ func newMetrics() *Metrics {
 		rejected: make(map[string]int64),
 		sessions: make(map[string]int64),
 		tls:      make(map[string]int64),
+		rules:    make(map[string]int64),
 	}
 }
 
@@ -53,6 +55,25 @@ func (m *Metrics) storeFullInc() {
 	m.mu.Lock()
 	m.storeFull++
 	m.mu.Unlock()
+}
+
+func (m *Metrics) ruleHit(action string) {
+	if m == nil || action == "" {
+		return
+	}
+	m.mu.Lock()
+	m.rules[action]++
+	m.mu.Unlock()
+}
+
+// RuleHits is labmitm_rule_hits_total{action}.
+func (m *Metrics) RuleHits(action string) int64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rules[action]
 }
 
 // StoreFull is labmitm_store_full_total (capture rejected; proxy still forwarded).

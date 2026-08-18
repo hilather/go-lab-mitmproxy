@@ -17,6 +17,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/httputilx"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 )
 
 func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
@@ -36,15 +37,25 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	reqHit := s.matchRules(model.RulePhaseRequest, host, req, req.Header)
+	var reqCap *cappedWriter
+	if handled := s.runRequestRules(req.Context(), w, req, host, "http", started, reqHit, &reqCap); handled {
+		return
+	}
+
 	ws := httputilx.IsWebSocketUpgrade(req.Header)
 	hadExpect := headerHasExpect(req.Header)
-	out, reqCap := s.originRequest(ctx, req, res, host, port)
+	bodyMutated := reqCap != nil
+	out, cap := s.originRequest(ctx, req, res, host, port, reqCap)
+	if cap != nil {
+		reqCap = cap
+	}
 
 	var (
 		resp   *http.Response
 		sticky net.Conn
 	)
-	if hadExpect && !ws {
+	if hadExpect && !ws && !bodyMutated {
 		s.forwardNo100(w, req, out, reqCap, host, started)
 		return
 	}
@@ -54,7 +65,8 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 		resp, err = s.tr.RoundTrip(out)
 	}
 	if err != nil {
-		s.capture(s.flowFromReq(req, host, "http", 0, "upstream", started))
+		f := s.flowFromReq(req, host, "http", 0, "upstream", started)
+		s.captureRule(f, req, reqCap, nil, nil, reqHit)
 		writeProxyError(w, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed", "")
 		return
 	}
@@ -64,34 +76,14 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 	httputilx.PrepareResponse(resp.Header, websocket)
 
 	if websocket {
+		if hit := s.matchRules(model.RulePhaseResponse, host, req, resp.Header); rules.Mutates(hit) {
+			s.metrics.ruleHit(rules.ActionLateSkip)
+		}
 		s.hijackUpgrade(w, req, resp, sticky, reqCap, host, started)
 		return
 	}
 
-	respBody, respCap := teeBody(resp.Body, s.specNow().Store.MaxBodyBytes)
-	resp.Body = respBody
-	httputilx.CopyHeaders(w.Header(), resp.Header)
-	w.WriteHeader(resp.StatusCode)
-	drainCopy(w, resp.Body)
-
-	f := s.flowFromReq(req, host, "http", resp.StatusCode, "", started)
-	f.Protocol = model.FlowProtocolHTTP11
-	f.Request.Headers = headersFrom(req.Header)
-	if reqCap != nil {
-		f.Request.Body = reqCap.buf
-		f.Request.Size = len(reqCap.buf)
-		f.Request.Truncated = reqCap.truncated
-		f.Truncated = f.Truncated || reqCap.truncated
-	}
-	if respCap != nil {
-		f.Response.Headers = headersFrom(resp.Header)
-		f.Response.Body = respCap.buf
-		f.Response.Size = len(respCap.buf)
-		f.Response.Truncated = respCap.truncated
-		f.Truncated = f.Truncated || respCap.truncated
-	}
-	s.capture(f)
-	s.metrics.session("ok")
+	s.finishHTTPResponse(req.Context(), w, req, resp, host, "http", started, reqHit, reqCap, nil)
 }
 
 func headerHasExpect(h http.Header) bool {
@@ -170,7 +162,7 @@ func (s *Server) forwardNo100(w http.ResponseWriter, req *http.Request, out *htt
 	s.metrics.session("ok")
 }
 
-func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string) (*http.Request, *cappedWriter) {
+func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter) (*http.Request, *cappedWriter) {
 	out := req.Clone(ctx)
 	out.RequestURI = ""
 	out.URL = &url.URL{
@@ -185,6 +177,9 @@ func (s *Server) originRequest(ctx context.Context, req *http.Request, res resol
 	}
 	out.Host = originHost(host, port)
 	httputilx.PrepareRequest(out.Header)
+	if preCap != nil {
+		return out, preCap
+	}
 	max := s.specNow().Store.MaxBodyBytes
 	var capw *cappedWriter
 	if out.Body != nil {
