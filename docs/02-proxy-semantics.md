@@ -82,6 +82,7 @@ Normative for every `CONNECT` (D19). Tests: two GETs on one CONNECT; “forgot t
 - Each inner request is **one flow**.
 - Inner knobs: HTTP/1 only. Inner `PRI` → close both sides, `Error=http2_inner`.
 - Client keep-alive on the inner TLS session is allowed.
+- Inner `Upgrade: websocket` + `101` uses the same 101 + bidirectional copy as cleartext (no frame inspect). RoundTrip failure writes `502` and closes both TLS sides (no keep-alive loop).
 
 ## Cleartext forward
 
@@ -118,7 +119,7 @@ worstRSS            ≈ 256 + 64 + 4 + 64 = 388 MiB
 
 ## WebSocket / Upgrade (1.0)
 
-If the request has `Upgrade: websocket` (case-insensitive) **and** `Connection` contains `Upgrade`:
+If the request has `Upgrade: websocket` (case-insensitive) **and** `Connection` contains `Upgrade` (cleartext absolute-form **or** an inner request on an intercepted CONNECT):
 
 1. Keep `Upgrade` and rewrite `Connection` to the single token `Upgrade`.
 2. Capture request headers (and body if small / capture-only).

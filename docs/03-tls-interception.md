@@ -82,6 +82,8 @@ Operators download `GET /v1/ca` (`application/x-pem-file`, scope `mitm.read` —
 
 If the inner client ignores ALPN and sends an HTTP/2 preface: close both sides; store flow `Error=http2_inner`.
 
+Inner `Upgrade: websocket` that the origin answers with `101` is a bidirectional copy on the already-handshaked TLS conns (same 1.0 WebSocket contract as cleartext). Inner `RoundTrip` failure writes `502` and closes both sides.
+
 **Residual:** intercepting TLS **breaks origin mTLS** (the origin sees the lab’s upstream client cert, which 1.0 does not present) and **breaks certificate pinning** in the SUT. Document in [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). Do not add client-cert passthrough in 1.0.
 
 ## CA private key handling

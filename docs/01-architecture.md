@@ -280,7 +280,7 @@ labmitm help
 
 There is **no** `serve --token-file`. `labmitm send` / `labmitm request` are **not** shipped.
 
-PROXY-001 implements `serve` (proxy bind; management off until a verifier exists). There is no TLS intercept or management listener yet.
+TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`, default ports `{443}`). Management stays off until a verifier exists (API-001).
 
 ## Invariants
 

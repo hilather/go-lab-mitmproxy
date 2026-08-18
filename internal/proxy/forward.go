@@ -339,17 +339,20 @@ func (s *Server) tunnelUpgrade(client net.Conn, bufrw *bufio.ReadWriter, upstrea
 	<-done
 }
 
-func writeSwitching(bw *bufio.ReadWriter, resp *http.Response) error {
-	if _, err := fmt.Fprintf(bw, "HTTP/1.1 101 Switching Protocols\r\n"); err != nil {
+func writeSwitching(w io.Writer, resp *http.Response) error {
+	if _, err := fmt.Fprintf(w, "HTTP/1.1 101 Switching Protocols\r\n"); err != nil {
 		return err
 	}
-	if err := resp.Header.Write(bw); err != nil {
+	if err := resp.Header.Write(w); err != nil {
 		return err
 	}
-	if _, err := io.WriteString(bw, "\r\n"); err != nil {
+	if _, err := io.WriteString(w, "\r\n"); err != nil {
 		return err
 	}
-	return bw.Flush()
+	if f, ok := w.(interface{ Flush() error }); ok {
+		return f.Flush()
+	}
+	return nil
 }
 
 func (s *Server) tunnel(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn) {

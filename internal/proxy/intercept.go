@@ -165,7 +165,9 @@ func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host,
 			s.capture(connectErrFlow(creq, host, model.FlowStateError, tlsmitm.ResultHTTP2Inner, time.Now()))
 			return
 		}
-		s.roundTripInner(tr, clientTLS, inner, host, port, res, info)
+		if s.roundTripInner(tr, clientTLS, upTLS, br, inner, host, port, res, info) {
+			return
+		}
 	}
 }
 
@@ -197,7 +199,7 @@ func (s *Server) tlsInfo(clientTLS, upTLS *tls.Conn, auth *tlsmitm.Authority, sn
 	}
 }
 
-func (s *Server) roundTripInner(tr *http.Transport, clientTLS *tls.Conn, inner *http.Request, host, port string, res resolved, info *model.TLSInfo) {
+func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, br *bufio.Reader, inner *http.Request, host, port string, res resolved, info *model.TLSInfo) (stop bool) {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(s.ctx, s.specNow().Proxy.Admission.UpstreamTimeout)
 	defer cancel()
@@ -205,19 +207,53 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS *tls.Conn, inner *
 	out, reqCap := s.innerOriginRequest(ctx, inner, res, host, port)
 	resp, err := tr.RoundTrip(out)
 	if err != nil {
-		s.capture(s.innerFlow(inner, host, port, 0, "upstream", started, info, reqCap, nil))
-		return
+		drainBody(inner)
+		s.capture(s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, reqCap, nil))
+		writeHijackedError(clientTLS, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed")
+		_ = clientTLS.Close()
+		_ = upTLS.Close()
+		return true
 	}
 	defer func() { _ = resp.Body.Close() }()
-	httputilx.PrepareResponse(resp.Header, false)
+
+	ws := httputilx.IsWebSocketUpgrade(inner.Header) && resp.StatusCode == http.StatusSwitchingProtocols
+	httputilx.PrepareResponse(resp.Header, ws)
+	if ws {
+		if br != nil && br.Buffered() > 0 {
+			n := br.Buffered()
+			b, _ := br.Peek(n)
+			_, _ = upTLS.Write(b)
+			_, _ = br.Discard(n)
+		}
+		if err := writeSwitching(clientTLS, resp); err != nil {
+			s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, reqCap, nil))
+			return true
+		}
+		f := s.innerFlow(inner, host, port, http.StatusSwitchingProtocols, "", started, info, reqCap, nil)
+		f.Protocol = model.FlowProtocolWebSocket
+		s.capture(f)
+		s.metrics.session("ok")
+		s.tunnelUpgrade(clientTLS, nil, upTLS, resp.Body)
+		return true
+	}
+
 	respBody, respCap := teeBody(resp.Body, s.specNow().Store.MaxBodyBytes)
 	resp.Body = respBody
 	if err := resp.Write(clientTLS); err != nil {
 		s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, reqCap, respCap))
-		return
+		return true
 	}
 	s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "", started, info, reqCap, respCap))
 	s.metrics.session("ok")
+	return false
+}
+
+func drainBody(req *http.Request) {
+	if req == nil || req.Body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, req.Body)
+	_ = req.Body.Close()
 }
 
 func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res resolved, host, port string) (*http.Request, *cappedWriter) {

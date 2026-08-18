@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -469,6 +470,152 @@ func TestInterceptFalseRemainsTunnel(t *testing.T) {
 	_ = resp.Body.Close()
 	if string(body) != "tunneled" || hits.Load() != 1 {
 		t.Fatalf("body %q hits %d", body, hits.Load())
+	}
+}
+
+func TestInterceptWebSocketUpgrade(t *testing.T) {
+	var sawUpgrade atomic.Bool
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			http.Error(w, "no upgrade", http.StatusBadRequest)
+			return
+		}
+		sawUpgrade.Store(true)
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "no hijack", http.StatusInternalServerError)
+			return
+		}
+		c, bufrw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_, _ = io.WriteString(bufrw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		_ = bufrw.Flush()
+		buf := make([]byte, 64)
+		n, _ := bufrw.Read(buf)
+		_, _ = bufrw.Write(buf[:n])
+		_ = bufrw.Flush()
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptSpec(t, port, testdataTLS(t, "origin-ca.pem"))
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	target := net.JoinHostPort("app.lab", strconv.Itoa(port))
+	if err := c.WriteRequest("CONNECT "+target+" HTTP/1.1", "Host: "+target); err != nil {
+		t.Fatal(err)
+	}
+	st, err := c.ReadLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != "HTTP/1.1 200 Connection Established" {
+		t.Fatalf("status %q", st)
+	}
+	if blank, err := c.ReadLine(); err != nil || blank != "" {
+		t.Fatalf("blank %q", blank)
+	}
+	tlsConn := tls.Client(c.Conn, &tls.Config{
+		ServerName: "app.lab",
+		RootCAs:    px.Authority().CertPool(),
+		NextProtos: []string{tlsmitm.ALPN},
+		MinVersion: tls.VersionTLS12,
+	})
+	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://app.lab/ws", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	if err := req.Write(tlsConn); err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(tlsConn)
+	resp, err := http.ReadResponse(br, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if _, err := tlsConn.Write([]byte("ping-ws")); err != nil {
+		t.Fatal(err)
+	}
+	echo := make([]byte, 7)
+	if _, err := io.ReadFull(br, echo); err != nil {
+		t.Fatal(err)
+	}
+	if string(echo) != "ping-ws" {
+		t.Fatalf("echo %q", echo)
+	}
+	if !sawUpgrade.Load() {
+		t.Fatal("origin did not see websocket upgrade")
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.Protocol == model.FlowProtocolWebSocket && f.Intercepted {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want intercepted websocket flow, got %+v", sink.Last())
+	}
+}
+
+func TestInterceptInnerRoundTripFails502(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			return
+		}
+		c, _, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		_ = c.Close()
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptSpec(t, port, testdataTLS(t, "origin-ca.pem"))
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	tr := &http.Transport{
+		Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: px.Addr().String()}),
+		TLSClientConfig: &tls.Config{
+			ServerName: "app.lab",
+			RootCAs:    px.Authority().CertPool(),
+			NextProtos: []string{tlsmitm.ALPN},
+			MinVersion: tls.VersionTLS12,
+		},
+		ForceAttemptHTTP2: false,
+		TLSNextProto:      map[string]func(string, *tls.Conn) http.RoundTripper{},
+	}
+	defer tr.CloseIdleConnections()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab:"+strconv.Itoa(port)+"/x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	resp, err := tr.RoundTrip(req)
+	if d := time.Since(start); d > 1500*time.Millisecond {
+		t.Fatalf("inner failure hung %s err=%v", d, err)
+	}
+	if err != nil {
+		t.Fatalf("client err %v (want 502)", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status %d", resp.StatusCode)
 	}
 }
 
