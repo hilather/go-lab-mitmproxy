@@ -63,8 +63,8 @@ func TestHelp(t *testing.T) {
 	if !strings.Contains(stdout.String(), "version") {
 		t.Fatalf("help %q missing version", stdout.String())
 	}
-	if strings.Contains(stdout.String(), "proxy listener bound") {
-		t.Fatalf("help must not claim a proxy listener")
+	if !strings.Contains(stdout.String(), "serve") {
+		t.Fatalf("help %q missing serve", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "validate") || !strings.Contains(stdout.String(), "canonicalize") {
 		t.Fatalf("help %q missing validate/canonicalize", stdout.String())
@@ -123,13 +123,21 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestServeNotImplemented(t *testing.T) {
+func TestServeRequiresConfig(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"labmitm", "serve"}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("exit %d, want 2", code)
 	}
-	if !strings.Contains(stderr.String(), "not implemented") {
-		t.Fatalf("stderr %q missing not implemented", stderr.String())
+	if !strings.Contains(stderr.String(), "--config") {
+		t.Fatalf("stderr %q missing --config", stderr.String())
+	}
+}
+
+func TestServeNoTokenFileFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labmitm", "serve", "--config", testdataConfig(t, "valid", "defaults.yaml"), "--token-file", "x"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d, want 2 (serve must not accept --token-file)", code)
 	}
 }

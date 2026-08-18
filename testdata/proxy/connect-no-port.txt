@@ -1,0 +1,5 @@
+# CONNECT request-target must be host:port. No default-to-443.
+C: CONNECT example.com HTTP/1.1
+C: Host: example.com
+C:
+S: HTTP/1.1 400 *

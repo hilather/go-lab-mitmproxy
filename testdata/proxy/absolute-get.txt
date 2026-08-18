@@ -1,0 +1,5 @@
+# Cleartext absolute-form GET is forwarded origin-form to the origin.
+C: GET http://{{HOST}}/hello HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 200 *

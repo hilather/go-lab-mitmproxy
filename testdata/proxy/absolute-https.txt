@@ -1,0 +1,5 @@
+# Absolute-form https:// is 400 in 1.0. Use CONNECT.
+C: GET https://example.com/ HTTP/1.1
+C: Host: example.com
+C:
+S: HTTP/1.1 400 *

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-18 (CFG-001)
+Last reviewed: 2026-08-18 (PROXY-001)
 Related ADRs: 0002, 0004
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -46,9 +46,8 @@ Jobs: format, lint, unit, documentation, config-compat. There is no optional or 
 
 Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`. govulncheck `v1.1.4`. Actions SHA-pinned.
 
-## Frozen fixtures to add later
+## Frozen fixtures
 
-- `testdata/proxy/absolute-https.txt`, `connect-no-port.txt`, `connect-two-gets.txt`, `connect-hijack.txt`, `upgrade-websocket.txt`.
-- Name→IMDS and name→link-local resolve-then-guard transcripts.
+- PROXY-001: `testdata/proxy/absolute-https.txt`, `connect-no-port.txt`, `connect-two-gets.txt`, `connect-hijack.txt`, `upgrade-websocket.txt`, `name-imds.txt`, `name-link-local.txt`.
 - TLS fixture (PR 4): generate a test origin cert, run `labmitm` with `intercept: true` + `ca.mode: generate`, trust the downloaded CA, `curl --proxy` HTTPS, assert `/v1/flows` has `intercepted: true`.
 - Invalid config fixtures (CFG-001): unknown field, reserved socks/tproxy/publicca/mitmproxy, bare numbers, multi-doc, alias, missing kind, **`upstream.verify` present**.

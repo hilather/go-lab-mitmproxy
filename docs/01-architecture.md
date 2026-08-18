@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-18 (CFG-001)
+Last reviewed: 2026-08-18 (PROXY-001)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007
 
 ## Problem statement
@@ -280,7 +280,7 @@ labmitm help
 
 There is **no** `serve --token-file`. `labmitm send` / `labmitm request` are **not** shipped.
 
-CFG-001 implements `version`, `help`, `validate`, and `canonicalize`. There is no listener yet.
+PROXY-001 implements `serve` (proxy bind; management off until a verifier exists). There is no TLS intercept or management listener yet.
 
 ## Invariants
 

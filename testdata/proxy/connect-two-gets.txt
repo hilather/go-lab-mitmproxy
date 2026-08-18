@@ -1,0 +1,11 @@
+# One CONNECT is one upstream TCP. Two GETs on the tunneled hop
+# must both reach the origin (played in connect_test.go with a live origin).
+C: CONNECT {{HOST}} HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 200 Connection Established
+S:
+C: GET /a HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 200 *
