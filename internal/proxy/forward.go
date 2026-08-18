@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -28,45 +27,46 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(req.Context(), s.specNow().Proxy.Admission.UpstreamTimeout)
-	defer cancel()
-
-	res, err := resolveThenGuard(ctx, s.resolver, s.specNow().Proxy.Targets, host, port)
+	guardCtx, guardCancel := s.upstreamCtx(req.Context())
+	res, err := resolveThenGuard(guardCtx, s.resolver, s.specNow().Proxy.Targets, host, port)
+	guardCancel()
 	if err != nil {
 		s.rejectResolve(w, req, host, err)
 		return
 	}
 
-	reqHit := s.matchRules(model.RulePhaseRequest, host, req, req.Header)
-	var reqCap *cappedWriter
-	if handled := s.runRequestRules(req.Context(), w, req, host, "http", started, reqHit, &reqCap); handled {
+	sess := newRuleSession(s.specNow().Rules)
+	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, req, req.Header, true)
+
+	ws := httputilx.IsWebSocketUpgrade(req.Header)
+	if headerHasExpect(req.Header) && !ws {
+		s.serveExpectAbsolute(w, req, res, host, port, started, sess)
 		return
 	}
 
-	ws := httputilx.IsWebSocketUpgrade(req.Header)
-	hadExpect := headerHasExpect(req.Header)
-	bodyMutated := reqCap != nil
-	out, cap := s.originRequest(ctx, req, res, host, port, reqCap)
+	if handled := s.runRequestRules(req.Context(), w, req, host, "http", started, sess); handled {
+		return
+	}
+
+	upCtx, upCancel := s.upstreamCtx(req.Context())
+	defer upCancel()
+	out, cap := s.originRequest(upCtx, req, res, host, port, sess.reqCap)
 	if cap != nil {
-		reqCap = cap
+		sess.reqCap = cap
 	}
 
 	var (
 		resp   *http.Response
 		sticky net.Conn
 	)
-	if hadExpect && !ws && !bodyMutated {
-		s.forwardNo100(w, req, out, reqCap, host, started)
-		return
-	}
 	if ws {
-		resp, sticky, err = s.roundTripUpgrade(ctx, out, res)
+		resp, sticky, err = s.roundTripUpgrade(upCtx, out, res)
 	} else {
 		resp, err = s.tr.RoundTrip(out)
 	}
 	if err != nil {
 		f := s.flowFromReq(req, host, "http", 0, "upstream", started)
-		s.captureRule(f, req, reqCap, nil, nil, reqHit)
+		s.captureRule(f, req, sess.reqCap, nil, nil, sess.reqHit)
 		writeProxyError(w, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed", "")
 		return
 	}
@@ -76,14 +76,14 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 	httputilx.PrepareResponse(resp.Header, websocket)
 
 	if websocket {
-		if hit := s.matchRules(model.RulePhaseResponse, host, req, resp.Header); rules.Mutates(hit) {
+		if hit := s.matchHit(sess, model.RulePhaseResponse, host, req, resp.Header, false); hit != nil {
 			s.metrics.ruleHit(rules.ActionLateSkip)
 		}
-		s.hijackUpgrade(w, req, resp, sticky, reqCap, host, started)
+		s.hijackUpgrade(w, req, resp, sticky, sess.reqCap, host, started)
 		return
 	}
 
-	s.finishHTTPResponse(req.Context(), w, req, resp, host, "http", started, reqHit, reqCap, nil)
+	s.finishHTTPResponse(req.Context(), w, req, resp, host, "http", started, sess, nil)
 }
 
 func headerHasExpect(h http.Header) bool {
@@ -95,8 +95,9 @@ func headerHasExpect(h http.Header) bool {
 	return false
 }
 
-// forwardNo100 Hijacks before any body read so net/http cannot emit 100.
-func (s *Server) forwardNo100(w http.ResponseWriter, req *http.Request, out *http.Request, reqCap *cappedWriter, host string, started time.Time) {
+// serveExpectAbsolute Hijacks before any body read so net/http cannot emit 100,
+// then runs request/response rules on the hijacked conn.
+func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, res resolved, host, port string, started time.Time, sess *ruleSession) {
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		writeProxyError(w, http.StatusInternalServerError, domainerr.CodeInternalError, "hijack not supported", "")
@@ -112,54 +113,49 @@ func (s *Server) forwardNo100(w http.ResponseWriter, req *http.Request, out *htt
 	defer s.untrack(client)
 	defer func() { _ = client.Close() }()
 
-	max := s.specNow().Store.MaxBodyBytes
 	switch {
 	case req.ContentLength > 0:
-		teed, capw := teeBody(io.NopCloser(io.LimitReader(bufrw, req.ContentLength)), max)
-		out.Body = teed
-		out.ContentLength = req.ContentLength
-		reqCap = capw
+		req.Body = io.NopCloser(io.LimitReader(bufrw, req.ContentLength))
 	case requestHasChunkedBody(req):
-		slurp, _ := io.ReadAll(io.LimitReader(httputilx.NewChunkedReader(bufrw), max+1))
-		truncated := int64(len(slurp)) > max
-		if truncated {
-			slurp = slurp[:max]
-		}
-		out.Body = io.NopCloser(bytes.NewReader(slurp))
-		out.ContentLength = int64(len(slurp))
-		out.TransferEncoding = nil
-		reqCap = &cappedWriter{buf: append([]byte(nil), slurp...), max: int(max), truncated: truncated}
+		req.Body = io.NopCloser(httputilx.NewChunkedReader(bufrw))
 	default:
-		out.Body = http.NoBody
-		out.ContentLength = 0
+		req.Body = http.NoBody
+		req.ContentLength = 0
 	}
 
+	write := func(resp *http.Response) {
+		_ = writeConnResponse(client, resp)
+		if bufrw != nil {
+			_ = bufrw.Flush()
+		}
+	}
+	if handled := s.runRequestRulesWrite(req.Context(), req, host, "http", started, sess, write); handled {
+		return
+	}
+
+	upCtx, upCancel := s.upstreamCtx(req.Context())
+	defer upCancel()
+	out, cap := s.originRequest(upCtx, req, res, host, port, sess.reqCap)
+	if cap != nil {
+		sess.reqCap = cap
+	}
 	resp, err := s.tr.RoundTrip(out)
 	if err != nil {
-		s.capture(s.flowFromReq(req, host, "http", 0, "upstream", started))
+		f := s.flowFromReq(req, host, "http", 0, "upstream", started)
+		s.captureRule(f, req, sess.reqCap, nil, nil, sess.reqHit)
 		writeHijackedError(client, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed")
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	httputilx.PrepareResponse(resp.Header, false)
-	respBody, respCap := teeBody(resp.Body, s.specNow().Store.MaxBodyBytes)
-	resp.Body = respBody
-	if err := resp.Write(bufrw); err != nil {
-		return
-	}
-	_ = bufrw.Flush()
-
-	f := s.flowFromReq(req, host, "http", resp.StatusCode, "", started)
-	if reqCap != nil {
-		f.Request.Body = reqCap.buf
-		f.Request.Truncated = reqCap.truncated
-	}
-	if respCap != nil {
-		f.Response.Body = respCap.buf
-		f.Response.Truncated = respCap.truncated
-	}
-	s.capture(f)
-	s.metrics.session("ok")
+	s.finishResponseWrite(req.Context(), req, resp, host, "", "http", started, sess, nil, func(out *http.Response) error {
+		if err := writeConnResponse(client, out); err != nil {
+			return err
+		}
+		if bufrw != nil {
+			return bufrw.Flush()
+		}
+		return nil
+	})
 }
 
 func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter) (*http.Request, *cappedWriter) {

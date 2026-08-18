@@ -67,7 +67,7 @@ Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. `action.status
 3. Proxy session `WaitPaused(ctx, id)` with ctx deadline = rule timeout (1s–60s, cap `store.maxWait`).
 4. `POST /v1/flows/{id}:resume` → `store.Resume` (optional header/body patch, same caps).
 5. `POST /v1/flows/{id}:drop` → `store.Drop` (client gets 502 if headers not sent).
-6. Timeout / `ErrStaleEpoch` → continue unmodified (do not hang the SUT). Audit `flow.breakpoint_timeout`.
+6. Timeout / `ErrStaleEpoch` → re-lookup the row; if still paused, `ExpireBreakpoint` (completed, `Error=breakpoint_timeout`) so a late Resume is `ErrBreakpointInactive`; continue unmodified (do not hang the SUT). Metric `labmitm_rule_hits_total{action="breakpoint_timeout"}`. Audit `flow.breakpoint_timeout` is OBS-001 (not emitted yet).
 
 PR 6 unit test (`internal/rules` + store): `Insert` paused → goroutine `WaitPaused` → `Resume` with patch → assert patch and `State=open` (request-phase) without opening a socket. Compile of YAML → rule index is STA-001 only; RULES-001 uses a test-constructed `model.RulesSpec`.
 

@@ -34,6 +34,7 @@ type Store interface {
     Resume(id string, patch *ResumePatch) error
     Drop(id string) error
     WaitPaused(ctx context.Context, id string) (ResumePatch, error)
+    ExpireBreakpoint(id string) error // timeout/stale: completed, late Resume inactive
     Subscribe(cap int) (<-chan Event, func())
     Generation() uint64
     Epoch() uint64
@@ -53,6 +54,7 @@ RULES-001 wires the proxy session to these primitives **without REST**. The HTTP
 - `Insert` of a paused flow **or** `Pause(id)` sets `State=paused` and emits `Event{Kind:"paused"}`.
 - The **proxy session** calls `WaitPaused(ctx, id)` with a context whose deadline is `min(rule.breakpoint.timeout, store.maxWait)`. Timeout lives in that ctx — **not** a store timer that outlives `Wipe`.
 - `Resume` / `Drop` wake `WaitPaused`. `Resume` on a non-paused id → `ErrBreakpointInactive`. `Drop` marks `State=dropped`.
+- After `WaitPaused` the session **re-looks up** the flow. If a Resume raced the ctx timeout, honor the applied patch. If the row is still paused (timeout / `ErrStaleEpoch`), `ExpireBreakpoint` marks it `completed` with `Error=breakpoint_timeout` so a late Resume is inactive; the hop continues unmodified without a second Insert.
 - **Lock order:** store mutex is never held across a proxy network read/write. Proxy session: (1) release any store lock, (2) `WaitPaused`, (3) re-lookup the flow.
 - `Wipe` / `ResetTo` / stale `epoch` on `Resume`/`Drop`/`WaitPaused` → `ErrStaleEpoch`; all waiters cancel.
 - `Subscribe` is the single event hook. REST SSE and MCP `subscriptions/listen` adapt it; they do not invent a second bus.

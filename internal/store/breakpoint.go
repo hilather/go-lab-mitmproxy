@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
@@ -96,6 +97,30 @@ func (m *Memory) Drop(id string) error {
 	m.finishPausedLocked(id, pauseResult{err: ErrDropped})
 	m.cond.Broadcast()
 	m.emitLocked(Event{Kind: EventDropped, ID: id, Gen: m.generation})
+	return nil
+}
+
+// ExpireBreakpoint marks a still-paused flow completed with
+// Error=breakpoint_timeout. Late Resume/Drop return ErrBreakpointInactive.
+func (m *Memory) ExpireBreakpoint(id string) error {
+	if m == nil {
+		return errors.New("store: nil Memory")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.byID[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if rec.flow.State != model.FlowStatePaused {
+		return ErrBreakpointInactive
+	}
+	rec.flow.State = model.FlowStateCompleted
+	rec.flow.Error = "breakpoint_timeout"
+	rec.flow.CompletedAt = time.Now().UTC()
+	m.generation++
+	m.finishPausedLocked(id, pauseResult{err: ErrBreakpointTimeout})
+	m.cond.Broadcast()
 	return nil
 }
 

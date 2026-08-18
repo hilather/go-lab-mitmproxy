@@ -202,26 +202,25 @@ func (s *Server) tlsInfo(clientTLS, upTLS *tls.Conn, auth *tlsmitm.Authority, sn
 
 func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, br *bufio.Reader, inner *http.Request, host, port string, res resolved, info *model.TLSInfo) (stop bool) {
 	started := time.Now()
-	ctx, cancel := context.WithTimeout(s.ctx, s.specNow().Proxy.Admission.UpstreamTimeout)
-	defer cancel()
-
-	reqHit := s.matchRules(model.RulePhaseRequest, host, inner, inner.Header)
-	var reqCap *cappedWriter
-	if handled := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, reqHit, &reqCap, func(resp *http.Response) {
+	sess := newRuleSession(s.specNow().Rules)
+	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
+	if handled := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, sess, func(resp *http.Response) {
 		_ = writeConnResponse(clientTLS, resp)
 	}); handled {
 		return false
 	}
 
-	out, cap := s.innerOriginRequest(ctx, inner, res, host, port, reqCap)
+	upCtx, upCancel := s.upstreamCtx(s.ctx)
+	defer upCancel()
+	out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap)
 	if cap != nil {
-		reqCap = cap
+		sess.reqCap = cap
 	}
 	resp, err := tr.RoundTrip(out)
 	if err != nil {
 		drainBody(inner)
-		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, reqCap, nil)
-		s.captureRule(f, inner, reqCap, nil, nil, reqHit)
+		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, sess.reqCap, nil)
+		s.captureRule(f, inner, sess.reqCap, nil, nil, sess.reqHit)
 		writeHijackedError(clientTLS, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed")
 		_ = clientTLS.Close()
 		_ = upTLS.Close()
@@ -232,7 +231,7 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 	ws := httputilx.IsWebSocketUpgrade(inner.Header) && resp.StatusCode == http.StatusSwitchingProtocols
 	httputilx.PrepareResponse(resp.Header, ws)
 	if ws {
-		if hit := s.matchRules(model.RulePhaseResponse, host, inner, resp.Header); rules.Mutates(hit) {
+		if hit := s.matchHit(sess, model.RulePhaseResponse, host, inner, resp.Header, false); hit != nil {
 			s.metrics.ruleHit(rules.ActionLateSkip)
 		}
 		if br != nil && br.Buffered() > 0 {
@@ -242,10 +241,10 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 			_, _ = br.Discard(n)
 		}
 		if err := writeSwitching(clientTLS, resp); err != nil {
-			s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, reqCap, nil))
+			s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, sess.reqCap, nil))
 			return true
 		}
-		f := s.innerFlow(inner, host, port, http.StatusSwitchingProtocols, "", started, info, reqCap, nil)
+		f := s.innerFlow(inner, host, port, http.StatusSwitchingProtocols, "", started, info, sess.reqCap, nil)
 		f.Protocol = model.FlowProtocolWebSocket
 		s.capture(f)
 		s.metrics.session("ok")
@@ -253,7 +252,7 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		return true
 	}
 
-	s.finishConnResponse(s.ctx, clientTLS, inner, resp, host, port, "https", started, reqHit, reqCap, info)
+	s.finishConnResponse(s.ctx, clientTLS, inner, resp, host, port, "https", started, sess, info)
 	return false
 }
 

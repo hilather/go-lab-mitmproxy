@@ -17,21 +17,47 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 )
 
-func (s *Server) engine() *rules.Engine {
-	return rules.New(s.specNow().Rules)
+// ruleSession is one HTTP exchange's rules pin. The Engine is built once
+// so a later replaceRules cannot change mid-hop (STA-001).
+type ruleSession struct {
+	eng        *rules.Engine
+	reqHit     *rules.Hit
+	reqCap     *cappedWriter
+	skipInsert bool
 }
 
-func (s *Server) matchRules(phase, host string, req *http.Request, hdr http.Header) *rules.Hit {
-	hit := s.engine().Match(phase, rules.Request{
+func newRuleSession(spec model.RulesSpec) *ruleSession {
+	return &ruleSession{eng: rules.New(spec)}
+}
+
+func (s *Server) matchHit(sess *ruleSession, phase, host string, req *http.Request, hdr http.Header, count bool) *rules.Hit {
+	if sess == nil || sess.eng == nil {
+		return nil
+	}
+	hit := sess.eng.Match(phase, rules.Request{
 		Host:    host,
 		Path:    requestPath(req),
 		Method:  requestMethod(req),
 		Headers: headersFrom(hdr),
 	})
-	if hit != nil {
+	if hit != nil && count {
 		s.metrics.ruleHit(hit.Action.Type)
 	}
 	return hit
+}
+
+func (s *Server) upstreamCtx(parent context.Context) (context.Context, context.CancelFunc) {
+	to := s.specNow().Proxy.Admission.UpstreamTimeout
+	if to <= 0 {
+		to = defaultUpstreamTimeout
+	}
+	if parent == nil {
+		parent = context.Background()
+		if s.ctx != nil {
+			parent = s.ctx
+		}
+	}
+	return context.WithTimeout(parent, to)
 }
 
 func requestMethod(req *http.Request) string {
@@ -269,6 +295,20 @@ func (s *Server) waitBreakpoint(ctx context.Context, f *model.Flow, hit *rules.H
 	wctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	patch, err := s.inbox.WaitPaused(wctx, res.ID)
+	// Re-lookup after WaitPaused (store lock is not held). A Resume that
+	// raced ctx timeout still applied; honor that row instead of expiring.
+	got, getErr := s.inbox.Get(res.ID)
+	if getErr == nil && got != nil {
+		switch got.State {
+		case model.FlowStateDropped:
+			return bpResult{id: res.ID, dropped: true, stored: true}
+		case model.FlowStateOpen, model.FlowStateCompleted:
+			if err == nil {
+				return bpResult{id: res.ID, patch: patch, stored: true}
+			}
+			return bpResult{id: res.ID, patch: patchFromFlow(got), stored: true}
+		}
+	}
 	if err == nil {
 		return bpResult{id: res.ID, patch: patch, stored: true}
 	}
@@ -276,7 +316,19 @@ func (s *Server) waitBreakpoint(ctx context.Context, f *model.Flow, hit *rules.H
 		return bpResult{id: res.ID, dropped: true, stored: true}
 	}
 	s.metrics.ruleHit(rules.ActionBreakpointTO)
+	_ = s.inbox.ExpireBreakpoint(res.ID)
 	return bpResult{id: res.ID, timedOut: true, stored: true}
+}
+
+func patchFromFlow(f *model.Flow) store.ResumePatch {
+	if f == nil {
+		return store.ResumePatch{}
+	}
+	side := f.Request
+	if f.PausedPhase == model.RulePhaseResponse {
+		side = f.Response
+	}
+	return store.ResumePatch{Headers: side.Headers, Body: side.Body}
 }
 
 func applyResumePatchRequest(req *http.Request, capw *cappedWriter, patch store.ResumePatch) *cappedWriter {
@@ -397,16 +449,17 @@ func (s *Server) captureRule(f *model.Flow, req *http.Request, reqCap, respCap *
 
 // runRequestRules applies the request-phase hit. handled means the client
 // already received a synthetic response (drop/status/dropped-breakpoint).
-func (s *Server) runRequestRules(ctx context.Context, w http.ResponseWriter, req *http.Request, host, scheme string, started time.Time, hit *rules.Hit, reqCap **cappedWriter) (handled bool) {
-	return s.runRequestRulesWrite(ctx, req, host, scheme, started, hit, reqCap, func(resp *http.Response) {
+func (s *Server) runRequestRules(ctx context.Context, w http.ResponseWriter, req *http.Request, host, scheme string, started time.Time, sess *ruleSession) (handled bool) {
+	return s.runRequestRulesWrite(ctx, req, host, scheme, started, sess, func(resp *http.Response) {
 		writeClientResponse(w, resp)
 	})
 }
 
-func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, host, scheme string, started time.Time, hit *rules.Hit, reqCap **cappedWriter, write func(*http.Response)) (handled bool) {
-	if hit == nil {
+func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, host, scheme string, started time.Time, sess *ruleSession, write func(*http.Response)) (handled bool) {
+	if sess == nil || sess.reqHit == nil {
 		return false
 	}
+	hit := sess.reqHit
 	switch hit.Action.Type {
 	case model.ActionDelay:
 		return !s.sleepDelay(ctx, hit.Action.Delay)
@@ -414,21 +467,21 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 		applyHTTPHeaders(req.Header, hit.Action.Headers)
 		return false
 	case model.ActionBody:
-		*reqCap = s.prepareRequestBody(req, hit)
+		sess.reqCap = s.prepareRequestBody(req, hit)
 		return false
 	case model.ActionDrop, model.ActionStatus:
-		*reqCap = s.prepareRequestBody(req, hit)
+		sess.reqCap = s.prepareRequestBody(req, hit)
 		syn := s.syntheticResponse(hit)
 		write(syn)
 		body, _ := rules.BodyReplace(hit)
 		respCap := &cappedWriter{buf: body, max: len(body)}
 		f := s.flowFromReq(req, host, scheme, syn.StatusCode, "", started)
-		s.captureRule(f, req, *reqCap, respCap, syn.Header, hit)
+		s.captureRule(f, req, sess.reqCap, respCap, syn.Header, hit)
 		s.metrics.session("ok")
 		return true
 	case model.ActionBreakpoint:
-		*reqCap = s.prepareRequestBody(req, hit)
-		f := s.pausedFlow(req, host, scheme, started, model.RulePhaseRequest, *reqCap, nil, nil, hit)
+		sess.reqCap = s.prepareRequestBody(req, hit)
+		f := s.pausedFlow(req, host, scheme, started, model.RulePhaseRequest, sess.reqCap, nil, nil, hit)
 		bp := s.waitBreakpoint(ctx, f, hit)
 		if bp.dropped {
 			syn := s.syntheticResponse(hit)
@@ -436,32 +489,40 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 			s.metrics.session("ok")
 			return true
 		}
-		if !bp.timedOut {
-			*reqCap = applyResumePatchRequest(req, *reqCap, bp.patch)
+		if bp.timedOut {
+			sess.skipInsert = true
+			return false
 		}
+		sess.reqCap = applyResumePatchRequest(req, sess.reqCap, bp.patch)
 		return false
 	default:
 		return false
 	}
 }
 
-func (s *Server) finishHTTPResponse(ctx context.Context, w http.ResponseWriter, req *http.Request, resp *http.Response, host, scheme string, started time.Time, reqHit *rules.Hit, reqCap *cappedWriter, info *model.TLSInfo) {
-	s.finishResponseWrite(ctx, req, resp, host, "", scheme, started, reqHit, reqCap, info, func(out *http.Response) error {
+func (s *Server) finishHTTPResponse(ctx context.Context, w http.ResponseWriter, req *http.Request, resp *http.Response, host, scheme string, started time.Time, sess *ruleSession, info *model.TLSInfo) {
+	s.finishResponseWrite(ctx, req, resp, host, "", scheme, started, sess, info, func(out *http.Response) error {
 		writeClientResponse(w, out)
 		return nil
 	})
 }
 
-func (s *Server) finishConnResponse(ctx context.Context, c net.Conn, req *http.Request, resp *http.Response, host, port, scheme string, started time.Time, reqHit *rules.Hit, reqCap *cappedWriter, info *model.TLSInfo) {
-	s.finishResponseWrite(ctx, req, resp, host, port, scheme, started, reqHit, reqCap, info, func(out *http.Response) error {
+func (s *Server) finishConnResponse(ctx context.Context, c net.Conn, req *http.Request, resp *http.Response, host, port, scheme string, started time.Time, sess *ruleSession, info *model.TLSInfo) {
+	s.finishResponseWrite(ctx, req, resp, host, port, scheme, started, sess, info, func(out *http.Response) error {
 		return writeConnResponse(c, out)
 	})
 }
 
-func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, resp *http.Response, host, port, scheme string, started time.Time, reqHit *rules.Hit, reqCap *cappedWriter, info *model.TLSInfo, write func(*http.Response) error) {
-	respHit := s.matchRules(model.RulePhaseResponse, host, req, resp.Header)
+func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, resp *http.Response, host, port, scheme string, started time.Time, sess *ruleSession, info *model.TLSInfo, write func(*http.Response) error) {
+	var reqHit *rules.Hit
+	var reqCap *cappedWriter
+	skipCapture := sess != nil && sess.skipInsert
+	if sess != nil {
+		reqHit = sess.reqHit
+		reqCap = sess.reqCap
+	}
+	respHit := s.matchHit(sess, model.RulePhaseResponse, host, req, resp.Header, true)
 	var respCap *cappedWriter
-	skipCapture := false
 	if respHit != nil {
 		switch respHit.Action.Type {
 		case model.ActionDelay:
@@ -498,9 +559,10 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 				s.metrics.session("ok")
 				return
 			}
-			if !bp.timedOut {
+			if bp.timedOut {
+				skipCapture = true
+			} else {
 				respCap = applyResumePatchResponse(resp, respCap, bp.patch)
-				// Resume already stored the response-phase flow as completed.
 				skipCapture = bp.stored
 			}
 		}

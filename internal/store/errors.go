@@ -22,4 +22,7 @@ var (
 	ErrBreakpointInactive = errors.New("breakpoint inactive")
 	// ErrDropped is WaitPaused after Drop.
 	ErrDropped = errors.New("breakpoint dropped")
+	// ErrBreakpointTimeout is ExpireBreakpoint / WaitPaused after a
+	// session-ctx timeout (not a store timer).
+	ErrBreakpointTimeout = errors.New("breakpoint timeout")
 )
