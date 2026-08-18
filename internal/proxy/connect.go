@@ -62,9 +62,6 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 	defer s.untrack(up)
 	defer func() { _ = up.Close() }()
 
-	// TLS-001 implements intercept. PROXY-001 always raw-tunnels (D20 hook).
-	_ = shouldIntercept(s.specNow().TLS, host, port)
-
 	if bufrw != nil {
 		if _, err := io.WriteString(bufrw, established); err != nil {
 			return
@@ -73,6 +70,11 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	} else if _, err := io.WriteString(client, established); err != nil {
+		return
+	}
+
+	if shouldIntercept(s.specNow().TLS, host, port) {
+		s.serveIntercept(client, bufrw, up, req, host, port, res, started)
 		return
 	}
 
@@ -107,7 +109,7 @@ func connectFlow(req *http.Request, host string, status int, ferr string, starte
 		State:       state,
 		Method:      method,
 		Host:        host,
-		Scheme:      "", // raw tunnel; TLS-001 sets https after handshake
+		Scheme:      "",
 		Protocol:    model.FlowProtocolConnect,
 		Status:      status,
 		Error:       ferr,
@@ -115,9 +117,9 @@ func connectFlow(req *http.Request, host string, status int, ferr string, starte
 	}
 }
 
-// shouldIntercept is the D20 eligibility hook. PROXY-001 ignores the
-// result and always raw-tunnels. TLS-001 implements mint + dual handshake
-// and must not fall back to a blind tunnel on handshake failure.
+// shouldIntercept is the D20 eligibility hook: intercept && listed
+// port && (empty hosts || host matches). Handshake failure must not
+// fall back to a blind tunnel.
 func shouldIntercept(tlsSpec model.TLSSpec, host string, port string) bool {
 	if !tlsSpec.Intercept {
 		return false

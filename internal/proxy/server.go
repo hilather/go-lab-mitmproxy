@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
 // DefaultShutdownWait is the serve drain deadline when none is configured.
@@ -28,6 +29,9 @@ type Options struct {
 	Resolver Resolver
 	// DialContext, when set, replaces dialTCP (tests record outbound).
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	// Authority is the lab CA. When nil and spec.tls.intercept is true,
+	// New generates or loads one from spec.tls.ca.
+	Authority *tlsmitm.Authority
 }
 
 // Server is the HTTP/1.1 forward-proxy listener.
@@ -37,6 +41,7 @@ type Server struct {
 	sink     Sink
 	resolver Resolver
 	dialFn   func(ctx context.Context, network, addr string) (net.Conn, error)
+	auth     *tlsmitm.Authority
 	gate     *gate
 	metrics  *Metrics
 	tr       *http.Transport
@@ -83,7 +88,31 @@ func New(opts Options) (*Server, error) {
 	}
 	s.spec.Store(&spec)
 	s.tr = s.newCleartextTransport()
+	auth := opts.Authority
+	if auth == nil && spec.TLS.Intercept {
+		var err error
+		auth, err = tlsmitm.New(tlsmitm.Options{
+			Mode:               spec.TLS.CA.Mode,
+			CertFile:           spec.TLS.CA.CertFile,
+			KeyFile:            spec.TLS.CA.KeyFile,
+			InsecureSkipVerify: spec.TLS.Upstream.InsecureSkipVerify,
+			ExtraCAFiles:       spec.TLS.Upstream.ExtraCAFiles,
+		})
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("proxy: lab CA: %w", err)
+		}
+	}
+	s.auth = auth
 	return s, nil
+}
+
+// Authority is the in-process lab CA (nil when intercept is off).
+func (s *Server) Authority() *tlsmitm.Authority {
+	if s == nil {
+		return nil
+	}
+	return s.auth
 }
 
 const (

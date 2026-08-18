@@ -20,6 +20,61 @@ func testdataProxy(t *testing.T, name string) string {
 	return filepath.Join(moduleRoot(t), "testdata", "proxy", name)
 }
 
+func testdataTLS(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join(moduleRoot(t), "testdata", "tls", name)
+}
+
+func originCert(t *testing.T) tls.Certificate {
+	t.Helper()
+	cert, err := tls.LoadX509KeyPair(testdataTLS(t, "origin.pem"), testdataTLS(t, "origin-key.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert
+}
+
+func startTLSOrigin(t *testing.T, cert tls.Certificate, h http.Handler) (addr string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsLn := tls.NewListener(ln, &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		NextProtos:   []string{"http/1.1"},
+		MinVersion:   tls.VersionTLS12,
+	})
+	proto := http1Only()
+	srv := &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		Protocols:         proto,
+		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
+	}
+	go func() { _ = srv.Serve(tlsLn) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+		_ = ln.Close()
+	})
+	return ln.Addr().String()
+}
+
+func hostPort(t *testing.T, addr string) (host string, port int) {
+	t.Helper()
+	h, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := net.LookupPort("tcp", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h, n
+}
+
 func loadSpec(t *testing.T) model.Spec {
 	t.Helper()
 	st, err := config.Load([]byte("apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: t\nspec: {}\n"))

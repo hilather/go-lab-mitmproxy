@@ -286,7 +286,7 @@ func TestCONNECTSessionTimeout(t *testing.T) {
 }
 
 func TestInterceptTrueStillTunnels(t *testing.T) {
-	// TLS-001 will honor intercept; PROXY-001 must not 4xx CONNECT :443.
+	// Non-listed ports stay a raw tunnel even with intercept:true (D20).
 	origin, _ := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "plain")
 	}))

@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-18 (PROXY-001 review)
+Last reviewed: 2026-08-18 (TLS-001)
 Related ADRs: 0002
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 
-**PROXY-001 residual:** `tls.intercept: true` is accepted in YAML but CONNECT is still a raw tunnel. TLS intercept (leaf mint, dual handshake, no silent fallback) lands in TLS-001. Capture uses a Null sink until STORE-001.
+Capture uses a Null sink until STORE-001. TLS intercept is implemented: `intercept: false` (or a non-listed port) is a raw tunnel; `intercept: true` on a listed port mints a leaf and runs the inner HTTP/1.1 session. Handshake failure does not fall back to a blind tunnel (D20).
 
 This document is the accept/reject table. Do not invent additional request classes, replies, or limits without an ADR.
 

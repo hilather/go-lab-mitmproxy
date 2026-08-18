@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: TLS, Proxy, Security
-Last reviewed: 2026-08-18 (PROXY-001)
+Last reviewed: 2026-08-18 (TLS-001)
 Related ADRs: 0002
 
 Package `internal/tlsmitm`. Only this package and `internal/proxy` touch `crypto/tls` on the data plane. Management TLS (optional) lives in `internal/control/rest` like LabMail. `internal/tlsmitm` must **not** Dial.
 
-**PROXY-001 residual:** `shouldIntercept` exists as a hook; CONNECT always raw-tunnels. TLS-001 implements mint + dual handshake and must not fall back to a blind tunnel on handshake failure (D20).
+TLS-001 implements generate/files CA, per-host leaf mint, and dual handshake. Handshake failure closes both sides and does not fall back to a blind tunnel (D20). `GET /v1/ca` is API-001.
 
 ## CA
 

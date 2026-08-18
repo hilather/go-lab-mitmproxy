@@ -48,7 +48,7 @@ go build -o bin/labmitm ./cmd/labmitm
 ./bin/labmitm serve --config testdata/config/valid/defaults.yaml --proxy-listen 127.0.0.1:8888 --management-listen=off
 ```
 
-`serve` binds the proxy only. Management stays off until API-001 (no `--token-file` on serve). Empty `spec: {}` materializes loopback defaults `127.0.0.1:8888` / `127.0.0.1:8088`. `tls.intercept: true` is ignored until TLS-001 (CONNECT is a raw tunnel).
+`serve` binds the proxy only. Management stays off until API-001 (no `--token-file` on serve). Empty `spec: {}` materializes loopback defaults `127.0.0.1:8888` / `127.0.0.1:8088`. `tls.intercept: true` mints a lab CA and intercepts CONNECT on listed ports (default `443`); handshake failure does not fall back to a blind tunnel. The CA certificate is not served on `:8888` (`GET /v1/ca` is API-001).
 
 ## Build and test
 
