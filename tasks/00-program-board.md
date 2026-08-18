@@ -1,7 +1,7 @@
 # Program Board
 
-Status: in-progress (STA-001 next)
-Last reviewed: 2026-08-18 (RULES-001)
+Status: in-progress (API-001 next)
+Last reviewed: 2026-08-18 (STA-001)
 
 Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs/` is the source of truth.
 
@@ -15,7 +15,7 @@ Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs
 | 4 | Lab CA and TLS interception | TLS-001 | PROXY-001 | In-process CA, leaf mint, HTTPS intercept (**M1 gate**) | done |
 | 5 | Bounded flow store | STORE-001 | PROXY-001, TLS-001 | ULID store, stacked caps, wait, wipe, breakpoint primitives | done |
 | 6 | Deterministic rewrite and breakpoint | RULES-001 | STORE-001 | First-match rules; no compiler in this PR | done |
-| 7 | Application service, snapshot, reset | STA-001 | CFG-001, PROXY-001, TLS-001, STORE-001, RULES-001 | `app.Service`, snapshot, plan/apply/reset | not-started |
+| 7 | Application service, snapshot, reset | STA-001 | CFG-001, PROXY-001, TLS-001, STORE-001, RULES-001 | `app.Service`, snapshot, plan/apply/reset | done |
 | 8 | REST `/v1` and OpenAPI | API-001 | PROXY-001, TLS-001, STA-001 | Native REST except UI/session; problem+json; replay | not-started |
 | 9 | MCP Streamable HTTP and parity | MCP-001 | API-001 | `mitm_*` tools, `labmitm://` resources, `make test-parity` | not-started |
 | 10 | Auth, session, audit identity | SEC-001 | API-001, MCP-001 | Bearer, CSRF session, 401 contract | not-started |

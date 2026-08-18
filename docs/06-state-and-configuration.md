@@ -2,10 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-18 (CFG-001)
+Last reviewed: 2026-08-18 (STA-001)
 Related ADRs: 0003
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
+
+STA-001 implements the HTTP-less control plane: `internal/compiler` (the **only** compiler), `internal/snapshot` (atomic immutable snapshot), `internal/audit` (ring + redact), and `internal/app.Service` (`Plan` / `Apply` / `Reset` / `Export`). REST and MCP adapters do not exist yet (API-001 / MCP-001); they will call `app.Service` rather than reimplementing mutation.
 
 ## YAML rules (fail-closed)
 
@@ -198,6 +200,21 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 `:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset.
 
 Idempotency LRU default 256; reset clears it.
+
+## Compiler, snapshot, and `app.Service`
+
+`internal/compiler.Compile` is the only spec → snapshot path. It:
+
+1. `config.Normalize` + `config.Validate` (copy-on-write).
+2. Hashes canonical JSON (`sha256:…`). Generated CA material is **not** in the hash.
+3. Builds `rules.Engine` from `spec.rules`.
+4. Generates or loads the lab CA (`tlsmitm.Authority`). Generate-mode mints even when `intercept: false` so `GetCA` works. `replaceRules` / `replaceAdmission` / `replaceTargets` / `replaceStoreCaps` reuse the previous CA handle when the TLS spec is unchanged. `replaceTLS` and `Reset` recompile (generate-mode rotates).
+
+`internal/snapshot.Store` holds active / previous / bootstrap behind atomic pointers. The proxy loads once per request / CONNECT (`Options.Snapshots`) and pins spec, engine, and CA for the session. In-flight sessions keep the pointer they loaded; new accepts see the swapped snapshot.
+
+`internal/app.Service` is HTTP-less (no `net/http`, no MCP types, no Dial). Mutations copy Canonical, apply typed operations, compile a full candidate, then `Store.Swap` only after success. Failures leave config **and** flows unchanged. Reset rereads the bootstrap path, preflights store options (including spill), `store.ResetTo` (the only epoch bump), swaps, and clears the idempotency LRU.
+
+`internal/audit` is a bounded ring (default 128) plus optional hook. Secrets, bearer tokens, and PEM private keys (`BEGIN` + `PRIVATE`) are redacted. Hook delivery failure is counted and never fail-closes.
 
 ## Startup
 

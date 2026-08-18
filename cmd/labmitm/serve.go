@@ -11,9 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hilather/go-lab-mitmproxy/internal/config"
+	"github.com/hilather/go-lab-mitmproxy/internal/app"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxy"
-	"github.com/hilather/go-lab-mitmproxy/internal/store"
 )
 
 type serveFlags struct {
@@ -74,47 +73,49 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 
 type serveRuntime struct {
 	proxy   *proxy.Server
-	store   *store.Memory
+	svc     *app.App
 	pidPath string
 }
 
 func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, error) {
-	_ = ctx
-	st, err := config.LoadFile(flags.Config)
-	if err != nil {
-		return nil, fmt.Errorf("load %s: %w", flags.Config, err)
-	}
 	if !managementOff(flags.ManagementListen) {
 		return nil, fmt.Errorf("management listener requires API-001 (no verifier); use --management-listen=off")
 	}
-	addr := st.Spec.Listeners.Proxy.Address
+	svc, err := app.Boot(ctx, app.Options{BootstrapPath: flags.Config})
+	if err != nil {
+		return nil, fmt.Errorf("load %s: %w", flags.Config, err)
+	}
+	snap := svc.Active()
+	if snap == nil || snap.Canonical == nil {
+		svc.Close()
+		return nil, fmt.Errorf("compile %s: no snapshot", flags.Config)
+	}
+	addr := snap.Canonical.Spec.Listeners.Proxy.Address
 	if flags.ProxyListen != "" {
 		addr = flags.ProxyListen
 	}
-	inbox, err := store.New(store.OptionsFromSpec(st.Spec.Store))
-	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
-	}
 	srv, err := proxy.New(proxy.Options{
-		Address: addr,
-		Spec:    st.Spec,
-		Sink:    proxy.AdaptStore(inbox),
-		Store:   inbox,
+		Address:   addr,
+		Spec:      snap.Canonical.Spec,
+		Sink:      proxy.AdaptStore(svc.Inbox()),
+		Store:     svc.Inbox(),
+		Snapshots: svc.Snapshots(),
+		Authority: snap.CA,
 	})
 	if err != nil {
-		inbox.Wipe()
+		svc.Close()
 		return nil, err
 	}
 	if err := srv.Start(); err != nil {
-		inbox.Wipe()
+		svc.Close()
 		return nil, err
 	}
 	if err := writePIDFile(flags.PIDFile); err != nil {
 		_ = srv.Shutdown(context.Background())
-		inbox.Wipe()
+		svc.Close()
 		return nil, fmt.Errorf("pid-file: %w", err)
 	}
-	return &serveRuntime{proxy: srv, store: inbox, pidPath: flags.PIDFile}, nil
+	return &serveRuntime{proxy: srv, svc: svc, pidPath: flags.PIDFile}, nil
 }
 
 func managementOff(flagAddr string) bool {
@@ -134,8 +135,8 @@ func (r *serveRuntime) shutdown(ctx context.Context) error {
 	if r.proxy != nil {
 		first = r.proxy.Shutdown(ctx)
 	}
-	if r.store != nil {
-		r.store.Wipe()
+	if r.svc != nil {
+		r.svc.Close()
 	}
 	if r.pidPath != "" {
 		_ = os.Remove(r.pidPath)

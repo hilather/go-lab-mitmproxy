@@ -2,10 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (STA-001)
 Related ADRs: 0004, 0005, 0006, 0007
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
+
+STA-001 lands `internal/app.Service` (plan/apply/reset/export, flow list/get/delete/wait/resume/drop, audit, CA PEM). REST (`internal/control/rest`) and MCP (`internal/control/mcp`) are API-001 / MCP-001 and must call this service.
 
 ## Package layout
 

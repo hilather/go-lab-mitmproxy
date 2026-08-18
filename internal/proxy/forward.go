@@ -19,23 +19,25 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 )
 
-func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
+func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *ruleSession) {
 	started := time.Now()
 	host, port, err := splitAuthority(req.URL.Host, "80")
 	if err != nil {
 		writeProxyError(w, http.StatusBadRequest, domainerr.CodeValidationFailed, "invalid authority", "")
 		return
 	}
+	if sess == nil {
+		sess = s.beginSession()
+	}
 
-	guardCtx, guardCancel := s.upstreamCtx(req.Context())
-	res, err := resolveThenGuard(guardCtx, s.resolver, s.specNow().Proxy.Targets, host, port)
+	guardCtx, guardCancel := s.upstreamCtxSess(req.Context(), sess)
+	res, err := resolveThenGuard(guardCtx, s.resolver, sess.spec.Proxy.Targets, host, port)
 	guardCancel()
 	if err != nil {
 		s.rejectResolve(w, req, host, err)
 		return
 	}
 
-	sess := newRuleSession(s.specNow().Rules)
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, req, req.Header, true)
 
 	ws := httputilx.IsWebSocketUpgrade(req.Header)
@@ -48,9 +50,9 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	upCtx, upCancel := s.upstreamCtx(req.Context())
+	upCtx, upCancel := s.upstreamCtxSess(req.Context(), sess)
 	defer upCancel()
-	out, cap := s.originRequest(upCtx, req, res, host, port, sess.reqCap)
+	out, cap := s.originRequest(upCtx, req, res, host, port, sess.reqCap, sess)
 	if cap != nil {
 		sess.reqCap = cap
 	}
@@ -60,7 +62,7 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 		sticky net.Conn
 	)
 	if ws {
-		resp, sticky, err = s.roundTripUpgrade(upCtx, out, res)
+		resp, sticky, err = s.roundTripUpgrade(upCtx, out, res, sess)
 	} else {
 		resp, err = s.tr.RoundTrip(out)
 	}
@@ -133,9 +135,9 @@ func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, r
 		return
 	}
 
-	upCtx, upCancel := s.upstreamCtx(req.Context())
+	upCtx, upCancel := s.upstreamCtxSess(req.Context(), sess)
 	defer upCancel()
-	out, cap := s.originRequest(upCtx, req, res, host, port, sess.reqCap)
+	out, cap := s.originRequest(upCtx, req, res, host, port, sess.reqCap, sess)
 	if cap != nil {
 		sess.reqCap = cap
 	}
@@ -158,7 +160,7 @@ func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, r
 	})
 }
 
-func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter) (*http.Request, *cappedWriter) {
+func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter, sess *ruleSession) (*http.Request, *cappedWriter) {
 	out := req.Clone(ctx)
 	out.RequestURI = ""
 	out.URL = &url.URL{
@@ -176,7 +178,7 @@ func (s *Server) originRequest(ctx context.Context, req *http.Request, res resol
 	if preCap != nil {
 		return out, preCap
 	}
-	max := s.specNow().Store.MaxBodyBytes
+	max := s.maxBodyOf(sess)
 	var capw *cappedWriter
 	if out.Body != nil {
 		var teed io.ReadCloser
@@ -243,7 +245,7 @@ func (s *Server) flowFromReq(req *http.Request, host, scheme string, status int,
 	}
 }
 
-func (s *Server) roundTripUpgrade(ctx context.Context, out *http.Request, res resolved) (*http.Response, net.Conn, error) {
+func (s *Server) roundTripUpgrade(ctx context.Context, out *http.Request, res resolved, sess *ruleSession) (*http.Response, net.Conn, error) {
 	var sticky net.Conn
 	proto := http1Only()
 	tr := &http.Transport{
@@ -253,7 +255,7 @@ func (s *Server) roundTripUpgrade(ctx context.Context, out *http.Request, res re
 		ForceAttemptHTTP2:     false,
 		TLSNextProto:          map[string]func(string, *tls.Conn) http.RoundTripper{},
 		Protocols:             proto,
-		ResponseHeaderTimeout: s.specNow().Proxy.Admission.UpstreamTimeout,
+		ResponseHeaderTimeout: s.specOf(sess).Proxy.Admission.UpstreamTimeout,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			c, err := s.dialPinned(ctx, network, addr)
 			if err != nil {

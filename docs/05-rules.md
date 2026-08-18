@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-18 (RULES-001)
+Last reviewed: 2026-08-18 (STA-001)
 Related ADRs: 0002
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
 
-RULES-001 implements match/eval only. `rules.Engine` is constructed from a `model.RulesSpec` (tests and the proxy). YAML compile into an immutable snapshot is STA-001 (`internal/compiler`) — not this package. The proxy loads an Engine from `spec.rules` on each request so a later live `replaceRules` swap keeps in-flight sessions on the Engine they already matched.
+RULES-001 implements match/eval only. STA-001 compiles `spec.rules` into `snapshot.Rules` (`*rules.Engine`). The proxy loads that Engine once per request / CONNECT so a later live `replaceRules` swap keeps in-flight sessions on the Engine they already matched. Tests may still construct `rules.New(spec)` without the compiler.
 
 Proxy hooks (cleartext absolute-form and intercepted inner HTTP/1.1):
 

@@ -14,20 +14,60 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/httputilx"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/rules"
+	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
+	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
-// ruleSession is one HTTP exchange's rules pin. The Engine is built once
-// so a later replaceRules cannot change mid-hop (STA-001).
+// ruleSession is one HTTP exchange (or CONNECT) pin. The Engine, CA, and
+// spec are loaded once so a later live apply cannot change mid-hop.
 type ruleSession struct {
+	spec       model.Spec
+	snap       *snapshot.Snapshot
 	eng        *rules.Engine
+	auth       *tlsmitm.Authority
 	reqHit     *rules.Hit
 	reqCap     *cappedWriter
 	skipInsert bool
 }
 
-func newRuleSession(spec model.RulesSpec) *ruleSession {
-	return &ruleSession{eng: rules.New(spec)}
+// beginSession loads the atomic snapshot (or falls back to Options.Spec).
+// Call once per request / CONNECT and pin the returned pointer.
+func (s *Server) beginSession() *ruleSession {
+	if s != nil && s.snaps != nil {
+		if snap := s.snaps.Load(); snap != nil {
+			spec := withSpecDefaults(snap.Spec())
+			eng := snap.Rules
+			if eng == nil {
+				eng = rules.New(spec.Rules)
+			}
+			auth := snap.CA
+			if auth == nil {
+				auth = s.auth
+			}
+			return &ruleSession{spec: spec, snap: snap, eng: eng, auth: auth}
+		}
+	}
+	spec := s.specNow()
+	return &ruleSession{spec: spec, eng: rules.New(spec.Rules), auth: s.auth}
+}
+
+func (sess *ruleSession) fork() *ruleSession {
+	if sess == nil {
+		return &ruleSession{}
+	}
+	out := *sess
+	out.reqHit = nil
+	out.reqCap = nil
+	out.skipInsert = false
+	return &out
+}
+
+func (s *Server) specOf(sess *ruleSession) model.Spec {
+	if sess != nil {
+		return sess.spec
+	}
+	return s.specNow()
 }
 
 func (s *Server) matchHit(sess *ruleSession, phase, host string, req *http.Request, hdr http.Header, count bool) *rules.Hit {
@@ -47,7 +87,11 @@ func (s *Server) matchHit(sess *ruleSession, phase, host string, req *http.Reque
 }
 
 func (s *Server) upstreamCtx(parent context.Context) (context.Context, context.CancelFunc) {
-	to := s.specNow().Proxy.Admission.UpstreamTimeout
+	return s.upstreamCtxSess(parent, nil)
+}
+
+func (s *Server) upstreamCtxSess(parent context.Context, sess *ruleSession) (context.Context, context.CancelFunc) {
+	to := s.specOf(sess).Proxy.Admission.UpstreamTimeout
 	if to <= 0 {
 		to = defaultUpstreamTimeout
 	}
@@ -150,7 +194,11 @@ func readCapped(r io.Reader, max int64) (prefix []byte, overflow bool, rest io.R
 }
 
 func (s *Server) maxBody() int64 {
-	n := s.specNow().Store.MaxBodyBytes
+	return s.maxBodyOf(nil)
+}
+
+func (s *Server) maxBodyOf(sess *ruleSession) int64 {
+	n := s.specOf(sess).Store.MaxBodyBytes
 	if n <= 0 {
 		return defaultMaxBodyBytes
 	}
@@ -158,14 +206,14 @@ func (s *Server) maxBody() int64 {
 }
 
 // prepareRequestBody implements stream-vs-mutate on the request side.
-func (s *Server) prepareRequestBody(req *http.Request, hit *rules.Hit) *cappedWriter {
+func (s *Server) prepareRequestBody(req *http.Request, hit *rules.Hit, sess *ruleSession) *cappedWriter {
 	if req == nil || !rules.Mutates(hit) {
 		return nil
 	}
-	max := s.maxBody()
+	max := s.maxBodyOf(sess)
 	capw := &cappedWriter{max: int(max)}
 	if req.Body == nil || req.Body == http.NoBody {
-		s.maybeReplaceRequestBody(req, hit, capw, false)
+		s.maybeReplaceRequestBody(req, hit, capw, false, sess)
 		return capw
 	}
 	orig := req.Body
@@ -189,16 +237,16 @@ func (s *Server) prepareRequestBody(req *http.Request, hit *rules.Hit) *cappedWr
 		req.ContentLength = int64(len(prefix))
 		req.TransferEncoding = nil
 	}
-	s.maybeReplaceRequestBody(req, hit, capw, overflow)
+	s.maybeReplaceRequestBody(req, hit, capw, overflow, sess)
 	return capw
 }
 
-func (s *Server) maybeReplaceRequestBody(req *http.Request, hit *rules.Hit, capw *cappedWriter, overflow bool) {
+func (s *Server) maybeReplaceRequestBody(req *http.Request, hit *rules.Hit, capw *cappedWriter, overflow bool, sess *ruleSession) {
 	replace, ok := rules.BodyReplace(hit)
 	if !ok {
 		return
 	}
-	if overflow || int64(len(replace)) > s.maxBody() || int64(len(replace)) > rules.MaxBodyReplace {
+	if overflow || int64(len(replace)) > s.maxBodyOf(sess) || int64(len(replace)) > rules.MaxBodyReplace {
 		s.metrics.ruleHit(rules.ActionBodySkipped)
 		return
 	}
@@ -210,8 +258,8 @@ func (s *Server) maybeReplaceRequestBody(req *http.Request, hit *rules.Hit, capw
 	capw.truncated = false
 }
 
-func (s *Server) bufferResponse(resp *http.Response, hit *rules.Hit) *cappedWriter {
-	max := s.maxBody()
+func (s *Server) bufferResponse(resp *http.Response, hit *rules.Hit, sess *ruleSession) *cappedWriter {
+	max := s.maxBodyOf(sess)
 	capw := &cappedWriter{max: int(max)}
 	if resp == nil {
 		return capw
@@ -256,11 +304,11 @@ func (s *Server) bufferResponse(resp *http.Response, hit *rules.Hit) *cappedWrit
 	return capw
 }
 
-func (s *Server) teeResponse(resp *http.Response) *cappedWriter {
+func (s *Server) teeResponse(resp *http.Response, sess *ruleSession) *cappedWriter {
 	if resp == nil {
 		return nil
 	}
-	teed, capw := teeBody(resp.Body, s.maxBody())
+	teed, capw := teeBody(resp.Body, s.maxBodyOf(sess))
 	resp.Body = teed
 	return capw
 }
@@ -273,12 +321,12 @@ type bpResult struct {
 	stored   bool
 }
 
-func (s *Server) waitBreakpoint(ctx context.Context, f *model.Flow, hit *rules.Hit) bpResult {
+func (s *Server) waitBreakpoint(ctx context.Context, f *model.Flow, hit *rules.Hit, sess *ruleSession) bpResult {
 	if s.inbox == nil || f == nil || hit == nil {
 		s.metrics.ruleHit(rules.ActionBreakpointTO)
 		return bpResult{timedOut: true}
 	}
-	timeout := rules.ClampBreakpointTimeout(hit.Action.Breakpoint.Timeout, s.specNow().Store.MaxWait)
+	timeout := rules.ClampBreakpointTimeout(hit.Action.Breakpoint.Timeout, s.specOf(sess).Store.MaxWait)
 	f.State = model.FlowStatePaused
 	f.PausedPhase = hit.Phase
 	if f.StartedAt.IsZero() {
@@ -467,10 +515,10 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 		applyHTTPHeaders(req.Header, hit.Action.Headers)
 		return false
 	case model.ActionBody:
-		sess.reqCap = s.prepareRequestBody(req, hit)
+		sess.reqCap = s.prepareRequestBody(req, hit, sess)
 		return false
 	case model.ActionDrop, model.ActionStatus:
-		sess.reqCap = s.prepareRequestBody(req, hit)
+		sess.reqCap = s.prepareRequestBody(req, hit, sess)
 		syn := s.syntheticResponse(hit)
 		write(syn)
 		body, _ := rules.BodyReplace(hit)
@@ -480,9 +528,9 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 		s.metrics.session("ok")
 		return true
 	case model.ActionBreakpoint:
-		sess.reqCap = s.prepareRequestBody(req, hit)
+		sess.reqCap = s.prepareRequestBody(req, hit, sess)
 		f := s.pausedFlow(req, host, scheme, started, model.RulePhaseRequest, sess.reqCap, nil, nil, hit)
-		bp := s.waitBreakpoint(ctx, f, hit)
+		bp := s.waitBreakpoint(ctx, f, hit, sess)
 		if bp.dropped {
 			syn := s.syntheticResponse(hit)
 			write(syn)
@@ -530,14 +578,14 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 		case model.ActionHeader:
 			applyHTTPHeaders(resp.Header, respHit.Action.Headers)
 		case model.ActionBody:
-			respCap = s.bufferResponse(resp, respHit)
+			respCap = s.bufferResponse(resp, respHit, sess)
 		case model.ActionStatus:
 			resp.StatusCode = rules.StatusFor(respHit)
 			resp.Status = strconv.Itoa(resp.StatusCode) + " " + http.StatusText(resp.StatusCode)
 			applyHTTPHeaders(resp.Header, respHit.Action.Headers)
-			respCap = s.bufferResponse(resp, respHit)
+			respCap = s.bufferResponse(resp, respHit, sess)
 		case model.ActionDrop:
-			respCap = s.bufferResponse(resp, respHit)
+			respCap = s.bufferResponse(resp, respHit, sess)
 			syn := s.syntheticResponse(respHit)
 			_ = write(syn)
 			f := s.completedFlow(req, host, port, scheme, syn.StatusCode, started, info, reqCap, respCap)
@@ -545,14 +593,14 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 			s.metrics.session("ok")
 			return
 		case model.ActionBreakpoint:
-			respCap = s.bufferResponse(resp, respHit)
+			respCap = s.bufferResponse(resp, respHit, sess)
 			f := s.pausedFlow(req, host, scheme, started, model.RulePhaseResponse, reqCap, respCap, resp, reqHit, respHit)
 			if info != nil {
 				f.TLS = info
 				f.Intercepted = true
 				f.Scheme = scheme
 			}
-			bp := s.waitBreakpoint(ctx, f, respHit)
+			bp := s.waitBreakpoint(ctx, f, respHit, sess)
 			if bp.dropped {
 				syn := s.syntheticResponse(respHit)
 				_ = write(syn)
@@ -568,7 +616,7 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 		}
 	}
 	if respCap == nil {
-		respCap = s.teeResponse(resp)
+		respCap = s.teeResponse(resp, sess)
 	}
 	_ = write(resp)
 	if skipCapture {

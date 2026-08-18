@@ -20,14 +20,20 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
-func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net.Conn, req *http.Request, host, port string, res resolved, started time.Time) {
-	auth := s.auth
+func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net.Conn, req *http.Request, host, port string, res resolved, started time.Time, sess *ruleSession) {
+	if sess == nil {
+		sess = s.beginSession()
+	}
+	auth := sess.auth
+	if auth == nil {
+		auth = s.auth
+	}
 	if auth == nil {
 		s.failIntercept(req, host, started, tlsmitm.ResultMintFail)
 		return
 	}
 	rawClient := wrapHijacked(client, bufrw)
-	hsTO := s.specNow().Proxy.Admission.HeaderTimeout
+	hsTO := sess.spec.Proxy.Admission.HeaderTimeout
 	if hsTO <= 0 {
 		hsTO = defaultHeaderTimeout
 	}
@@ -42,7 +48,7 @@ func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net
 	}
 
 	sni := clientTLS.ConnectionState().ServerName
-	if sni != "" && !strings.EqualFold(sni, host) && !hostNameAllowed(s.specNow().Proxy.Targets, sni) {
+	if sni != "" && !strings.EqualFold(sni, host) && !hostNameAllowed(sess.spec.Proxy.Targets, sni) {
 		s.metrics.reject("target_denied")
 		s.capture(connectErrFlow(req, host, model.FlowStateError, string(domainerr.CodeTargetDenied), started))
 		return
@@ -67,7 +73,7 @@ func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net
 	s.setSessionDeadline(clientTLS, upTLS)
 
 	s.metrics.tlsIntercept(tlsmitm.ResultOK)
-	s.innerHTTP(clientTLS, upTLS, req, host, port, res, started, auth, sni)
+	s.innerHTTP(clientTLS, upTLS, req, host, port, res, started, auth, sni, sess)
 }
 
 func (s *Server) failIntercept(req *http.Request, host string, started time.Time, result string) {
@@ -112,14 +118,14 @@ func wrapHijacked(c net.Conn, bufrw *bufio.ReadWriter) net.Conn {
 	return &readerConn{Conn: c, r: bufrw}
 }
 
-func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host, port string, res resolved, started time.Time, auth *tlsmitm.Authority, sni string) {
+func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host, port string, res resolved, started time.Time, auth *tlsmitm.Authority, sni string, sess *ruleSession) {
 	info := s.tlsInfo(clientTLS, upTLS, auth, sni, host)
 	var (
 		mu    sync.Mutex
 		given bool
 	)
 	proto := http1Only()
-	ad := s.specNow().Proxy.Admission
+	ad := s.specOf(sess).Proxy.Admission
 	sessionEnd := time.Time{}
 	if ad.SessionTimeout > 0 {
 		sessionEnd = started.Add(ad.SessionTimeout)
@@ -166,7 +172,7 @@ func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host,
 			s.capture(connectErrFlow(creq, host, model.FlowStateError, tlsmitm.ResultHTTP2Inner, time.Now()))
 			return
 		}
-		if s.roundTripInner(tr, clientTLS, upTLS, br, inner, host, port, res, info) {
+		if s.roundTripInner(tr, clientTLS, upTLS, br, inner, host, port, res, info, sess) {
 			return
 		}
 	}
@@ -200,9 +206,9 @@ func (s *Server) tlsInfo(clientTLS, upTLS *tls.Conn, auth *tlsmitm.Authority, sn
 	}
 }
 
-func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, br *bufio.Reader, inner *http.Request, host, port string, res resolved, info *model.TLSInfo) (stop bool) {
+func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, br *bufio.Reader, inner *http.Request, host, port string, res resolved, info *model.TLSInfo, pinned *ruleSession) (stop bool) {
 	started := time.Now()
-	sess := newRuleSession(s.specNow().Rules)
+	sess := pinned.fork()
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
 	if handled := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, sess, func(resp *http.Response) {
 		_ = writeConnResponse(clientTLS, resp)
@@ -210,9 +216,9 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		return false
 	}
 
-	upCtx, upCancel := s.upstreamCtx(s.ctx)
+	upCtx, upCancel := s.upstreamCtxSess(s.ctx, sess)
 	defer upCancel()
-	out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap)
+	out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap, sess)
 	if cap != nil {
 		sess.reqCap = cap
 	}
@@ -264,7 +270,7 @@ func drainBody(req *http.Request) {
 	_ = req.Body.Close()
 }
 
-func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter) (*http.Request, *cappedWriter) {
+func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter, sess *ruleSession) (*http.Request, *cappedWriter) {
 	out := req.Clone(ctx)
 	out.RequestURI = ""
 	// Scheme http: the one-shot DialContext already returns a handshaked tls.Conn.
@@ -286,7 +292,7 @@ func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res 
 	if preCap != nil {
 		return out, preCap
 	}
-	max := s.specNow().Store.MaxBodyBytes
+	max := s.maxBodyOf(sess)
 	var capw *cappedWriter
 	if out.Body != nil {
 		var teed io.ReadCloser

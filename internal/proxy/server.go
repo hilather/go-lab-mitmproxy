@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
@@ -34,9 +35,13 @@ type Options struct {
 	Resolver Resolver
 	// DialContext, when set, replaces dialTCP (tests record outbound).
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
-	// Authority is the lab CA. When nil and spec.tls.intercept is true,
-	// New generates or loads one from spec.tls.ca.
+	// Authority is the lab CA. When nil and spec.tls.intercept is true
+	// and Snapshots is nil, New generates or loads one from spec.tls.ca
+	// (test fallback). Production compiles the CA in internal/compiler.
 	Authority *tlsmitm.Authority
+	// Snapshots is the atomic config pointer. ServeHTTP / CONNECT load
+	// once and pin the snapshot for the rest of the session.
+	Snapshots *snapshot.Store
 }
 
 // Server is the HTTP/1.1 forward-proxy listener.
@@ -48,6 +53,7 @@ type Server struct {
 	resolver Resolver
 	dialFn   func(ctx context.Context, network, addr string) (net.Conn, error)
 	auth     *tlsmitm.Authority
+	snaps    *snapshot.Store
 	gate     *gate
 	metrics  *Metrics
 	tr       *http.Transport
@@ -87,6 +93,7 @@ func New(opts Options) (*Server, error) {
 		inbox:    opts.Store,
 		resolver: res,
 		dialFn:   opts.DialContext,
+		snaps:    opts.Snapshots,
 		gate:     newGate(),
 		metrics:  newMetrics(),
 		ctx:      ctx,
@@ -101,7 +108,9 @@ func New(opts Options) (*Server, error) {
 	s.spec.Store(&spec)
 	s.tr = s.newCleartextTransport()
 	auth := opts.Authority
-	if auth == nil && spec.TLS.Intercept {
+	// Compiler owns CA minting. Tests without a snapshot store still
+	// generate when intercept is on so existing TLS fixtures keep working.
+	if auth == nil && spec.TLS.Intercept && opts.Snapshots == nil {
 		var err error
 		auth, err = tlsmitm.New(tlsmitm.Options{
 			Mode:               spec.TLS.CA.Mode,

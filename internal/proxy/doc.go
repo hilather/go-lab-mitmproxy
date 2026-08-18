@@ -8,4 +8,7 @@
 // lives only here (D16). Request/response rules (internal/rules) run after
 // parse and after upstream headers; capture-only tees, mutating actions
 // buffer to maxBodyBytes (D21).
+//
+// When Options.Snapshots is set, each request / CONNECT loads the atomic
+// snapshot once and pins spec, rules engine, and CA for the session.
 package proxy

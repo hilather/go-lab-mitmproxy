@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-08-18 (TLS-001)
+Last reviewed: 2026-08-18 (STA-001)
 Related ADRs: 0002, 0003, 0005, 0007
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).
@@ -45,7 +45,7 @@ Static check (`internal/proxy/import_test.go` plus a repo-wide walk): `Dial`, `D
 
 ## CA private key handling
 
-See [docs/03-tls-interception.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/03-tls-interception.md#ca-private-key-handling). Never log or export the CA private key. `GET /v1/ca` is cert-only.
+See [docs/03-tls-interception.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/03-tls-interception.md#ca-private-key-handling). Never log or export the CA private key. `app.Service.GetCA` and `GET /v1/ca` are cert-only. `internal/audit` redacts bearer tokens, secret keys, and any payload containing `BEGIN` + `PRIVATE`.
 
 ## Authn/z details
 

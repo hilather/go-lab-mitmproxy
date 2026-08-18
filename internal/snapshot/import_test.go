@@ -1,0 +1,107 @@
+package snapshot
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestImportsOnlyModelRulesTLS(t *testing.T) {
+	fset := token.NewFileSet()
+	allowed := map[string]bool{
+		"time":        true,
+		"sync/atomic": true,
+		"github.com/hilather/go-lab-mitmproxy/internal/model":   true,
+		"github.com/hilather/go-lab-mitmproxy/internal/rules":   true,
+		"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm": true,
+	}
+	forbiddenPref := []string{
+		"net/http",
+		"net/smtp",
+		"github.com/modelcontextprotocol",
+		"github.com/hilather/go-lab-mitmproxy/internal/app",
+		"github.com/hilather/go-lab-mitmproxy/internal/control",
+		"github.com/hilather/go-lab-mitmproxy/internal/proxy",
+		"github.com/hilather/go-lab-mitmproxy/internal/store",
+		"github.com/hilather/go-lab-mitmproxy/internal/compiler",
+		"github.com/hilather/go-lab-mitmproxy/internal/audit",
+		"github.com/hilather/go-lab-mitmproxy/internal/config",
+	}
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imp := range f.Imports {
+			ipath := strings.Trim(imp.Path.Value, `"`)
+			for _, p := range forbiddenPref {
+				if ipath == p || strings.HasPrefix(ipath, p+"/") {
+					t.Errorf("%s imports forbidden %q", path, ipath)
+				}
+			}
+			if strings.HasPrefix(ipath, "github.com/hilather/go-lab-mitmproxy/internal/") && !allowed[ipath] {
+				t.Errorf("%s imports %q; snapshot production code may import model, rules, tlsmitm", path, ipath)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNoDialIdents(t *testing.T) {
+	fset := token.NewFileSet()
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.CallExpr:
+				switch fun := x.Fun.(type) {
+				case *ast.SelectorExpr:
+					if fun.Sel != nil {
+						switch fun.Sel.Name {
+						case "Dial", "DialTimeout", "DialContext":
+							t.Errorf("%s references %s", path, fun.Sel.Name)
+						}
+					}
+				case *ast.Ident:
+					switch fun.Name {
+					case "Dial", "DialTimeout", "DialContext":
+						t.Errorf("%s references %s", path, fun.Name)
+					}
+				}
+			case *ast.SelectorExpr:
+				if x.Sel != nil && x.Sel.Name == "Dialer" {
+					if id, ok := x.X.(*ast.Ident); ok && id.Name == "net" {
+						t.Errorf("%s references net.Dialer", path)
+					}
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

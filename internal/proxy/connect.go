@@ -14,8 +14,11 @@ import (
 
 const established = "HTTP/1.1 200 Connection Established\r\n\r\n"
 
-func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
+func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request, sess *ruleSession) {
 	started := time.Now()
+	if sess == nil {
+		sess = s.beginSession()
+	}
 	// RFC 9110: CONNECT request-target is host:port (req.URL.Host).
 	authority := req.URL.Host
 	if authority == "" {
@@ -43,10 +46,10 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 	defer s.untrack(client)
 	defer func() { _ = client.Close() }()
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.specNow().Proxy.Admission.UpstreamTimeout)
+	ctx, cancel := context.WithTimeout(s.ctx, sess.spec.Proxy.Admission.UpstreamTimeout)
 	defer cancel()
 
-	res, err := resolveThenGuard(ctx, s.resolver, s.specNow().Proxy.Targets, host, port)
+	res, err := resolveThenGuard(ctx, s.resolver, sess.spec.Proxy.Targets, host, port)
 	if err != nil {
 		s.rejectCONNECT(client, req, host, err)
 		return
@@ -73,8 +76,8 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if shouldIntercept(s.specNow().TLS, host, port) {
-		s.serveIntercept(client, bufrw, up, req, host, port, res, started)
+	if shouldIntercept(sess.spec.TLS, host, port) {
+		s.serveIntercept(client, bufrw, up, req, host, port, res, started, sess)
 		return
 	}
 
