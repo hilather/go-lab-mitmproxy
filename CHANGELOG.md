@@ -6,14 +6,54 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.1.0 - 2026-08-19
+
+First Git tag. Untagged 1.0 appliance: `0ee238b`. Notes: [docs/releases/v1.1.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.0/docs/releases/v1.1.0.md).
+
+### Added
+
 - Flow-inspector shows 1.1 capture metadata: protocol badge, HTTP/2 stream id, request/response trailers tab, SOCKS dest, and original dest. No attack UX.
 - HTTP/2 inner intercept when `protocols.http2.enabled` and the leaf ALPN is `h2`: `innerHTTP` runs `http2x.ServeClient`; `roundTripInnerH2` returns resp/trailers to the codec (D53). One flow per stream with `HTTP2.StreamID`. Rules match `:path`/`:method`/`:authority`. Inner CONNECT / Extended CONNECT / websocket Upgrade is RST `PROTOCOL_ERROR` with no flow (D48). A per-stream 502 does not GOAWAY or close CONNECT. Request-phase `WaitPaused` is outside the origin mutex (D37). Origin ALPN is still `http/1.1` (leading-`:` names stripped). Flag-off / inner `http/1.1` `PRI` stays `http2_inner`. **D7 stands.** Concurrent streams serialize on one HTTP/1.1 origin TCP (`MaxConnsPerHost: 1`; mutex covers `RoundTrip` and full body drain). Replay strips leading-`:` names. h2→h1 request trailers dropped (`labmitm_h2_trailer_dropped_total`).
 - Opt-in SOCKS5 CONNECT (optional SOCKS4/4a) multiplexed on `listeners.proxy` when `acceptSOCKS5`/`acceptSOCKS4` are true (D29). NO AUTH only; peeked `0x05`/`0x04` replayed; `gate.acquire` after a valid CONNECT request and before Dial; hairpin and IMDS deny do not Dial; success BND is `0.0.0.0:0` or `::` port 0; intercept uses `serveInterceptConn` (no HTTP 200). Flags off keep 1.0 SOCKS-close. Metric `labmitm_socks_sessions_total`. **D7 stands.**
-- Linux original-destination listener (`spec.listeners.originalDestination`, default off): REDIRECT + `SO_ORIGINAL_DST` on a separate bind (empty address → `127.0.0.1:8890`). Dest-IP Dial only (D57); tagged `CONNECT` is 400; origin-form on `:8888` stays 400. Ready bit `OrigDestOff` keeps 1.0 processes ready. Default image USER/caps unchanged; iptables is sidecar/host only. Publishing `8890` is not transparent (D50). Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml). **D7 stands.**
-- LabMITM compat flow REST (mitmproxy-inspired subset): opt-in `GET/DELETE /compat/flows`, `GET/DELETE /compat/flows/{id}`, `POST /compat/flows/{id}/replay`, raw `content/request|response`. After-auth mappers over `internal/app`; native catalog stays 30 `/v1` rows; no new MCP tools. List is a JSON array of the newest 200 with `X-LabMITM-Truncated: true` when more exist. Disabled prefix is `404` `not_found` (SPA cannot swallow it). Same bearer; `Authorization: Basic` is 401 Bearer; cookie mutations require CSRF. Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md). **Not** mitmproxy 11 compatible.
-- HTTP/2 codec (`internal/http2x`) over `golang.org/x/net/http2` (ADR [0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md) / D28). Stream API + `ServeClient`; origin pool never Dials (`DialTLS` nil, second open `refuses redial`). Handshake `NextProtos` come from the session snapshot (D46). **D7 stands.**
-- 1.1 operator residuals: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) records HTTP/3 still out, no Python VM, no TPROXY in the appliance, no reverse-proxy, Linux-only orig-dest, compat subset, Reset-only flags, and D50 topologies. **1.0 defaults remain the process defaults.** `make test-container` never requires `NET_ADMIN`; optional `make test-container-originaldest` skips live REDIRECT without it.
-- 1.1 foundation (types only): ADRs [0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md)–[0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md). Additive `v1alpha1` fields `acceptSOCKS5`/`acceptSOCKS4`, `listeners.originalDestination`, `protocols.http2`, `compat.flowREST`, `maxConcurrentStreams`, `match.protocol` default **off**. Flow metadata (`via`, `http2.streamId`, `socks`, `originalDest`, trailers) and `GET /v1/status` `features` land so UI can stub later. `capabilities.CompatBindings()` is a side table; catalog stays 30 `/v1` rows. HTTP CONNECT uses extracted `serveInterceptConn`. Flags are Reset-only. **D7 stands.**
+- Linux original-destination listener (`spec.listeners.originalDestination`, default off): REDIRECT + `SO_ORIGINAL_DST` on a separate bind (empty address → `127.0.0.1:8890`). Dest-IP Dial only (D57); tagged `CONNECT` is 400; origin-form on `:8888` stays 400. Ready bit `OrigDestOff` keeps 1.0 processes ready. Default image USER/caps unchanged; iptables is sidecar/host only. Publishing `8890` is not transparent (D50). Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.0/examples/compose.originaldest.yaml). **D7 stands.**
+- LabMITM compat flow REST (mitmproxy-inspired subset): opt-in `GET/DELETE /compat/flows`, `GET/DELETE /compat/flows/{id}`, `POST /compat/flows/{id}/replay`, raw `content/request|response`. After-auth mappers over `internal/app`; native catalog stays 30 `/v1` rows; no new MCP tools. List is a JSON array of the newest 200 with `X-LabMITM-Truncated: true` when more exist. Disabled prefix is `404` `not_found` (SPA cannot swallow it). Same bearer; `Authorization: Basic` is 401 Bearer; cookie mutations require CSRF. Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.0/examples/compat/flow-rest-contract.md). **Not** mitmproxy 11 compatible.
+- HTTP/2 codec (`internal/http2x`) over `golang.org/x/net/http2` (ADR [0009](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.0/docs/adr/0009-http2-via-http2x.md) / D28). Stream API + `ServeClient`; origin pool never Dials (`DialTLS` nil, second open `refuses redial`). Handshake `NextProtos` come from the session snapshot (D46). **D7 stands.**
+- 1.1 operator residuals: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.0/docs/known-limitations.md) records HTTP/3 still out, no Python VM, no TPROXY in the appliance, no reverse-proxy, Linux-only orig-dest, compat subset, Reset-only flags, and D50 topologies. **1.0 defaults remain the process defaults.** `make test-container` never requires `NET_ADMIN`; optional `make test-container-originaldest` skips live REDIRECT without it.
+- 1.1 foundation (types only): ADRs [0008](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.0/docs/adr/0008-additive-v1alpha1-11.md)–[0011](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.0/docs/adr/0011-optional-compat-flow-rest.md). Additive `v1alpha1` fields `acceptSOCKS5`/`acceptSOCKS4`, `listeners.originalDestination`, `protocols.http2`, `compat.flowREST`, `maxConcurrentStreams`, `match.protocol` default **off**. Flow metadata (`via`, `http2.streamId`, `socks`, `originalDest`, trailers) and `GET /v1/status` `features` land so UI can stub later. `capabilities.CompatBindings()` is a side table; catalog stays 30 `/v1` rows. HTTP CONNECT uses extracted `serveInterceptConn`. Flags are Reset-only. **D7 stands.**
+
+### Changed
+
+- Proxy accept mux (D42): Accept never peeks. A per-connection goroutine peeks one byte under `headerTimeout` and SOCKS-closes `0x04`/`0x05` when `acceptSOCKS5`/`acceptSOCKS4` are off. Flags on serve SOCKS CONNECT on the same listener. `chanListener` hands HTTP (including `PRI`) to `http.Server`. Shutdown is stop accept → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
+
+### Fixed
+
+- SOCKS error replies (`admission`, IMDS/hairpin deny, dial fail) check the write result so golangci-lint `errcheck` stays clean.
+- Orig-dest compose overlay skips UID 65532 on OUTPUT REDIRECT (dest-IP Dial must not hairpin to `:8890`) and mounts a bearer bootstrap (`testdata/container/originaldest.yaml`) so `--management-listen=:8088` can bind. Ready `OrigDestOff` is re-read from the live snapshot so Reset-to-enable-without-bind is unready.
+
+### Removed or deprecated
+
+- None.
+
+## 1.0.0-rc.1 (untagged notes)
+
+The HTTP/1.1 appliance that landed on `main` before 1.1. No Git tag was pushed for that tree. Notes: [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.0/docs/releases/v1.0.0-rc.1.md).
+
+### Added
+
 - Repository foundation: Apache-2.0 license, Go 1.26 module `github.com/hilather/go-lab-mitmproxy`, stub `labmitm` CLI (`version` / `help` only), Makefile, fail-closed CI (format, lint, unit, docs), and the LabMITM 1.0 design pack (`docs/01`–`14` + ADRs 0001–0007).
 - Fail-closed `labmitm.dev/v1alpha1` loader (`internal/config`) with `KnownFields(true)`, reserved-name reject, loopback defaults (`127.0.0.1:8888` / `127.0.0.1:8088`), `labmitm validate` / `canonicalize`, published JSON Schema, and `make test-config-compat`.
 - HTTP/1.1 forward proxy (`internal/proxy`): absolute-form GET/POST, CONNECT Hijack + raw tunnel, peekListener SOCKS reject, HTTP/2 preface close, resolve-then-guard (name→IMDS / name→link-local), hop-by-hop strip, WebSocket 101 copy, `HTTP_PROXY` ignored. `labmitm serve` binds the proxy; management REST requires a bearer verifier.
@@ -32,12 +72,10 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- Proxy accept mux (D42): Accept never peeks. A per-connection goroutine peeks one byte under `headerTimeout` and SOCKS-closes `0x04`/`0x05` when `acceptSOCKS5`/`acceptSOCKS4` are off. Flags on serve SOCKS CONNECT on the same listener. `chanListener` hands HTTP (including `PRI`) to `http.Server`. Shutdown is stop accept → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
+- None.
 
 ### Fixed
 
-- SOCKS error replies (`admission`, IMDS/hairpin deny, dial fail) check the write result so golangci-lint `errcheck` stays clean.
-- Orig-dest compose overlay skips UID 65532 on OUTPUT REDIRECT (dest-IP Dial must not hairpin to `:8890`) and mounts a bearer bootstrap (`testdata/container/originaldest.yaml`) so `--management-listen=:8088` can bind. Ready `OrigDestOff` is re-read from the live snapshot so Reset-to-enable-without-bind is unready.
 - Intercepted CONNECT treats inner `Upgrade: websocket` + `101` as a bidirectional copy (same 1.0 contract as cleartext). Inner `RoundTrip` failure writes `502` and closes both TLS sides instead of leaving the client waiting.
 - Replay hairpin reject covers unspecified proxy binds (`:8888`, `0.0.0.0`, `::`) so a lab-overlay replay cannot Dial the unauthenticated data plane on the listen port.
 - Flow body downloads (`GET /v1/flows/{id}/request|response`) no longer reflect captured `Content-Type`. They are `application/octet-stream` with `Content-Disposition: attachment` and `Content-Security-Policy: default-src 'none'`. The inspector fetches a blob instead of navigating the operator document to captured HTML.
