@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-19 (SOCKS5 CONNECT D29)
+Last reviewed: 2026-08-19 (h2_trailer_dropped + SOCKS5 + origdest)
 Related ADRs: 0001
 
 ## Logs (`log/slog` JSON)
@@ -46,6 +46,7 @@ Bounded labels only.
 | `labmitm_auth_failures_total` | counter | `reason` |
 | `labmitm_audit_events_total` | counter | `event` |
 | `labmitm_telemetry_dropped_total` | counter | `reason` |
+| `labmitm_h2_trailer_dropped_total` | counter | — |
 
 ## Health
 

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-19 (h2 innerHTTP + SOCKS5 CONNECT)
+Last reviewed: 2026-08-19 (h2 transcode + SOCKS5 + orig-dest)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011
 
 ## Problem statement
@@ -86,7 +86,7 @@ Family container-internal binds that must not collide:
 
 ## 1.1 opt-in (types; flags default off)
 
-Additive `labmitm.dev/v1alpha1` fields exist so later workstreams can enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off.** The proxy accept mux peeks in a per-conn goroutine (D42) and SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. When those flags are on, SOCKS5/4 CONNECT (NO AUTH) is multiplexed on `listeners.proxy` and calls `serveInterceptConn` without an HTTP 200. HTTP CONNECT still writes 200 then intercepts. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); when enabled and the leaf ALPN is `h2`, inner streams are captured via `roundTripInnerH2`. Orig-dest stays unread.
+Additive `labmitm.dev/v1alpha1` fields exist so later workstreams can enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off.** The proxy accept mux peeks in a per-conn goroutine (D42) and SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. When those flags are on, SOCKS5/4 CONNECT (NO AUTH) is multiplexed on `listeners.proxy` and calls `serveInterceptConn` without an HTTP 200. HTTP CONNECT still writes 200 then intercepts. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); when enabled and the leaf ALPN is `h2`, inner streams are captured via `roundTripInnerH2`. Orig-dest stays unread. Inner h2 transcodes onto one HTTP/1.1 origin TCP (D44).
 
 - [ADR 0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md): additive schema; reserved keys stay; flags are bootstrap + **Reset only** (D51).
 - [ADR 0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md): supersedes ADR 0002 **D8 scope only**. **D7 stands.**

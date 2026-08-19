@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-19 (h2 + SOCKS5 + orig-dest)
+Last reviewed: 2026-08-19 (h2 transcode + SOCKS5 + orig-dest)
 Related ADRs: 0002, 0009, 0010
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -98,9 +98,9 @@ Normative for every `CONNECT` (D19). Tests: two GETs on one CONNECT; “forgot t
 **Inner HTTP (intercepted CONNECT only):**
 
 - One CONNECT = **one** upstream TCP + **one** upstream TLS conn. Do **not** put this conn in the cleartext `Transport` idle pool.
-- Handshake ALPN is taken from the session snapshot (D46). Default / flag-off is `http/1.1`. Flag-on advertises `h2` then `http/1.1` on the **leaf**; origin NextProtos stay `http/1.1` until origin transcode. Captured `Protocol` is the **inner client** protocol (D47): `h2` when the leaf negotiated `h2`.
+- Handshake ALPN is taken from the session snapshot (D46). Default / flag-off is `http/1.1`. Flag-on advertises `h2` then `http/1.1` on the **leaf**; origin NextProtos stay `http/1.1` (h2 inner is transcoded onto that HTTP/1.1 origin conn). Captured `Protocol` is the **inner client** protocol (D47): `h2` when the leaf negotiated `h2`.
 - **HTTP/1.1 inner** (ALPN `http/1.1`, including flag-on when the client did not offer `h2`): serialized `http.ReadRequest` then `Transport.RoundTrip` with a one-shot `DialContext` that returns the already-handshaked upstream `tls.Conn`. Inner `PRI` → close both sides, `Error=http2_inner`. Inner `Upgrade: websocket` + `101` uses the same 101 + bidirectional copy as cleartext (no frame inspect). RoundTrip failure writes `502` and closes both TLS sides.
-- **HTTP/2 inner** (`protocols.http2.enabled` and leaf ALPN `h2`): `http2x.ServeClient` on the client TLS conn. Each request stream is **one flow** with `HTTP2.StreamID`. `roundTripInnerH2` returns `(resp, trailers, err)` to `ServeClient`; it must **not** write HTTP/1.1 to the client TLS conn and must **not** close CONNECT on a per-stream origin error (RST_STREAM / 502 DATA, not GOAWAY) (D53). Origin is still HTTP/1.1: strip leading-`:` names on the origin request; hold the origin mutex across `RoundTrip` **and** full body drain (D44); request- and response-phase `WaitPaused` stay **outside** the mutex so a paused stream does not block another stream’s request-phase rules (D37).
+- **HTTP/2 inner** (`protocols.http2.enabled` and leaf ALPN `h2`): `http2x.ServeClient` on the client TLS conn. Each request stream is **one flow** with `HTTP2.StreamID`. `roundTripInnerH2` returns `(resp, trailers, err)` to `ServeClient`; it must **not** write HTTP/1.1 to the client TLS conn and must **not** close CONNECT on a per-stream origin error (RST_STREAM / 502 DATA, not GOAWAY) (D53). Origin is still HTTP/1.1 (`MaxConnsPerHost: 1`): strip leading-`:` names on the origin request; hold the origin mutex across `RoundTrip` **and** full body drain so a second stream cannot Dial while `resp.Body` still owns the conn (D44); request- and response-phase `WaitPaused` stay **outside** the mutex so a paused stream does not block another stream (D37). h2→h1 request trailers are dropped toward origin, stored on the flow, and counted `labmitm_h2_trailer_dropped_total`.
 - Inner hop rejects `:method=CONNECT`, Extended CONNECT (`:protocol`), and websocket `Upgrade` on an h2 session: RST_STREAM `PROTOCOL_ERROR`, metric `reason="http2"`, no flow (D48).
 - Client keep-alive on the inner TLS session is allowed. Each inner request / stream is **one flow**.
 

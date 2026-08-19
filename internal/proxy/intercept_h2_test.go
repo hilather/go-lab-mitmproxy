@@ -6,12 +6,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -337,6 +339,32 @@ func writeH2Headers(t *testing.T, fr *http2.Framer, id uint32, fields []hpack.He
 	}
 }
 
+func expectH2Response(t *testing.T, fr *http2.Framer, id uint32) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		switch hf := f.(type) {
+		case *http2.HeadersFrame:
+			if hf.StreamID == id {
+				return
+			}
+		case *http2.MetaHeadersFrame:
+			if hf.StreamID == id {
+				return
+			}
+		case *http2.RSTStreamFrame:
+			if hf.StreamID == id {
+				t.Fatalf("RST %v", hf.ErrCode)
+			}
+		}
+	}
+	t.Fatal("no response HEADERS")
+}
+
 func expectRSTStream(t *testing.T, fr *http2.Framer, id uint32, code http2.ErrCode) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -506,6 +534,232 @@ func TestInterceptHTTP2PausedRequestDoesNotBlockSecondStream(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("paused stream hung after resume")
+	}
+}
+
+func TestInterceptHTTP2ConcurrentStreamsSerializeOnH1Origin(t *testing.T) {
+	var inflight atomic.Int32
+	var maxInflight atomic.Int32
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := inflight.Add(1)
+		defer inflight.Add(-1)
+		for {
+			old := maxInflight.Load()
+			if n <= old || maxInflight.CompareAndSwap(old, n) {
+				break
+			}
+		}
+		if fl, ok := w.(http.Flusher); ok {
+			_, _ = io.WriteString(w, "part-")
+			fl.Flush()
+			time.Sleep(80 * time.Millisecond)
+			_, _ = io.WriteString(w, r.URL.Path)
+			return
+		}
+		_, _ = io.WriteString(w, "part-"+r.URL.Path)
+	}))
+	_, port := hostPort(t, origin)
+	spec := interceptH2Spec(t, port)
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	cc := h2ClientConnViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+
+	var wg sync.WaitGroup
+	type result struct {
+		path string
+		body string
+		err  error
+	}
+	out := make(chan result, 2)
+	for _, path := range []string{"/a", "/b"} {
+		wg.Add(1)
+		go func(path string) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab"+path, nil)
+			if err != nil {
+				out <- result{path: path, err: err}
+				return
+			}
+			resp, err := cc.RoundTrip(req)
+			if err != nil {
+				out <- result{path: path, err: err}
+				return
+			}
+			defer func() { _ = resp.Body.Close() }()
+			body, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				out <- result{path: path, err: fmt.Errorf("status %d", resp.StatusCode)}
+				return
+			}
+			out <- result{path: path, body: string(body)}
+		}(path)
+	}
+	wg.Wait()
+	close(out)
+	got := map[string]string{}
+	for r := range out {
+		if r.err != nil {
+			if strings.Contains(r.err.Error(), "refuses redial") {
+				t.Fatalf("concurrent streams redialed: %v", r.err)
+			}
+			var ge http2.GoAwayError
+			if errors.As(r.err, &ge) {
+				t.Fatalf("GOAWAY: %+v", ge)
+			}
+			t.Fatalf("%s: %v", r.path, r.err)
+		}
+		got[r.path] = r.body
+	}
+	if got["/a"] != "part-/a" || got["/b"] != "part-/b" {
+		t.Fatalf("bodies %#v", got)
+	}
+	if maxInflight.Load() != 1 {
+		t.Fatalf("h1 origin saw concurrent requests: max=%d", maxInflight.Load())
+	}
+}
+
+func TestInterceptHTTP2PausedResponseDoesNotBlockSecondStream(t *testing.T) {
+	const pausedBody = "non-empty-origin-body"
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/pause" {
+			_, _ = io.WriteString(w, pausedBody)
+			return
+		}
+		_, _ = io.WriteString(w, "fast")
+	}))
+	_, port := hostPort(t, origin)
+	spec := interceptH2Spec(t, port)
+	spec.Rules = model.RulesSpec{
+		Enabled: true,
+		Items: []model.RuleSpec{{
+			ID:      "pause-resp",
+			Enabled: true,
+			Phase:   model.RulePhaseResponse,
+			Match:   model.RuleMatchSpec{PathPrefix: "/pause"},
+			Action:  model.RuleActionSpec{Type: model.ActionBreakpoint, Breakpoint: model.RuleBreakpointSpec{Timeout: 8 * time.Second}},
+		}},
+	}
+	inbox := newProxyStore(t, store.Options{MaxFlows: 10, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyReject, MaxWait: time.Minute})
+	px := startProxy(t, Options{Spec: spec, Sink: AdaptStore(inbox), Store: inbox, Resolver: appLabResolver()})
+	cc := h2ClientConnViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+
+	pausedDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/pause", nil)
+		if err != nil {
+			pausedDone <- err
+			return
+		}
+		resp, err := cc.RoundTrip(req)
+		if err != nil {
+			pausedDone <- err
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.ReadAll(resp.Body)
+		pausedDone <- nil
+	}()
+
+	paused := waitFlow(t, inbox, model.FlowFilter{PathPrefix: "/pause"})
+	if paused.State != model.FlowStatePaused {
+		t.Fatalf("state %q", paused.State)
+	}
+	if string(paused.Response.Body) != pausedBody {
+		t.Fatalf("paused body %q (want non-empty origin body)", paused.Response.Body)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/fast", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := cc.RoundTrip(req)
+	if err != nil {
+		if strings.Contains(err.Error(), "refuses redial") {
+			t.Fatalf("paused response held origin mutex: %v", err)
+		}
+		var ge http2.GoAwayError
+		if errors.As(err, &ge) {
+			t.Fatalf("GOAWAY: %+v", ge)
+		}
+		t.Fatalf("second stream: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "fast" {
+		t.Fatalf("fast status %d body %q", resp.StatusCode, body)
+	}
+
+	if err := inbox.Resume(paused.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-pausedDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("paused stream hung after resume")
+	}
+}
+
+func TestInterceptHTTP2TrailersDroppedTowardH1Origin(t *testing.T) {
+	var leaked atomic.Bool
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Trailer") != "" || r.Header.Get("X-Checksum") != "" {
+			leaked.Store(true)
+		}
+		for name := range r.Header {
+			if strings.EqualFold(name, "Trailer") || strings.HasPrefix(name, ":") {
+				leaked.Store(true)
+			}
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptH2Spec(t, port)
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: "POST"},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/t"},
+		{Name: "trailer", Value: "x-checksum"},
+		{Name: "content-length", Value: "2"},
+	}, false)
+	if err := fr.WriteData(1, false, []byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: "x-checksum", Value: "abc"},
+	}, true)
+	expectH2Response(t, fr, 1)
+	_ = tlsConn
+	if leaked.Load() {
+		t.Fatal("request trailer leaked to HTTP/1.1 origin")
+	}
+	if px.Metrics().H2TrailerDropped() < 1 {
+		t.Fatal("expected h2_trailer_dropped")
+	}
+}
+
+func TestStripLeadingColonHeaders(t *testing.T) {
+	h := make(http.Header)
+	h.Add(":method", "GET")
+	h.Add(":authority", "app.lab")
+	h.Add("User-Agent", "lab")
+	stripLeadingColonHeaders(h)
+	if h.Get(":method") != "" || h.Get(":authority") != "" {
+		t.Fatalf("pseudos remain: %v", h)
+	}
+	if h.Get("User-Agent") != "lab" {
+		t.Fatalf("regular header %v", h)
 	}
 }
 

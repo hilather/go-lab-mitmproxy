@@ -18,7 +18,7 @@ This ADR supersedes ADR 0002 **D8 scope only**. **D7, D16, D19, D20, and D21 sta
 
 **D28 — `golang.org/x/net/http2` behind `internal/http2x`.** Codec, not a proxy library. No Dial idents. A `DialTLS` field stays nil. Added as a direct module in the codec PR (BSD-3, Apache-2.0 compatible).
 
-**D32 — ALPN preference + transcode, not lockstep.** Client handshake first. Origin may pick the other proto. Handshake failure still does not blind-tunnel (D20).
+**D32 — ALPN preference + transcode, not lockstep.** Client handshake first. Origin may pick the other proto. Handshake failure still does not blind-tunnel (D20). This tree transcodes h2 inner onto HTTP/1.1 origin (`NextProtos` stay `http/1.1`).
 
 **D44 — h2 client + h1 origin serializes streams** on the single origin TCP: mutex covers `RoundTrip` and full body drain; `MaxConnsPerHost: 1`.
 

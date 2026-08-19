@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
@@ -162,6 +163,104 @@ func TestSameEndpointWildcard(t *testing.T) {
 		if got := sameEndpoint(tc.a, tc.b); got != tc.want {
 			t.Errorf("sameEndpoint(%q,%q)=%v want %v", tc.a, tc.b, got, tc.want)
 		}
+	}
+}
+
+func TestReplayHTTP2StripsPseudosOriginForm(t *testing.T) {
+	var (
+		sawMethod, sawHost, sawProto, sawURI string
+		leaked                               bool
+	)
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawHost = r.Host
+		sawProto = r.Proto
+		sawURI = r.RequestURI
+		for name := range r.Header {
+			if strings.HasPrefix(name, ":") {
+				leaked = true
+			}
+		}
+		if r.Header.Get(":method") != "" {
+			leaked = true
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	px := startProxy(t, Options{})
+	u := mustURL(t, originURL)
+	f, err := px.Replay(context.Background(), &model.Flow{
+		Method:   http.MethodGet,
+		URL:      originURL + "/login",
+		Host:     u.Host,
+		Scheme:   "http",
+		Protocol: model.FlowProtocolHTTP2,
+		Request: model.HTTPMessage{
+			Headers: []model.Header{
+				{Name: ":method", Value: "GET"},
+				{Name: ":scheme", Value: "http"},
+				{Name: ":authority", Value: u.Host},
+				{Name: ":path", Value: "/login"},
+				{Name: "User-Agent", Value: "lab"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leaked {
+		t.Fatal("origin saw leading-colon header")
+	}
+	if sawMethod != http.MethodGet {
+		t.Fatalf("method %q", sawMethod)
+	}
+	if sawHost != u.Host {
+		t.Fatalf("host %q want %q (from :authority)", sawHost, u.Host)
+	}
+	if sawProto != "HTTP/1.1" {
+		t.Fatalf("proto %q", sawProto)
+	}
+	if strings.HasPrefix(sawURI, "http") {
+		t.Fatalf("not origin-form RequestURI %q", sawURI)
+	}
+	if f == nil || f.Status != 200 || f.Protocol != model.FlowProtocolHTTP11 {
+		t.Fatalf("replay flow %+v", f)
+	}
+}
+
+func TestReplayRequestStripsPseudos(t *testing.T) {
+	stored := &model.Flow{
+		Method:   http.MethodPost,
+		URL:      "https://app.lab/login",
+		Host:     "app.lab",
+		Scheme:   "https",
+		Protocol: model.FlowProtocolHTTP2,
+		Request: model.HTTPMessage{
+			Headers: []model.Header{
+				{Name: ":method", Value: "POST"},
+				{Name: ":scheme", Value: "https"},
+				{Name: ":authority", Value: "app.lab"},
+				{Name: ":path", Value: "/login"},
+				{Name: "Content-Type", Value: "text/plain"},
+			},
+			Body: []byte("x"),
+		},
+	}
+	res := resolved{Selected: net.ParseIP("127.0.0.1"), Port: "443", Host: "app.lab"}
+	req, err := replayRequest(context.Background(), stored, res, "app.lab", "443", "https")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Header.Get(":method") != "" || req.Header.Get(":authority") != "" || req.Header.Get(":path") != "" {
+		t.Fatalf("pseudos leaked: %v", req.Header)
+	}
+	if req.Host != "app.lab" {
+		t.Fatalf("Host %q (want :authority)", req.Host)
+	}
+	if req.Method != http.MethodPost || req.URL.Path != "/login" {
+		t.Fatalf("method=%s path=%s", req.Method, req.URL.Path)
+	}
+	if req.ProtoMajor == 2 {
+		t.Fatalf("replay must be HTTP/1.1, proto %s", req.Proto)
 	}
 }
 

@@ -10,15 +10,16 @@ import (
 // Metrics is a process-local reject/session counter that dual-writes
 // to the OpenMetrics registry when attached.
 type Metrics struct {
-	mu        sync.Mutex
-	rejected  map[string]int64
-	sessions  map[string]int64
-	tls       map[string]int64
-	rules     map[string]int64
-	socksN    map[string]int64
-	storeFull int64
-	reg       *observability.Registry
-	log       *observability.Logger
+	mu                sync.Mutex
+	rejected          map[string]int64
+	sessions          map[string]int64
+	tls               map[string]int64
+	rules             map[string]int64
+	socksN            map[string]int64
+	storeFull         int64
+	h2TrailersDropped int64
+	reg               *observability.Registry
+	log               *observability.Logger
 }
 
 func (m *Metrics) attach(reg *observability.Registry, log *observability.Logger) {
@@ -129,6 +130,19 @@ func (m *Metrics) socks(result string) {
 	}
 }
 
+func (m *Metrics) h2TrailerDropped() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.h2TrailersDropped++
+	reg := m.reg
+	m.mu.Unlock()
+	if reg != nil {
+		reg.Inc(observability.MetricH2TrailerDroppedTotal, nil, 1)
+	}
+}
+
 func (m *Metrics) ruleHit(action string) {
 	if m == nil || action == "" {
 		return
@@ -215,4 +229,14 @@ func (m *Metrics) TLSIntercepts(result string) int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tls[result]
+}
+
+// H2TrailerDropped is labmitm_h2_trailer_dropped_total.
+func (m *Metrics) H2TrailerDropped() int64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.h2TrailersDropped
 }

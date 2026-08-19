@@ -264,12 +264,16 @@ func replayRequest(ctx context.Context, stored *model.Flow, res resolved, host, 
 	} else {
 		req.Host = originHost(host, port)
 	}
+	if auth := headerValue(stored.Request.Headers, ":authority"); auth != "" {
+		req.Host = auth
+	}
 	for _, h := range stored.Request.Headers {
-		if h.Name == "" {
+		if h.Name == "" || isPseudoHeaderName(h.Name) {
 			continue
 		}
 		req.Header.Add(h.Name, h.Value)
 	}
+	stripLeadingColonHeaders(req.Header)
 	httputilx.PrepareRequest(req.Header)
 	return req, nil
 }

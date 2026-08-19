@@ -30,6 +30,7 @@ type ruleSession struct {
 	reqHit       *rules.Hit
 	reqCap       *cappedWriter
 	skipInsert   bool
+	reqTrailers  []model.Header
 	respTrailers []model.Header
 	via          string
 	socks        *model.SOCKSInfo
@@ -79,6 +80,7 @@ func (sess *ruleSession) fork() *ruleSession {
 	out.reqHit = nil
 	out.reqCap = nil
 	out.skipInsert = false
+	out.reqTrailers = nil
 	out.respTrailers = nil
 	return &out
 }
@@ -515,8 +517,13 @@ func (s *Server) annotateFlow(f *model.Flow, req *http.Request, reqCap, respCap 
 
 func (s *Server) captureRule(f *model.Flow, req *http.Request, reqCap, respCap *cappedWriter, respHdr http.Header, sess *ruleSession, hits ...*rules.Hit) {
 	s.annotateFlow(f, req, reqCap, respCap, respHdr, hits...)
-	if sess != nil && len(sess.respTrailers) > 0 && f != nil && len(f.Response.Trailers) == 0 {
-		f.Response.Trailers = append([]model.Header(nil), sess.respTrailers...)
+	if sess != nil && f != nil {
+		if len(sess.reqTrailers) > 0 && len(f.Request.Trailers) == 0 {
+			f.Request.Trailers = append([]model.Header(nil), sess.reqTrailers...)
+		}
+		if len(sess.respTrailers) > 0 && len(f.Response.Trailers) == 0 {
+			f.Response.Trailers = append([]model.Header(nil), sess.respTrailers...)
+		}
 	}
 	s.capture(f, sess)
 }

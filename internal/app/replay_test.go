@@ -39,6 +39,15 @@ func TestReplayRejectsWebsocket(t *testing.T) {
 	requireCode(t, err, domainerr.CodeValidationFailed)
 }
 
+func TestReplayAllowsHTTP2Protocol(t *testing.T) {
+	err := validateReplay(&model.Flow{
+		Method: "GET", Protocol: model.FlowProtocolHTTP2,
+	})
+	if err != nil {
+		t.Fatalf("h2 flows must be replayable as HTTP/1.1: %v", err)
+	}
+}
+
 func TestReplayUnwired(t *testing.T) {
 	svc, _ := mustBoot(t)
 	id := insertRaw(t, svc, "app.lab")

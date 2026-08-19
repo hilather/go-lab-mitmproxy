@@ -24,23 +24,24 @@ const (
 
 // Frozen metric names. These are an operational compatibility surface.
 const (
-	MetricProxySessionsTotal  = "labmitm_proxy_sessions_total"
-	MetricProxyRejectedTotal  = "labmitm_proxy_rejected_total"
-	MetricSocksSessionsTotal  = "labmitm_socks_sessions_total"
-	MetricFlowsTotal          = "labmitm_flows_total"
-	MetricTLSInterceptsTotal  = "labmitm_tls_intercepts_total"
-	MetricRuleHitsTotal       = "labmitm_rule_hits_total"
-	MetricStoreFlows          = "labmitm_store_flows"
-	MetricStoreBytes          = "labmitm_store_bytes"
-	MetricStoreEvictions      = "labmitm_store_evictions_total"
-	MetricStoreFullTotal      = "labmitm_store_full_total"
-	MetricStoreWaiters        = "labmitm_store_waiters"
-	MetricHTTPRequestsTotal   = "labmitm_http_requests_total"
-	MetricHTTPRequestDuration = "labmitm_http_request_duration_seconds"
-	MetricMCPCallsTotal       = "labmitm_mcp_calls_total"
-	MetricAuthFailuresTotal   = "labmitm_auth_failures_total"
-	MetricAuditEventsTotal    = "labmitm_audit_events_total"
-	MetricTelemetryDropped    = "labmitm_telemetry_dropped_total"
+	MetricProxySessionsTotal    = "labmitm_proxy_sessions_total"
+	MetricProxyRejectedTotal    = "labmitm_proxy_rejected_total"
+	MetricSocksSessionsTotal    = "labmitm_socks_sessions_total"
+	MetricFlowsTotal            = "labmitm_flows_total"
+	MetricTLSInterceptsTotal    = "labmitm_tls_intercepts_total"
+	MetricRuleHitsTotal         = "labmitm_rule_hits_total"
+	MetricStoreFlows            = "labmitm_store_flows"
+	MetricStoreBytes            = "labmitm_store_bytes"
+	MetricStoreEvictions        = "labmitm_store_evictions_total"
+	MetricStoreFullTotal        = "labmitm_store_full_total"
+	MetricStoreWaiters          = "labmitm_store_waiters"
+	MetricHTTPRequestsTotal     = "labmitm_http_requests_total"
+	MetricHTTPRequestDuration   = "labmitm_http_request_duration_seconds"
+	MetricMCPCallsTotal         = "labmitm_mcp_calls_total"
+	MetricAuthFailuresTotal     = "labmitm_auth_failures_total"
+	MetricAuditEventsTotal      = "labmitm_audit_events_total"
+	MetricTelemetryDropped      = "labmitm_telemetry_dropped_total"
+	MetricH2TrailerDroppedTotal = "labmitm_h2_trailer_dropped_total"
 )
 
 // Frozen structured-log event names.
@@ -166,6 +167,7 @@ func Metrics() []MetricDef {
 		{Name: MetricAuthFailuresTotal, Kind: KindCounter, Help: "Management authentication failures.", Labels: []string{"reason"}},
 		{Name: MetricAuditEventsTotal, Kind: KindCounter, Help: "Audit ring records.", Labels: []string{"event"}},
 		{Name: MetricTelemetryDropped, Kind: KindCounter, Help: "Telemetry samples dropped under backpressure or policy.", Labels: []string{"reason"}},
+		{Name: MetricH2TrailerDroppedTotal, Kind: KindCounter, Help: "HTTP/2 request trailers dropped when transcoding onto HTTP/1.1 origin.", Labels: nil},
 	}
 	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
 	for i := range defs {
