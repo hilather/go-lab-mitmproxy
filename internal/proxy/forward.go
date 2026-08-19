@@ -231,7 +231,7 @@ func (s *Server) flowFromReq(req *http.Request, host, scheme string, status int,
 	if req != nil {
 		method = req.Method
 	}
-	return &model.Flow{
+	f := &model.Flow{
 		StartedAt:   started.UTC(),
 		CompletedAt: time.Now().UTC(),
 		State:       state,
@@ -239,10 +239,12 @@ func (s *Server) flowFromReq(req *http.Request, host, scheme string, status int,
 		URL:         u,
 		Host:        host,
 		Scheme:      scheme,
-		Protocol:    model.FlowProtocolHTTP11,
+		Protocol:    requestProtocol(req),
 		Status:      status,
 		Error:       ferr,
 	}
+	applyH2Meta(f, req)
+	return f
 }
 
 func (s *Server) roundTripUpgrade(ctx context.Context, out *http.Request, res resolved, sess *ruleSession) (*http.Response, net.Conn, error) {

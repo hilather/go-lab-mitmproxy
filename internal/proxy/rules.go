@@ -22,14 +22,15 @@ import (
 // ruleSession is one HTTP exchange (or CONNECT) pin. Spec, Engine, CA, and
 // store epoch are loaded once so a later live apply/reset cannot change mid-hop.
 type ruleSession struct {
-	spec       model.Spec
-	snap       *snapshot.Snapshot
-	eng        *rules.Engine
-	auth       *tlsmitm.Authority
-	epoch      uint64
-	reqHit     *rules.Hit
-	reqCap     *cappedWriter
-	skipInsert bool
+	spec         model.Spec
+	snap         *snapshot.Snapshot
+	eng          *rules.Engine
+	auth         *tlsmitm.Authority
+	epoch        uint64
+	reqHit       *rules.Hit
+	reqCap       *cappedWriter
+	skipInsert   bool
+	respTrailers []model.Header
 }
 
 // beginSession loads the atomic snapshot (or falls back to Options.Spec).
@@ -75,6 +76,7 @@ func (sess *ruleSession) fork() *ruleSession {
 	out.reqHit = nil
 	out.reqCap = nil
 	out.skipInsert = false
+	out.respTrailers = nil
 	return &out
 }
 
@@ -89,12 +91,20 @@ func (s *Server) matchHit(sess *ruleSession, phase, host string, req *http.Reque
 	if sess == nil || sess.eng == nil {
 		return nil
 	}
+	headers := headersFrom(hdr)
+	if req != nil {
+		if phase == model.RulePhaseRequest {
+			headers = requestCaptureHeaders(req)
+		} else if meta, ok := h2MetaFrom(req); ok && len(meta.pseudos) > 0 {
+			headers = mergePseudoHeaders(meta.pseudos, hdr)
+		}
+	}
 	hit := sess.eng.Match(phase, rules.Request{
 		Host:     host,
 		Path:     requestPath(req),
 		Method:   requestMethod(req),
-		Headers:  headersFrom(hdr),
-		Protocol: model.FlowProtocolHTTP11,
+		Headers:  headers,
+		Protocol: requestProtocol(req),
 	})
 	if hit != nil && count {
 		s.metrics.ruleHit(hit.Action.Type)
@@ -474,7 +484,8 @@ func (s *Server) annotateFlow(f *model.Flow, req *http.Request, reqCap, respCap 
 		return
 	}
 	if req != nil {
-		f.Request.Headers = headersFrom(req.Header)
+		f.Request.Headers = requestCaptureHeaders(req)
+		applyH2Meta(f, req)
 	}
 	if reqCap != nil {
 		f.Request.Body = reqCap.buf
@@ -500,6 +511,9 @@ func (s *Server) annotateFlow(f *model.Flow, req *http.Request, reqCap, respCap 
 
 func (s *Server) captureRule(f *model.Flow, req *http.Request, reqCap, respCap *cappedWriter, respHdr http.Header, sess *ruleSession, hits ...*rules.Hit) {
 	s.annotateFlow(f, req, reqCap, respCap, respHdr, hits...)
+	if sess != nil && len(sess.respTrailers) > 0 && f != nil && len(f.Response.Trailers) == 0 {
+		f.Response.Trailers = append([]model.Header(nil), sess.respTrailers...)
+	}
 	s.capture(f, sess)
 }
 
@@ -662,7 +676,7 @@ func (s *Server) pausedFlow(req *http.Request, host, scheme string, started time
 		URL:         u,
 		Host:        host,
 		Scheme:      scheme,
-		Protocol:    model.FlowProtocolHTTP11,
+		Protocol:    requestProtocol(req),
 		Status:      status,
 	}
 	s.annotateFlow(f, req, reqCap, respCap, respHdr, hits...)

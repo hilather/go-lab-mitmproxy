@@ -157,6 +157,51 @@ func TestMatchProtocolAND(t *testing.T) {
 	}
 }
 
+func TestMatchPseudoHeaders(t *testing.T) {
+	eng := snapshotEngine(true, model.RuleSpec{
+		ID:      "login",
+		Enabled: true,
+		Phase:   model.RulePhaseRequest,
+		Match: model.RuleMatchSpec{
+			Host:       "app.lab",
+			PathPrefix: "/login",
+			PathExact:  "/login",
+			Method:     "POST",
+			HeaderName: ":path",
+		},
+		Action: model.RuleActionSpec{Type: model.ActionDrop},
+	})
+	ok := Request{
+		Headers: []model.Header{
+			{Name: ":method", Value: "POST"},
+			{Name: ":scheme", Value: "https"},
+			{Name: ":authority", Value: "app.lab:443"},
+			{Name: ":path", Value: "/login?x=1"},
+		},
+	}
+	if hit := eng.Match(model.RulePhaseRequest, ok); hit == nil || hit.ID != "login" {
+		t.Fatalf("pseudos %+v", hit)
+	}
+	bad := ok
+	bad.Headers = append([]model.Header(nil), ok.Headers...)
+	bad.Headers[3].Value = "/other?x=1"
+	if eng.Match(model.RulePhaseRequest, bad) != nil {
+		t.Fatal(":path /other must not match /login")
+	}
+	bad = ok
+	bad.Headers = append([]model.Header(nil), ok.Headers...)
+	bad.Headers[0].Value = "GET"
+	if eng.Match(model.RulePhaseRequest, bad) != nil {
+		t.Fatal(":method GET must not match POST")
+	}
+	bad = ok
+	bad.Headers = append([]model.Header(nil), ok.Headers...)
+	bad.Headers[2].Value = "other.lab:443"
+	if eng.Match(model.RulePhaseRequest, bad) != nil {
+		t.Fatal(":authority other.lab must not match app.lab")
+	}
+}
+
 func TestNilEngine(t *testing.T) {
 	var e *Engine
 	if e.Match(model.RulePhaseRequest, Request{}) != nil || e.Enabled() {
