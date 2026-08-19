@@ -67,7 +67,7 @@ func (m *Memory) Resume(id string, patch *ResumePatch) error {
 	if rec.flow.State != model.FlowStatePaused {
 		return ErrBreakpointInactive
 	}
-	applied := ResumePatch{}
+	var applied ResumePatch
 	if patch != nil {
 		if err := m.applyPatchLocked(rec, *patch); err != nil {
 			return err

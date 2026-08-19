@@ -101,10 +101,6 @@ func (s *Server) matchHit(sess *ruleSession, phase, host string, req *http.Reque
 	return hit
 }
 
-func (s *Server) upstreamCtx(parent context.Context) (context.Context, context.CancelFunc) {
-	return s.upstreamCtxSess(parent, nil)
-}
-
 func (s *Server) upstreamCtxSess(parent context.Context, sess *ruleSession) (context.Context, context.CancelFunc) {
 	to := s.specOf(sess).Proxy.Admission.UpstreamTimeout
 	if to <= 0 {
@@ -206,10 +202,6 @@ func readCapped(r io.Reader, max int64) (prefix []byte, overflow bool, rest io.R
 		return prefix, true, io.MultiReader(bytes.NewReader(extra), r), nil
 	}
 	return prefix, false, nil, nil
-}
-
-func (s *Server) maxBody() int64 {
-	return s.maxBodyOf(nil)
 }
 
 func (s *Server) maxBodyOf(sess *ruleSession) int64 {

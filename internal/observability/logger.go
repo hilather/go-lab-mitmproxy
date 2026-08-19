@@ -231,9 +231,6 @@ func (l *Logger) redact(rec Record) Record {
 	if rec.Host != "" && rec.HostClass == "" {
 		rec.HostClass = ClassifyHost(rec.Host)
 	}
-	if rec.Host == "" && rec.HostClass == "" {
-		// leave both empty
-	}
 	if l == nil || !l.Debug() {
 		rec.Remote = ""
 		// Closed: never put raw Host in info logs; host_class stays.

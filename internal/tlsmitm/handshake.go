@@ -41,11 +41,13 @@ func (a *Authority) ServerConfig(connectHost string) *tls.Config {
 // UpstreamConfig is tls.Client config for an already-dialed origin conn.
 func (a *Authority) UpstreamConfig(sni string) *tls.Config {
 	cfg := &tls.Config{
-		ServerName:         sni,
-		RootCAs:            a.roots,
-		NextProtos:         append([]string(nil), nextProtos...),
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: a != nil && a.insecure,
+		ServerName: sni,
+		NextProtos: append([]string(nil), nextProtos...),
+		MinVersion: tls.VersionTLS12,
+	}
+	if a != nil {
+		cfg.RootCAs = a.roots
+		cfg.InsecureSkipVerify = a.insecure
 	}
 	return cfg
 }

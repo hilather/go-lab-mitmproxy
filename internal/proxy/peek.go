@@ -55,11 +55,11 @@ func (c *peekConn) checkSOCKS() {
 	b, err := c.peek(1)
 	if err != nil {
 		c.err = err
-		_ = c.Conn.Close()
+		_ = c.Close()
 		return
 	}
 	if len(b) > 0 && (b[0] == 0x04 || b[0] == 0x05) {
-		_ = c.Conn.Close()
+		_ = c.Close()
 		if c.reject != nil {
 			c.reject()
 		}

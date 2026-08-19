@@ -55,6 +55,35 @@ func TestHandshakeTrustAndReject(t *testing.T) {
 	}
 }
 
+func TestUpstreamConfigNilAuthority(t *testing.T) {
+	var a *Authority
+	cfg := a.UpstreamConfig("app.lab")
+	if cfg == nil {
+		t.Fatal("nil Authority must still return a tls.Config")
+	}
+	if cfg.ServerName != "app.lab" {
+		t.Fatalf("ServerName=%q", cfg.ServerName)
+	}
+	if cfg.InsecureSkipVerify {
+		t.Fatal("nil Authority must not skip verify")
+	}
+	if cfg.RootCAs != nil {
+		t.Fatal("nil Authority must not set RootCAs")
+	}
+	live, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live.insecure = true
+	got := live.UpstreamConfig("origin.lab")
+	if !got.InsecureSkipVerify {
+		t.Fatal("insecure authority must set InsecureSkipVerify")
+	}
+	if got.RootCAs == nil {
+		t.Fatal("live authority must attach RootCAs")
+	}
+}
+
 func TestHandshakeUntrustedClientFails(t *testing.T) {
 	a, err := New(Options{})
 	if err != nil {
