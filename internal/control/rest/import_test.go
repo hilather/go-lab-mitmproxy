@@ -12,15 +12,16 @@ import (
 func TestRESTImportDAG(t *testing.T) {
 	fset := token.NewFileSet()
 	allowed := map[string]bool{
-		"github.com/hilather/go-lab-mitmproxy/internal/app":          true,
-		"github.com/hilather/go-lab-mitmproxy/internal/audit":        true,
-		"github.com/hilather/go-lab-mitmproxy/internal/auth":         true,
-		"github.com/hilather/go-lab-mitmproxy/internal/buildinfo":    true,
-		"github.com/hilather/go-lab-mitmproxy/internal/capabilities": true,
-		"github.com/hilather/go-lab-mitmproxy/internal/config":       true,
-		"github.com/hilather/go-lab-mitmproxy/internal/domainerr":    true,
-		"github.com/hilather/go-lab-mitmproxy/internal/model":        true,
-		"github.com/hilather/go-lab-mitmproxy/internal/store":        true, // ResumePatch on Service
+		"github.com/hilather/go-lab-mitmproxy/internal/app":           true,
+		"github.com/hilather/go-lab-mitmproxy/internal/audit":         true,
+		"github.com/hilather/go-lab-mitmproxy/internal/auth":          true,
+		"github.com/hilather/go-lab-mitmproxy/internal/buildinfo":     true,
+		"github.com/hilather/go-lab-mitmproxy/internal/capabilities":  true,
+		"github.com/hilather/go-lab-mitmproxy/internal/config":        true,
+		"github.com/hilather/go-lab-mitmproxy/internal/domainerr":     true,
+		"github.com/hilather/go-lab-mitmproxy/internal/model":         true,
+		"github.com/hilather/go-lab-mitmproxy/internal/observability": true,
+		"github.com/hilather/go-lab-mitmproxy/internal/store":         true, // ResumePatch on Service
 	}
 	forbiddenPref := []string{
 		"github.com/modelcontextprotocol",

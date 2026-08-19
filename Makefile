@@ -20,7 +20,7 @@ help:
 		'  vet                 go vet ./...' \
 		'  lint                go vet + golangci-lint $(GOLANGCI_LINT_VERSION)' \
 		'  build               go build -o bin/labmitm ./cmd/labmitm' \
-		'  generate            write api/capabilities/v1.json, api/openapi/v1.json, api/mcp/v1.json' \
+		'  generate            write api/capabilities/v1.json, api/openapi/v1.json, api/mcp/v1.json, api/metrics/v1alpha1.json' \
 		'  verify-generated    fail if generate would change those files' \
 		'  test                go test ./...' \
 		'  test-race           go test -race ./...' \

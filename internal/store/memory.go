@@ -11,6 +11,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 const defaultMaxBodyBytes = int64(1 << 20)
@@ -38,6 +39,8 @@ type Memory struct {
 	subs       []*subscriber
 	waiters    int
 	paused     map[string][]*pauseWaiter
+	metrics    *observability.Registry
+	logger     *observability.Logger
 }
 
 type record struct {
@@ -102,6 +105,34 @@ func New(opts Options) (*Memory, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+// SetTelemetry attaches optional metrics and slog events. Nil is a no-op.
+func (m *Memory) SetTelemetry(r *observability.Registry, l *observability.Logger) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metrics = r
+	m.logger = l
+	m.publishLocked()
+}
+
+func (m *Memory) publishLocked() {
+	if m.metrics == nil {
+		return
+	}
+	m.metrics.Set(observability.MetricStoreFlows, nil, float64(len(m.byID)))
+	m.metrics.Set(observability.MetricStoreBytes, nil, float64(m.bytes))
+	m.metrics.Set(observability.MetricStoreWaiters, nil, float64(m.waiters))
+}
+
+func (m *Memory) logStore(rec observability.Record) {
+	if m == nil || m.logger == nil || rec.Event == "" {
+		return
+	}
+	m.logger.Log(rec)
 }
 
 // CheckOptions validates caps and creates the spill directory when set.
@@ -204,12 +235,22 @@ func (m *Memory) Insert(ctx context.Context, epoch uint64, f *model.Flow) (model
 		}
 	}()
 
+	var recLog observability.Record
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	defer func() {
+		m.mu.Unlock()
+		m.logStore(recLog)
+	}()
 	if epoch != m.epoch {
 		return model.InsertResult{}, ErrStaleEpoch
 	}
 	if err := m.canAcceptLocked(candidate); err != nil {
+		if errors.Is(err, ErrFull) {
+			if m.metrics != nil {
+				m.metrics.Inc(observability.MetricStoreFullTotal, nil, 1)
+			}
+			recLog = observability.Record{Event: observability.EventStoreFull, Component: "store", Result: "store_full"}
+		}
 		return model.InsertResult{}, err
 	}
 	rec := &record{flow: prepared, resident: candidate, wasPaused: prepared.State == model.FlowStatePaused}
@@ -230,6 +271,15 @@ func (m *Memory) Insert(ctx context.Context, epoch uint64, f *model.Flow) (model
 		kind = EventPaused
 	}
 	m.emitLocked(Event{Kind: kind, ID: id, Host: prepared.Host, Gen: m.generation})
+	m.publishLocked()
+	recLog = observability.Record{
+		Event:           observability.EventStoreInserted,
+		Component:       "store",
+		FlowID:          id,
+		Host:            prepared.Host,
+		Result:          "ok",
+		StoreGeneration: m.generation,
+	}
 	committed = true
 	return model.InsertResult{ID: id, Generation: m.generation}, nil
 }
@@ -454,7 +504,15 @@ func (m *Memory) Delete(id string) error {
 		return ErrNotFound
 	}
 	m.removeLocked(id, false)
+	m.publishLocked()
+	recLog := observability.Record{
+		Event:           observability.EventStoreDeleted,
+		Component:       "store",
+		FlowID:          id,
+		StoreGeneration: m.generation,
+	}
 	m.mu.Unlock()
+	m.logStore(recLog)
 	return nil
 }
 
@@ -523,11 +581,13 @@ func (m *Memory) Wait(ctx context.Context, filter model.FlowFilter) (*model.Flow
 			return nil, err
 		}
 		m.waiters++
+		m.publishLocked()
 		m.cond.Wait()
 		m.waiters--
 		if m.waiters < 0 {
 			m.waiters = 0
 		}
+		m.publishLocked()
 	}
 }
 
@@ -625,7 +685,14 @@ func (m *Memory) ResetTo(opts Options) error {
 	m.spillThreshold = opts.SpillThreshold
 	m.cond.Broadcast()
 	m.emitLocked(Event{Kind: EventWiped, Gen: m.generation})
+	m.publishLocked()
+	recLog := observability.Record{
+		Event:           observability.EventStoreWiped,
+		Component:       "store",
+		StoreGeneration: m.generation,
+	}
 	m.mu.Unlock()
+	m.logStore(recLog)
 	return nil
 }
 
@@ -644,7 +711,14 @@ func (m *Memory) Wipe() {
 	_ = m.unlinkAllSpill()
 	m.cond.Broadcast()
 	m.emitLocked(Event{Kind: EventWiped, Gen: m.generation})
+	m.publishLocked()
+	recLog := observability.Record{
+		Event:           observability.EventStoreWiped,
+		Component:       "store",
+		StoreGeneration: m.generation,
+	}
 	m.mu.Unlock()
+	m.logStore(recLog)
 }
 
 func (m *Memory) removeLocked(id string, eviction bool) {
@@ -667,6 +741,9 @@ func (m *Memory) removeLocked(id string, eviction bool) {
 	m.generation++
 	if eviction {
 		m.evictions++
+		if m.metrics != nil {
+			m.metrics.Inc(observability.MetricStoreEvictions, nil, 1)
+		}
 	}
 	m.finishPausedLocked(id, pauseResult{err: ErrNotFound})
 	m.cond.Broadcast()

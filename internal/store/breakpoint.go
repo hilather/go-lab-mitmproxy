@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 type pauseWaiter struct {
@@ -39,6 +40,15 @@ func (m *Memory) Pause(id string) error {
 	m.generation++
 	m.cond.Broadcast()
 	m.emitLocked(Event{Kind: EventPaused, ID: id, Host: rec.flow.Host, Gen: m.generation})
+	m.publishLocked()
+	recLog := observability.Record{
+		Event:           observability.EventFlowPaused,
+		Component:       "store",
+		FlowID:          id,
+		Host:            rec.flow.Host,
+		StoreGeneration: m.generation,
+	}
+	m.logStore(recLog)
 	return nil
 }
 
@@ -75,6 +85,15 @@ func (m *Memory) Resume(id string, patch *ResumePatch) error {
 	m.finishPausedLocked(id, pauseResult{patch: applied})
 	m.cond.Broadcast()
 	m.emitLocked(Event{Kind: EventResumed, ID: id, Host: rec.flow.Host, Gen: m.generation})
+	m.publishLocked()
+	recLog := observability.Record{
+		Event:           observability.EventFlowResumed,
+		Component:       "store",
+		FlowID:          id,
+		Host:            rec.flow.Host,
+		StoreGeneration: m.generation,
+	}
+	m.logStore(recLog)
 	return nil
 }
 

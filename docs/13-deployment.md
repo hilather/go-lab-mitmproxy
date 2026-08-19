@@ -38,7 +38,7 @@ Flag semantics (LabMail-shaped; **no** `serve --token-file`):
 
 `labmitm send` / `labmitm request` are **not** shipped.
 
-PROXY-001 implements `serve` (proxy bind only; `--management-listen` defaults to `off`; no `--token-file`). MCP-001 implements `mcp-stdio` (`--config` and `--token-file` required; stdout is protocol, stderr is logs) and mounts `POST /mcp` on the management listener. `healthcheck` remains unimplemented. Invalid bootstrap binds nothing.
+PROXY-001 implements `serve`. MCP-001 implements `mcp-stdio` and mounts `POST /mcp`. OBS-001 implements `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/ready`. Invalid bootstrap binds nothing. Metrics scrape listen defaults to `127.0.0.1:9090`.
 
 ## Hardened container
 

@@ -8,6 +8,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/control/mcp"
 	"github.com/hilather/go-lab-mitmproxy/internal/control/rest"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 func TestPlannedFiles(t *testing.T) {
@@ -22,7 +23,7 @@ func TestPlannedFiles(t *testing.T) {
 			t.Errorf("empty %s", f.rel)
 		}
 	}
-	if !got[capabilities.ManifestRelPath] || !got[rest.OpenAPIRelPath] || !got[mcp.ManifestRelPath] {
+	if !got[capabilities.ManifestRelPath] || !got[rest.OpenAPIRelPath] || !got[mcp.ManifestRelPath] || !got[observability.CatalogRelPath] {
 		t.Fatalf("planned=%v", got)
 	}
 }

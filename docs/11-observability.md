@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (OBS-001)
 Related ADRs: 0001
 
 ## Logs (`log/slog` JSON)
 
-Frozen event names (`labmitm.dev/metrics/v1alpha1`; generated from `internal/observability`):
+Frozen event names in [`api/metrics/v1alpha1.json`](https://github.com/hilather/go-lab-mitmproxy/blob/main/api/metrics/v1alpha1.json) (`labmitm.dev/metrics/v1alpha1`; generated from `internal/observability`):
 
 ```
 proxy.accepted proxy.rejected proxy.session_end
@@ -23,7 +23,7 @@ Fields: `timestamp`, `level`, `event`, `component`, `request_id`, `flow_id`, `ho
 
 ## Metrics (hand-rolled OpenMetrics)
 
-Same style as LabDNS / LabMail `internal/observability`. No `github.com/prometheus/*`. Default listen `127.0.0.1:9090` (empty disables). `publicPath: true` exposes authenticated `GET /v1/metrics`. Scrape listener is unauthenticated (bind loopback).
+Same exposition style as LabDNS / LabMail `internal/observability`: write OpenMetrics text; **do not** import `github.com/prometheus/*`. Go source of truth: `internal/observability`. `make generate` / `make verify-generated` keep [`api/metrics/v1alpha1.json`](https://github.com/hilather/go-lab-mitmproxy/blob/main/api/metrics/v1alpha1.json) current. `spec.observability.metrics.listen` default `127.0.0.1:9090` (empty disables). A lab overlay that needs compose scraping sets `listen: ":9090"` (or `0.0.0.0:9090`). `publicPath: true` exposes authenticated `GET /v1/metrics` on the management listener; default `false`. The scrape listener serves `/metrics` unauthenticated (bind loopback unless the overlay needs compose scraping).
 
 Bounded labels only.
 

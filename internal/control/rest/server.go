@@ -17,6 +17,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 const (
@@ -75,8 +76,12 @@ type Config struct {
 	RatePerSec float64
 	// RateBurst is the per-source burst. Zero uses config default.
 	RateBurst float64
-	// PublicMetrics serves GET /v1/metrics. False returns not_found (OBS-001).
+	// PublicMetrics serves GET /v1/metrics. False returns not_found.
 	PublicMetrics bool
+	// Metrics is the process registry. Nil skips HTTP counters and /v1/metrics body.
+	Metrics *observability.Registry
+	// Logger emits slog JSON events. Nil is a no-op.
+	Logger *observability.Logger
 	// SSEHeartbeat is the events stream comment interval. Non-positive uses 15s.
 	SSEHeartbeat time.Duration
 	// Auth is the shared verifier. Nil is deny-all (not allow-all).
@@ -104,6 +109,8 @@ type Server struct {
 	timeout      time.Duration
 	inflight     chan struct{}
 	rate         *limiter
+	metrics      *observability.Registry
+	logger       *observability.Logger
 	sseHeartbeat time.Duration
 
 	cursorMu  sync.Mutex
@@ -150,6 +157,8 @@ func New(cfg Config) (*Server, error) {
 		timeout:      timeout,
 		inflight:     make(chan struct{}, n),
 		rate:         newLimiter(cfg.RatePerSec, cfg.RateBurst),
+		metrics:      cfg.Metrics,
+		logger:       cfg.Logger,
 		sseHeartbeat: hb,
 		cursorKey:    key,
 	}
@@ -276,11 +285,16 @@ func (s *Server) RotateCursors() {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+	w = sw
 	reqID := requestID(r)
 	w.Header().Set(headerRequestID, reqID)
 	instance := requestURNPrefix + reqID
-	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
-	w = sw
+	capID := ""
+	defer func() {
+		s.observeHTTP(capID, sw.status(), start)
+	}()
 
 	if err := checkOrigin(r.Header.Get("Origin"), s.cfg.AllowedOrigins); err != nil {
 		s.writeProblem(w, r, instance, err)
@@ -320,6 +334,9 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt, params, pathOK, methodOK := matchRoute(s.routes, r.Method, r.URL.Path)
+	if pathOK {
+		capID = string(rt.cap.ID)
+	}
 	if !pathOK {
 		if s.tryUI(w, r, instance) {
 			return
@@ -445,6 +462,41 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) {
 	w.code = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) status() int {
+	if w == nil || w.code == 0 {
+		return http.StatusOK
+	}
+	return w.code
+}
+
+func (s *Server) observeHTTP(capability string, status int, start time.Time) {
+	if s == nil {
+		return
+	}
+	if capability == "" {
+		capability = "unknown"
+	}
+	cls := observability.CodeClass(status)
+	if s.metrics != nil {
+		s.metrics.Inc(observability.MetricHTTPRequestsTotal, map[string]string{
+			"capability": capability,
+			"code_class": cls,
+		}, 1)
+		s.metrics.Observe(observability.MetricHTTPRequestDuration, map[string]string{
+			"capability": capability,
+		}, time.Since(start).Seconds())
+	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:      observability.EventHTTPRequest,
+			Component:  "rest",
+			Capability: capability,
+			Result:     cls,
+			DurationMS: float64(time.Since(start).Milliseconds()),
+		})
+	}
 }
 
 func (w *statusWriter) Flush() {

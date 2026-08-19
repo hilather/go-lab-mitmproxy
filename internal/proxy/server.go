@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
@@ -42,6 +43,9 @@ type Options struct {
 	// Snapshots is the atomic config pointer. ServeHTTP / CONNECT load
 	// once and pin the snapshot for the rest of the session.
 	Snapshots *snapshot.Store
+	// Metrics and Logger are optional. Nil is a no-op.
+	Metrics *observability.Registry
+	Logger  *observability.Logger
 }
 
 // Server is the HTTP/1.1 forward-proxy listener.
@@ -100,6 +104,7 @@ func New(opts Options) (*Server, error) {
 		cancel:   cancel,
 		hijacked: make(map[net.Conn]struct{}),
 	}
+	s.metrics.attach(opts.Metrics, opts.Logger)
 	if s.inbox == nil {
 		if ss, ok := sink.(*storeSink); ok {
 			s.inbox = ss.s
@@ -397,6 +402,7 @@ func (s *Server) capture(f *model.Flow, sess *ruleSession) {
 	if s.sink == nil || f == nil {
 		return
 	}
+	s.metrics.flow(f)
 	if ss, ok := s.sink.(*storeSink); ok {
 		_, err := ss.s.Insert(s.ctx, s.sessionEpoch(sess), f)
 		if err != nil && errors.Is(err, store.ErrFull) {

@@ -280,7 +280,7 @@ labmitm help
 
 There is **no** `serve --token-file`. `labmitm send` / `labmitm request` are **not** shipped.
 
-TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`, default ports `{443}`). API-001 binds management REST when `--management-listen` is an address **and** `management.auth.mode: bearer` has ≥1 usable token. Missing token files fail serve. `--management-listen=off` leaves management unbound.
+TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`, default ports `{443}`). API-001 binds management REST when `--management-listen` is an address **and** `management.auth.mode: bearer` has ≥1 usable token. Missing token files fail serve. `--management-listen=off` leaves management unbound. OBS-001 implements `labmitm healthcheck` and the `127.0.0.1:9090` scrape listener.
 
 ## Invariants
 

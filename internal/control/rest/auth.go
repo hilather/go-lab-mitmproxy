@@ -12,6 +12,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 func actorOf(p auth.Principal, transport string) app.Actor {
@@ -30,18 +31,42 @@ func (s *Server) authenticate(r *http.Request, skip bool) (app.Actor, error) {
 	}
 	// Nil Auth is deny-all. Allow-all is not a 1.0 posture.
 	if s.cfg.Auth == nil {
+		s.observeAuthFailure("denied")
 		return app.Actor{}, domainerr.Unauthenticated("authentication required")
 	}
 
 	hdr := strings.TrimSpace(r.Header.Get("Authorization"))
+	if hdr == "" {
+		s.observeAuthFailure("missing")
+		return app.Actor{}, domainerr.Unauthenticated("authentication required")
+	}
 	p, err := s.cfg.Auth.Authenticate(auth.Request{
 		Authorization: hdr,
 		RemoteAddr:    r.RemoteAddr,
 	})
 	if err != nil {
+		s.observeAuthFailure("invalid")
 		return app.Actor{}, err
 	}
 	return actorOf(p, "rest"), nil
+}
+
+func (s *Server) observeAuthFailure(reason string) {
+	if s == nil {
+		return
+	}
+	reason = observability.AuthFailureReason(reason)
+	if s.metrics != nil {
+		s.metrics.Inc(observability.MetricAuthFailuresTotal, map[string]string{"reason": reason}, 1)
+	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:     observability.EventAuthFailure,
+			Component: "rest",
+			Result:    reason,
+			ErrorCode: string(domainerr.CodeUnauthenticated),
+		})
+	}
 }
 
 func (s *Server) authorize(_ *http.Request, actor app.Actor, cap capabilities.Capability) error {

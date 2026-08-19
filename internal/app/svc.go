@@ -11,6 +11,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 )
@@ -29,6 +30,8 @@ type Options struct {
 	IdempotencyMax int
 	AuditMax       int
 	Auditor        audit.Sink
+	Metrics        *observability.Registry
+	Logger         *observability.Logger
 }
 
 // App is the process-local Service implementation.
@@ -43,8 +46,10 @@ type App struct {
 	resetHooks    []func()
 	applyHooks    []func()
 	replay        ReplayFunc
+	metrics       *observability.Registry
+	logger        *observability.Logger
 	healthMu      sync.Mutex
-	health        func() HealthFacts
+	health        func() observability.Facts
 }
 
 var _ Service = (*App)(nil)
@@ -69,6 +74,9 @@ func New(opts Options) *App {
 			auditMax = defaultAuditMax
 		}
 	}
+	if opts.Inbox != nil {
+		opts.Inbox.SetTelemetry(opts.Metrics, opts.Logger)
+	}
 	return &App{
 		snaps:         opts.Snapshots,
 		inbox:         opts.Inbox,
@@ -76,6 +84,8 @@ func New(opts Options) *App {
 		bootstrapPath: opts.BootstrapPath,
 		idemp:         newIdempCache(idempMax),
 		audit:         audit.NewFanout(auditMax, opts.Auditor),
+		metrics:       opts.Metrics,
+		logger:        opts.Logger,
 	}
 }
 
@@ -139,9 +149,9 @@ func (s *App) Close() {
 	s.inbox.Wipe()
 }
 
-// SetHealth installs live listener facts for Status.Ready.
+// SetHealth installs live listener facts for Status.Ready / Evaluate.
 // A nil fn restores the store-only default (listeners assumed up).
-func (s *App) SetHealth(fn func() HealthFacts) {
+func (s *App) SetHealth(fn func() observability.Facts) {
 	if s == nil {
 		return
 	}
@@ -150,11 +160,11 @@ func (s *App) SetHealth(fn func() HealthFacts) {
 	s.healthMu.Unlock()
 }
 
-// HealthFacts is the input to Status.Ready. Without SetHealth, Ready means
-// the inbox exists (HTTP-less / httptest default).
-func (s *App) HealthFacts() HealthFacts {
+// HealthFacts is the input to observability.Evaluate. Without SetHealth,
+// Ready means the inbox exists (HTTP-less / httptest default).
+func (s *App) HealthFacts() observability.Facts {
 	if s == nil {
-		return HealthFacts{}
+		return observability.Facts{}
 	}
 	s.healthMu.Lock()
 	fn := s.health
@@ -170,17 +180,7 @@ func (s *App) HealthFacts() HealthFacts {
 		f.CAReady = caReady
 		return f
 	}
-	return HealthFacts{StoreUp: storeUp, ProxyBound: storeUp, MgmtBound: storeUp, CAReady: caReady}
-}
-
-func ready(f HealthFacts) bool {
-	if !f.StoreUp || !f.ProxyBound || !f.CAReady {
-		return false
-	}
-	if !f.MgmtBound && !f.MgmtOff {
-		return false
-	}
-	return true
+	return observability.Facts{StoreUp: storeUp, ProxyBound: storeUp, MgmtBound: storeUp, CAReady: caReady}
 }
 
 func (s *App) requireCtx(ctx context.Context) error {
