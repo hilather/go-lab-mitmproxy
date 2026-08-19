@@ -1,4 +1,4 @@
-package rest
+package compat
 
 import (
 	"go/parser"
@@ -9,26 +9,19 @@ import (
 	"testing"
 )
 
-func TestRESTImportDAG(t *testing.T) {
+func TestCompatImportDAG(t *testing.T) {
 	fset := token.NewFileSet()
 	allowed := map[string]bool{
-		"github.com/hilather/go-lab-mitmproxy/internal/app":            true,
-		"github.com/hilather/go-lab-mitmproxy/internal/audit":          true,
-		"github.com/hilather/go-lab-mitmproxy/internal/auth":           true,
-		"github.com/hilather/go-lab-mitmproxy/internal/buildinfo":      true,
-		"github.com/hilather/go-lab-mitmproxy/internal/capabilities":   true,
-		"github.com/hilather/go-lab-mitmproxy/internal/control/compat": true,
-		"github.com/hilather/go-lab-mitmproxy/internal/config":         true,
-		"github.com/hilather/go-lab-mitmproxy/internal/domainerr":      true,
-		"github.com/hilather/go-lab-mitmproxy/internal/model":          true,
-		"github.com/hilather/go-lab-mitmproxy/internal/observability":  true,
-		"github.com/hilather/go-lab-mitmproxy/internal/store":          true, // ResumePatch on Service
+		"github.com/hilather/go-lab-mitmproxy/internal/app":   true,
+		"github.com/hilather/go-lab-mitmproxy/internal/model": true,
 	}
 	forbiddenPref := []string{
-		"github.com/modelcontextprotocol",
-		"github.com/hilather/go-lab-mitmproxy/internal/compiler",
+		"github.com/hilather/go-lab-mitmproxy/internal/store",
 		"github.com/hilather/go-lab-mitmproxy/internal/proxy",
+		"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm",
+		"github.com/hilather/go-lab-mitmproxy/internal/control/rest",
 		"github.com/hilather/go-lab-mitmproxy/internal/control/mcp",
+		"github.com/hilather/go-lab-mitmproxy/internal/compiler",
 		"github.com/hilather/go-lab-mitmproxy/internal/web",
 		"net/smtp",
 	}
@@ -54,6 +47,27 @@ func TestRESTImportDAG(t *testing.T) {
 				t.Errorf("%s production import %q", path, ipath)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNoDialIdents(t *testing.T) {
+	fset := token.NewFileSet()
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		astInspectDial(t, fset, path, f)
 		return nil
 	})
 	if err != nil {

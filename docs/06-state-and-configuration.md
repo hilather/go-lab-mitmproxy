@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-19 (1.1 additive schema + accept mux D42)
+Last reviewed: 2026-08-19 (accept mux D42 + compat flow REST)
 Related ADRs: 0003, 0008
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -130,7 +130,7 @@ spec:
     http2:
       enabled: false
 
-  compat:                          # 1.1; Reset-only; no /compat on catalog()
+  compat:                          # 1.1; Reset-only; no /compat on catalog() / native compileRoutes
     flowREST:
       enabled: false
       pathPrefix: /compat          # validated against configured restPath/mcpPath

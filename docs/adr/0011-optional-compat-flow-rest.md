@@ -30,7 +30,7 @@ This ADR supersedes ADR 0007 D5’s **“no compat path in 1.0” sentence** onl
 
 ## Consequences
 
-- Native catalog REST paths stay `/v1` only. `compileRoutes` must not see `/compat` in the foundation PR.
+- Native catalog REST paths stay `/v1` only. Native `compileRoutes` must not see `/compat`. Extra routes are compiled from `CompatBindings()` and matched after authenticate/authorize.
 - Enable/disable requires bootstrap YAML + Reset.
 - D7 is **not** superseded.
 

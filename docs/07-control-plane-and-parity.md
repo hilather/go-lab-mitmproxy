@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP
-Last reviewed: 2026-08-19 (1.1 CompatBindings side table)
+Last reviewed: 2026-08-19 (1.1 compat flow REST after auth)
 Related ADRs: 0004, 0005, 0006, 0007, 0011
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
@@ -15,19 +15,20 @@ STA-001 lands `internal/app.Service` (plan/apply/reset/export, flow list/get/del
 internal/capabilities     declarations (no app import)
 internal/app              Service methods
 internal/control/rest     HTTP /v1
+internal/control/compat   LabMITM compat flow REST mappers (mitmproxy-inspired subset)
 internal/control/mcp      Streamable HTTP /mcp
 internal/auth             bearer → Principal
 internal/audit            ring
 ```
 
-There is **no** `internal/control/compat` yet. `capabilities.CompatBindings()` is a **side table** of `REST_ONLY_PROTOCOL` extra spellings of existing `flows.*` IDs under default prefix `/compat`. `catalog()` / `All()` / `compileRoutes` / `RenderOpenAPI` do **not** include those paths. `TableRowCount` stays 30. Native REST paths stay `/v1` only. A later PR matches the side table **after** authenticate/authorize (not `dispatchMount`).
+`capabilities.CompatBindings()` is a **side table** of `REST_ONLY_PROTOCOL` extra spellings of existing `flows.*` IDs under default prefix `/compat`. `catalog()` / `All()` / native `compileRoutes` do **not** include those paths. `TableRowCount` stays 30. Native REST paths stay `/v1` only. `rest.Server` compiles the side table as extra routes and matches them **after** authenticate/authorize (not `dispatchMount`, not native `handleListFlows`). `RenderOpenAPI` emits the extra paths tagged `REST_ONLY`. No new MCP tools. Lab contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md). Headline: **LabMITM compat flow REST (mitmproxy-inspired subset).** Do not claim mitmproxy 11 compatible.
 
 ## Dispositions
 
 | Disposition | Examples |
 |---|---|
 | `PARITY_REQUIRED` | flows list/get/delete/clear/wait/resume/drop/replay, state get/validate/export/reset, status, schema, audit, changes plan/apply, ca get |
-| `REST_ONLY_PROTOCOL` | live/ready, OpenAPI, UI assets, session/CSRF, `/v1/metrics`, raw body download `Content-Type` streams; **1.1 extra spellings** of the same `flows.*` IDs under `/compat` (side table only; not on `catalog()`) |
+| `REST_ONLY_PROTOCOL` | live/ready, OpenAPI, UI assets, session/CSRF, `/v1/metrics`, raw body download `Content-Type` streams; **1.1 extra spellings** of the same `flows.*` IDs under `/compat` (side table + after-auth mappers; not on `catalog()`) |
 | `MCP_ONLY_PROTOCOL` | `tools/list`, `resources/list`, protocol negotiate |
 | `PARITY_DIFFERENT_BINDING` | `events.stream`: REST SSE vs MCP `subscriptions/listen` URI-only notify + `mitm_flows_list` |
 | `EXEMPT_BY_ADR` | no OAuth PRM (ADR 0005) |

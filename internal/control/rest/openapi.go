@@ -48,6 +48,12 @@ func openAPITags() []any {
 		seen[name] = true
 		tags = append(tags, map[string]any{"name": name, "description": c.Description})
 	}
+	if !seen["compat"] {
+		tags = append(tags, map[string]any{
+			"name":        "compat",
+			"description": "LabMITM compat flow REST (mitmproxy-inspired subset). REST_ONLY extra spellings of flows.* IDs. Not mitmproxy 11 compatible. Not MCP.",
+		})
+	}
 	return tags
 }
 
@@ -71,7 +77,64 @@ func openAPIPaths() map[string]any {
 			paths[b.Path] = item
 		}
 	}
+	for _, c := range capabilities.CompatBindings() {
+		for _, b := range c.REST {
+			item, _ := paths[b.Path].(map[string]any)
+			if item == nil {
+				item = map[string]any{}
+			}
+			item[strings.ToLower(b.Method)] = openAPICompatOperation(c, b)
+			paths[b.Path] = item
+		}
+	}
 	return paths
+}
+
+func openAPICompatOperation(c capabilities.Capability, b capabilities.RESTBinding) map[string]any {
+	op := openAPIOperation(c, b)
+	op["tags"] = []any{"compat"}
+	op["x-rest-only"] = true
+	op["x-parity"] = "REST_ONLY_PROTOCOL"
+	if c.ID == capabilities.FlowsList {
+		op["parameters"] = pathParameters(b.Path)
+		op["responses"] = map[string]any{
+			"200": map[string]any{
+				"description": "Newest 200 mapped flows as a JSON array.",
+				"headers": map[string]any{
+					"X-LabMITM-Truncated": map[string]any{
+						"description": "true when more than 200 flows exist.",
+						"schema":      map[string]any{"type": "boolean"},
+					},
+				},
+				"content": map[string]any{
+					"application/json": map[string]any{
+						"schema": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/CompatFlow"}},
+					},
+				},
+			},
+			"default": problemResponse(),
+		}
+	}
+	if c.ID == capabilities.FlowsClear {
+		op["responses"] = map[string]any{
+			"204":     map[string]any{"description": c.Title},
+			"default": problemResponse(),
+		}
+	}
+	if c.ID == capabilities.FlowsGet || c.ID == capabilities.FlowsReplay {
+		op["responses"] = map[string]any{
+			"200": map[string]any{
+				"description": c.Title,
+				"content": map[string]any{
+					"application/json": map[string]any{
+						"schema": map[string]any{"$ref": "#/components/schemas/CompatFlow"},
+					},
+				},
+			},
+			"default": problemResponse(),
+		}
+	}
+	return op
 }
 
 func openAPIOperation(c capabilities.Capability, b capabilities.RESTBinding) map[string]any {
@@ -279,6 +342,18 @@ func openAPIComponents() map[string]any {
 			"type": "object",
 			"properties": map[string]any{
 				"status": map[string]any{"type": "string"},
+			},
+		},
+		"CompatFlow": map[string]any{
+			"type":        "object",
+			"description": "LabMITM compat flow REST (mitmproxy-inspired subset). Not a mitmproxy 11 drop-in.",
+			"properties": map[string]any{
+				"id":          map[string]any{"type": "string"},
+				"intercepted": map[string]any{"type": "boolean"},
+				"type":        map[string]any{"type": "string"},
+				"error":       map[string]any{"type": "string", "nullable": true},
+				"request":     map[string]any{"type": "object"},
+				"response":    map[string]any{"type": "object", "nullable": true},
 			},
 		},
 		"State": specSchema(),

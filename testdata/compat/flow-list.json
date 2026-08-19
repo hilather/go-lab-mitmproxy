@@ -1,0 +1,33 @@
+[
+  {
+    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "intercepted": true,
+    "type": "http",
+    "error": null,
+    "request": {
+      "method": "GET",
+      "scheme": "https",
+      "host": "app.lab",
+      "port": 443,
+      "path": "/login",
+      "http_version": "HTTP/2.0",
+      "headers": [
+        [":method", "GET"],
+        [":authority", "app.lab"],
+        ["user-agent", "curl"]
+      ],
+      "contentLength": 0,
+      "timestamp_start": 1787155200.123
+    },
+    "response": {
+      "status_code": 200,
+      "reason": "OK",
+      "http_version": "HTTP/2.0",
+      "headers": [
+        ["content-type", "text/plain"]
+      ],
+      "contentLength": 2,
+      "timestamp_end": 1787155200.200
+    }
+  }
+]

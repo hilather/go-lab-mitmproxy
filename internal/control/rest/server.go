@@ -90,7 +90,7 @@ type Config struct {
 	Sessions *auth.Store
 	// CookieSecure forces the Secure flag (management TLS).
 	CookieSecure bool
-	// UI serves the embedded stub/SPA when a request is not a native /v1 or MCP path.
+	// UI serves the embedded stub/SPA when a request is not a native /v1, MCP, or live compat prefix.
 	// rest must not import internal/web; cmd wires this.
 	UI http.Handler
 	// UIEnabled reports spec.ui.enabled. Nil means enabled whenever UI != nil.
@@ -106,6 +106,7 @@ type Server struct {
 	cfg          Config
 	svc          app.Service
 	routes       []compiledRoute
+	compatRoutes []compiledRoute
 	handler      http.Handler
 	maxBody      int64
 	timeout      time.Duration
@@ -166,6 +167,7 @@ func New(cfg Config) (*Server, error) {
 		cfg:          cfg,
 		svc:          cfg.Service,
 		routes:       compileRoutes(capabilities.All()),
+		compatRoutes: compileRoutes(capabilities.CompatBindings()),
 		maxBody:      maxBody,
 		timeout:      timeout,
 		inflight:     make(chan struct{}, n),
@@ -350,37 +352,39 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	rt, params, pathOK, methodOK := matchRoute(s.routes, r.Method, r.URL.Path)
 	if pathOK {
 		capID = string(rt.cap.ID)
-	}
-	if !pathOK {
-		if s.tryUI(w, r, instance) {
+		if !methodOK {
+			w.Header().Set(headerAllow, allowedMethods(s.routes, r.URL.Path))
+			s.writeProblem(w, r, instance, domainerr.MethodNotAllowed("method not allowed"))
 			return
 		}
-		s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
-		return
-	}
-	if !methodOK {
-		w.Header().Set(headerAllow, allowedMethods(s.routes, r.URL.Path))
-		s.writeProblem(w, r, instance, domainerr.MethodNotAllowed("method not allowed"))
-		return
-	}
-
-	if !isHealthCap(rt.cap) {
-		if err := s.rate.allow(r.RemoteAddr); err != nil {
+		if !isHealthCap(rt.cap) {
+			if err := s.rate.allow(r.RemoteAddr); err != nil {
+				s.writeProblem(w, r, instance, err)
+				return
+			}
+		}
+		actor, err := s.authenticate(r, isHealthCap(rt.cap))
+		if err != nil {
 			s.writeProblem(w, r, instance, err)
 			return
 		}
+		if err := s.authorize(r, actor, rt.cap); err != nil {
+			s.writeProblem(w, r, instance, err)
+			return
+		}
+		s.dispatch(w, r, instance, actor, rt, params)
+		return
 	}
 
-	actor, err := s.authenticate(r, isHealthCap(rt.cap))
-	if err != nil {
-		s.writeProblem(w, r, instance, err)
+	// Extra /compat routes are after authenticate/authorize, never dispatchMount.
+	if s.serveCompat(w, r, instance, &capID) {
 		return
 	}
-	if err := s.authorize(r, actor, rt.cap); err != nil {
-		s.writeProblem(w, r, instance, err)
+
+	if s.tryUI(w, r, instance) {
 		return
 	}
-	s.dispatch(w, r, instance, actor, rt, params)
+	s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
 }
 
 func (s *Server) reloadAuth() {

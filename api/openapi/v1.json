@@ -25,6 +25,32 @@
         "description": "Application type ChangeIn.",
         "type": "object"
       },
+      "CompatFlow": {
+        "description": "LabMITM compat flow REST (mitmproxy-inspired subset). Not a mitmproxy 11 drop-in.",
+        "properties": {
+          "error": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "intercepted": {
+            "type": "boolean"
+          },
+          "request": {
+            "type": "object"
+          },
+          "response": {
+            "nullable": true,
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Export": {
         "description": "Application type Export.",
         "type": "object"
@@ -189,6 +215,333 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/compat/flows": {
+      "delete": {
+        "description": "REST_ONLY extra spelling of flows.clear.",
+        "operationId": "delete_compat_flows",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "Clear flows (compat)"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Clear flows (compat)",
+        "tags": [
+          "compat"
+        ],
+        "x-capability-id": "flows.clear",
+        "x-idempotent": true,
+        "x-mutating": true,
+        "x-parity": "REST_ONLY_PROTOCOL",
+        "x-required-scopes": [
+          "mitm.write"
+        ],
+        "x-rest-only": true
+      },
+      "get": {
+        "description": "REST_ONLY extra spelling of flows.list. Not compiled onto native routes.",
+        "operationId": "get_compat_flows",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CompatFlow"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Newest 200 mapped flows as a JSON array.",
+            "headers": {
+              "X-LabMITM-Truncated": {
+                "description": "true when more than 200 flows exist.",
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "List flows (compat)",
+        "tags": [
+          "compat"
+        ],
+        "x-capability-id": "flows.list",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-parity": "REST_ONLY_PROTOCOL",
+        "x-required-scopes": [
+          "mitm.read"
+        ],
+        "x-rest-only": true
+      }
+    },
+    "/compat/flows/{id}": {
+      "delete": {
+        "description": "REST_ONLY extra spelling of flows.delete.",
+        "operationId": "delete_compat_flows_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Delete flow (compat)"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Delete flow (compat)",
+        "tags": [
+          "compat"
+        ],
+        "x-capability-id": "flows.delete",
+        "x-idempotent": true,
+        "x-mutating": true,
+        "x-parity": "REST_ONLY_PROTOCOL",
+        "x-required-scopes": [
+          "mitm.write"
+        ],
+        "x-rest-only": true
+      },
+      "get": {
+        "description": "REST_ONLY extra spelling of flows.get.",
+        "operationId": "get_compat_flows_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompatFlow"
+                }
+              }
+            },
+            "description": "Get flow (compat)"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Get flow (compat)",
+        "tags": [
+          "compat"
+        ],
+        "x-capability-id": "flows.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-parity": "REST_ONLY_PROTOCOL",
+        "x-required-scopes": [
+          "mitm.read"
+        ],
+        "x-rest-only": true
+      }
+    },
+    "/compat/flows/{id}/content/request": {
+      "get": {
+        "description": "REST_ONLY extra spelling of flows.request.",
+        "operationId": "get_compat_flows_id_content_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Raw request body (compat)"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Raw request body (compat)",
+        "tags": [
+          "compat"
+        ],
+        "x-capability-id": "flows.request",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-parity": "REST_ONLY_PROTOCOL",
+        "x-required-scopes": [
+          "mitm.read"
+        ],
+        "x-rest-only": true
+      }
+    },
+    "/compat/flows/{id}/content/response": {
+      "get": {
+        "description": "REST_ONLY extra spelling of flows.response.",
+        "operationId": "get_compat_flows_id_content_response",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Raw response body (compat)"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Raw response body (compat)",
+        "tags": [
+          "compat"
+        ],
+        "x-capability-id": "flows.response",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-parity": "REST_ONLY_PROTOCOL",
+        "x-required-scopes": [
+          "mitm.read"
+        ],
+        "x-rest-only": true
+      }
+    },
+    "/compat/flows/{id}/replay": {
+      "post": {
+        "description": "REST_ONLY extra spelling of flows.replay.",
+        "operationId": "post_compat_flows_id_replay",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompatFlow"
+                }
+              }
+            },
+            "description": "Replay flow (compat)"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Replay flow (compat)",
+        "tags": [
+          "compat"
+        ],
+        "x-capability-id": "flows.replay",
+        "x-idempotent": false,
+        "x-mutating": true,
+        "x-parity": "REST_ONLY_PROTOCOL",
+        "x-required-scopes": [
+          "mitm.write"
+        ],
+        "x-rest-only": true
+      }
+    },
     "/v1/audit": {
       "get": {
         "description": "Query recent in-memory audit events.",
@@ -1619,6 +1972,10 @@
     {
       "description": "OpenMetrics text. Served only when observability.metrics.publicPath is true.",
       "name": "metrics"
+    },
+    {
+      "description": "LabMITM compat flow REST (mitmproxy-inspired subset). REST_ONLY extra spellings of flows.* IDs. Not mitmproxy 11 compatible. Not MCP.",
+      "name": "compat"
     }
   ]
 }
