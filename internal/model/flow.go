@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"net/url"
+	"strings"
+	"time"
+)
 
 const (
 	FlowStateOpen      = "open"
@@ -77,4 +81,97 @@ type Timings struct {
 	TLSMs     int
 	TTFBMs    int
 	TotalMs   int
+}
+
+// InsertResult is the store acknowledgement for one accepted flow.
+type InsertResult struct {
+	ID         string
+	Generation uint64
+}
+
+// FlowFilter selects store rows for List and Wait.
+type FlowFilter struct {
+	Host        string
+	Method      string
+	PathPrefix  string
+	Status      int
+	After       time.Time
+	Intercepted *bool
+	Scheme      string
+	RuleID      string
+}
+
+// ListQuery is a filtered, cursor-paginated flow read.
+type ListQuery struct {
+	Filter FlowFilter
+	Cursor string
+	Limit  int
+}
+
+// ListResult is one page of flows, newest first.
+type ListResult struct {
+	Items      []*Flow
+	NextCursor string
+	Generation uint64
+}
+
+// StoreStats is a point-in-time occupancy snapshot.
+type StoreStats struct {
+	FlowCount  int
+	Bytes      int64
+	Generation uint64
+	Epoch      uint64
+	Evictions  uint64
+}
+
+// EvictTime is CompletedAt when set, otherwise StartedAt (open/paused).
+func (f *Flow) EvictTime() time.Time {
+	if f == nil {
+		return time.Time{}
+	}
+	if !f.CompletedAt.IsZero() {
+		return f.CompletedAt
+	}
+	return f.StartedAt
+}
+
+// Path is the decoded URL path (no query) used by list/wait filters.
+func (f *Flow) Path() string {
+	if f == nil {
+		return ""
+	}
+	if f.URL == "" {
+		return ""
+	}
+	u, err := url.Parse(f.URL)
+	if err != nil {
+		if i := strings.IndexAny(f.URL, "?#"); i >= 0 {
+			return f.URL[:i]
+		}
+		return f.URL
+	}
+	if u.Path == "" {
+		return "/"
+	}
+	return u.Path
+}
+
+// ResidentBytes is request+response bodies plus a header budget.
+// Spilled bodies (nil Body, Size set) still count.
+func (f *Flow) ResidentBytes() int64 {
+	if f == nil {
+		return 0
+	}
+	return messageResident(f.Request) + messageResident(f.Response)
+}
+
+func messageResident(m HTTPMessage) int64 {
+	n := int64(len(m.Body))
+	if n == 0 {
+		n = int64(m.Size)
+	}
+	for i := range m.Headers {
+		n += int64(len(m.Headers[i].Name) + len(m.Headers[i].Value) + 4)
+	}
+	return n
 }

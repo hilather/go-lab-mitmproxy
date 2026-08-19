@@ -13,6 +13,7 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxy"
+	"github.com/hilather/go-lab-mitmproxy/internal/store"
 )
 
 type serveFlags struct {
@@ -73,6 +74,7 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 
 type serveRuntime struct {
 	proxy   *proxy.Server
+	store   *store.Memory
 	pidPath string
 }
 
@@ -89,22 +91,29 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 	if flags.ProxyListen != "" {
 		addr = flags.ProxyListen
 	}
+	inbox, err := store.New(store.OptionsFromSpec(st.Spec.Store))
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
 	srv, err := proxy.New(proxy.Options{
 		Address: addr,
 		Spec:    st.Spec,
-		Sink:    proxy.NewNull(),
+		Sink:    proxy.AdaptStore(inbox),
 	})
 	if err != nil {
+		inbox.Wipe()
 		return nil, err
 	}
 	if err := srv.Start(); err != nil {
+		inbox.Wipe()
 		return nil, err
 	}
 	if err := writePIDFile(flags.PIDFile); err != nil {
 		_ = srv.Shutdown(context.Background())
+		inbox.Wipe()
 		return nil, fmt.Errorf("pid-file: %w", err)
 	}
-	return &serveRuntime{proxy: srv, pidPath: flags.PIDFile}, nil
+	return &serveRuntime{proxy: srv, store: inbox, pidPath: flags.PIDFile}, nil
 }
 
 func managementOff(flagAddr string) bool {
@@ -123,6 +132,9 @@ func (r *serveRuntime) shutdown(ctx context.Context) error {
 	var first error
 	if r.proxy != nil {
 		first = r.proxy.Shutdown(ctx)
+	}
+	if r.store != nil {
+		r.store.Wipe()
 	}
 	if r.pidPath != "" {
 		_ = os.Remove(r.pidPath)

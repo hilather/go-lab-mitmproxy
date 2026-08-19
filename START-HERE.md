@@ -13,7 +13,7 @@ If you want to run what exists today, stay on this page, then follow the [README
 5. `./bin/labmitm canonicalize --config testdata/config/valid/defaults.yaml --format yaml`
 6. `./bin/labmitm serve --config testdata/config/valid/defaults.yaml --proxy-listen 127.0.0.1:8888 --management-listen=off`
 
-`serve` binds the HTTP/1.1 forward proxy. `healthcheck` and `mcp-stdio` remain unimplemented and exit 2. Management is off until a verifier exists. TLS intercept is TLS-001.
+`serve` binds the HTTP/1.1 forward proxy. `healthcheck` and `mcp-stdio` remain unimplemented and exit 2. Management is off until a verifier exists. Set `tls.intercept: true` to mint a lab CA and intercept HTTPS on listed ports.
 
 YAML field rules, revisions, and reset live in [docs/06-state-and-configuration.md](docs/06-state-and-configuration.md). Proxy accept/reject tables live in [docs/02-proxy-semantics.md](docs/02-proxy-semantics.md). REST and MCP twins are in [docs/08-rest-api.md](docs/08-rest-api.md) and [docs/09-mcp-api.md](docs/09-mcp-api.md).
 

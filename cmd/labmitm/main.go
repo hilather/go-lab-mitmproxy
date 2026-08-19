@@ -54,8 +54,9 @@ const usageText = `usage: labmitm <command>
 
 LabMITM is a laboratory HTTP(S) intercepting proxy. validate and
 canonicalize load a fail-closed labmitm.dev/v1alpha1 document. serve
-binds the HTTP/1.1 forward proxy. Management, TLS intercept, REST,
-and MCP are not bound yet.
+binds the HTTP/1.1 forward proxy (tls.intercept is a data-plane
+knob, not a second listener). Management, REST, and MCP are not
+bound yet.
 
 Commands:
   version         print build and protocol metadata

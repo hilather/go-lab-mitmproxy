@@ -69,6 +69,9 @@ func TestHelp(t *testing.T) {
 	if !strings.Contains(stdout.String(), "validate") || !strings.Contains(stdout.String(), "canonicalize") {
 		t.Fatalf("help %q missing validate/canonicalize", stdout.String())
 	}
+	if strings.Contains(stdout.String(), "Management, TLS intercept") {
+		t.Fatalf("help still lists TLS intercept as unbound: %q", stdout.String())
+	}
 }
 
 func TestValidateAndCanonicalize(t *testing.T) {

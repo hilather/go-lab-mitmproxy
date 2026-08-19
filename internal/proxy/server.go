@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/store"
+	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
 // DefaultShutdownWait is the serve drain deadline when none is configured.
@@ -28,6 +30,9 @@ type Options struct {
 	Resolver Resolver
 	// DialContext, when set, replaces dialTCP (tests record outbound).
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	// Authority is the lab CA. When nil and spec.tls.intercept is true,
+	// New generates or loads one from spec.tls.ca.
+	Authority *tlsmitm.Authority
 }
 
 // Server is the HTTP/1.1 forward-proxy listener.
@@ -37,6 +42,7 @@ type Server struct {
 	sink     Sink
 	resolver Resolver
 	dialFn   func(ctx context.Context, network, addr string) (net.Conn, error)
+	auth     *tlsmitm.Authority
 	gate     *gate
 	metrics  *Metrics
 	tr       *http.Transport
@@ -83,7 +89,31 @@ func New(opts Options) (*Server, error) {
 	}
 	s.spec.Store(&spec)
 	s.tr = s.newCleartextTransport()
+	auth := opts.Authority
+	if auth == nil && spec.TLS.Intercept {
+		var err error
+		auth, err = tlsmitm.New(tlsmitm.Options{
+			Mode:               spec.TLS.CA.Mode,
+			CertFile:           spec.TLS.CA.CertFile,
+			KeyFile:            spec.TLS.CA.KeyFile,
+			InsecureSkipVerify: spec.TLS.Upstream.InsecureSkipVerify,
+			ExtraCAFiles:       spec.TLS.Upstream.ExtraCAFiles,
+		})
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("proxy: lab CA: %w", err)
+		}
+	}
+	s.auth = auth
 	return s, nil
+}
+
+// Authority is the in-process lab CA (nil when intercept is off).
+func (s *Server) Authority() *tlsmitm.Authority {
+	if s == nil {
+		return nil
+	}
+	return s.auth
 }
 
 const (
@@ -339,5 +369,44 @@ func (s *Server) capture(f *model.Flow) {
 	if s.sink == nil || f == nil {
 		return
 	}
+	if ss, ok := s.sink.(*storeSink); ok {
+		_, err := ss.s.Insert(s.ctx, ss.s.Epoch(), f)
+		if err != nil && errors.Is(err, store.ErrFull) {
+			s.metrics.storeFullInc()
+			if ss.onFull != nil {
+				ss.onFull()
+			}
+		}
+		return
+	}
 	s.sink.Insert(s.ctx, f)
+}
+
+// AdaptStore wraps a store.Store as a best-effort Sink. Insert errors
+// (including ErrFull) are ignored so the client hop still succeeds.
+func AdaptStore(s store.Store) Sink {
+	return AdaptStoreNotify(s, nil)
+}
+
+// AdaptStoreNotify is AdaptStore with an optional full-reject hook (tests/metrics).
+func AdaptStoreNotify(s store.Store, onFull func()) Sink {
+	if s == nil {
+		return NewNull()
+	}
+	return &storeSink{s: s, onFull: onFull}
+}
+
+type storeSink struct {
+	s      store.Store
+	onFull func()
+}
+
+func (a *storeSink) Insert(ctx context.Context, f *model.Flow) {
+	if a == nil || a.s == nil || f == nil {
+		return
+	}
+	_, err := a.s.Insert(ctx, a.s.Epoch(), f)
+	if err != nil && errors.Is(err, store.ErrFull) && a.onFull != nil {
+		a.onFull()
+	}
 }

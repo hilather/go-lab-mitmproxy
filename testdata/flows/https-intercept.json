@@ -1,0 +1,28 @@
+{
+  "method": "GET",
+  "url": "https://app.lab.test/secret",
+  "host": "app.lab.test",
+  "scheme": "https",
+  "protocol": "http/1.1",
+  "status": 200,
+  "state": "completed",
+  "intercepted": true,
+  "request": {
+    "headers": [{"Name": "Host", "Value": "app.lab.test"}],
+    "body": "",
+    "size": 0
+  },
+  "response": {
+    "headers": [{"Name": "Content-Type", "Value": "text/plain"}],
+    "body": "c2VjcmV0",
+    "size": 6
+  },
+  "tls": {
+    "SNI": "app.lab.test",
+    "Version": "TLS 1.3",
+    "CipherSuite": "TLS_AES_128_GCM_SHA256",
+    "ALPN": "http/1.1",
+    "UpstreamVerified": true,
+    "LeafDNS": ["app.lab.test"]
+  }
+}

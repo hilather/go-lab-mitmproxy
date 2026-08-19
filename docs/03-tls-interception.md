@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: TLS, Proxy, Security
-Last reviewed: 2026-08-18 (PROXY-001)
+Last reviewed: 2026-08-18 (TLS-001)
 Related ADRs: 0002
 
 Package `internal/tlsmitm`. Only this package and `internal/proxy` touch `crypto/tls` on the data plane. Management TLS (optional) lives in `internal/control/rest` like LabMail. `internal/tlsmitm` must **not** Dial.
 
-**PROXY-001 residual:** `shouldIntercept` exists as a hook; CONNECT always raw-tunnels. TLS-001 implements mint + dual handshake and must not fall back to a blind tunnel on handshake failure (D20).
+TLS-001 implements generate/files CA, per-host leaf mint, and dual handshake. Handshake failure closes both sides and does not fall back to a blind tunnel (D20). `GET /v1/ca` is API-001.
 
 ## CA
 
@@ -81,6 +81,8 @@ Changing intercept/CA/ports requires compile (apply `replaceTLS` or reset). In-f
 Operators download `GET /v1/ca` (`application/x-pem-file`, scope `mitm.read` — **not** on the unauthenticated data plane) or use the UI “Download lab CA” button and install it in the system / browser / language trust store. Document `curl --proxy http://127.0.0.1:8888 --cacert labmitm-ca.pem https://app.lab/`. There is no “click through” bypass in the appliance itself. Health/UI copy must say the CA is not served on `:8888`.
 
 If the inner client ignores ALPN and sends an HTTP/2 preface: close both sides; store flow `Error=http2_inner`.
+
+Inner `Upgrade: websocket` that the origin answers with `101` is a bidirectional copy on the already-handshaked TLS conns (same 1.0 WebSocket contract as cleartext). Inner `RoundTrip` failure writes `502` and closes both sides.
 
 **Residual:** intercepting TLS **breaks origin mTLS** (the origin sees the lab’s upstream client cert, which 1.0 does not present) and **breaks certificate pinning** in the SUT. Document in [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). Do not add client-cert passthrough in 1.0.
 

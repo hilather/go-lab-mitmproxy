@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-18 (PROXY-001 review)
+Last reviewed: 2026-08-18 (STORE-001)
 Related ADRs: 0002
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 
-**PROXY-001 residual:** `tls.intercept: true` is accepted in YAML but CONNECT is still a raw tunnel. TLS intercept (leaf mint, dual handshake, no silent fallback) lands in TLS-001. Capture uses a Null sink until STORE-001.
+Completed flows (including `TLSInfo` when intercept ran) are inserted into `store.Memory`. `fullPolicy: reject` drops capture only; the client hop still succeeds. `proxy.NewNull` remains a test fallback. TLS intercept is implemented: `intercept: false` (or a non-listed port) is a raw tunnel; `intercept: true` on a listed port mints a leaf and runs the inner HTTP/1.1 session. Handshake failure does not fall back to a blind tunnel (D20).
 
 This document is the accept/reject table. Do not invent additional request classes, replies, or limits without an ADR.
 
@@ -82,6 +82,7 @@ Normative for every `CONNECT` (D19). Tests: two GETs on one CONNECT; “forgot t
 - Each inner request is **one flow**.
 - Inner knobs: HTTP/1 only. Inner `PRI` → close both sides, `Error=http2_inner`.
 - Client keep-alive on the inner TLS session is allowed.
+- Inner `Upgrade: websocket` + `101` uses the same 101 + bidirectional copy as cleartext (no frame inspect). RoundTrip failure writes `502` and closes both TLS sides (no keep-alive loop).
 
 ## Cleartext forward
 
@@ -118,7 +119,7 @@ worstRSS            ≈ 256 + 64 + 4 + 64 = 388 MiB
 
 ## WebSocket / Upgrade (1.0)
 
-If the request has `Upgrade: websocket` (case-insensitive) **and** `Connection` contains `Upgrade`:
+If the request has `Upgrade: websocket` (case-insensitive) **and** `Connection` contains `Upgrade` (cleartext absolute-form **or** an inner request on an intercepted CONNECT):
 
 1. Keep `Upgrade` and rewrite `Connection` to the single token `Upgrade`.
 2. Capture request headers (and body if small / capture-only).

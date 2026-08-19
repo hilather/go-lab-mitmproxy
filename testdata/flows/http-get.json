@@ -1,0 +1,20 @@
+{
+  "method": "GET",
+  "url": "http://app.lab.test/login",
+  "host": "app.lab.test",
+  "scheme": "http",
+  "protocol": "http/1.1",
+  "status": 200,
+  "state": "completed",
+  "intercepted": false,
+  "request": {
+    "headers": [{"Name": "Host", "Value": "app.lab.test"}],
+    "body": "",
+    "size": 0
+  },
+  "response": {
+    "headers": [{"Name": "Content-Type", "Value": "text/plain"}],
+    "body": "b2s=",
+    "size": 2
+  }
+}
