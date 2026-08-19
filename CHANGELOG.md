@@ -33,6 +33,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- SOCKS error replies (`admission`, IMDS/hairpin deny, dial fail) check the write result so golangci-lint `errcheck` stays clean.
 - Intercepted CONNECT treats inner `Upgrade: websocket` + `101` as a bidirectional copy (same 1.0 contract as cleartext). Inner `RoundTrip` failure writes `502` and closes both TLS sides instead of leaving the client waiting.
 - Replay hairpin reject covers unspecified proxy binds (`:8888`, `0.0.0.0`, `::`) so a lab-overlay replay cannot Dial the unauthenticated data plane on the listen port.
 - Flow body downloads (`GET /v1/flows/{id}/request|response`) no longer reflect captured `Content-Type`. They are `application/octet-stream` with `Content-Disposition: attachment` and `Content-Security-Policy: default-src 'none'`. The inspector fetches a blob instead of navigating the operator document to captured HTML.
