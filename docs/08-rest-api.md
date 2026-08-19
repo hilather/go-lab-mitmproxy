@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-18 (UI-001 review)
-Related ADRs: 0004, 0005, 0007
+Last reviewed: 2026-08-19 (1.1 compat flow REST)
+Related ADRs: 0004, 0005, 0007, 0011
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
 
@@ -121,6 +121,14 @@ Required for GA / 1.0 (D13). Talks REST only.
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle |
 
 `spec.ui.enabled: false` serves 404 for `/` but keeps REST/MCP.
+
+## LabMITM compat flow REST (mitmproxy-inspired subset)
+
+Opt-in, default-off, Reset-only (`spec.compat.flowREST`). Extra spellings of existing `flows.*` IDs under a live prefix (default `/compat`). Disposition `REST_ONLY_PROTOCOL`: not on `catalog()`, no new MCP tools, matched after authenticate/authorize. Native `/v1/flows` stays the paginated API.
+
+List is a JSON **array** of the newest 200; `X-LabMITM-Truncated: true` when more exist. Disabled prefix is `404` `not_found` (SPA cannot swallow it). Same bearer; `Authorization: Basic` is 401 Bearer; cookie mutations require CSRF. Not mitmproxy 11 compatible.
+
+Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md).
 
 ## Compatibility promise
 

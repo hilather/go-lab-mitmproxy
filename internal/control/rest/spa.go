@@ -9,7 +9,7 @@ import (
 // tryUI serves the embedded SPA after native routing misses. rest must not
 // import internal/web; cmd/labmitm wires Config.UI.
 func (s *Server) tryUI(w http.ResponseWriter, r *http.Request, instance string) bool {
-	if s.cfg.UI == nil || reservedManagementPath(r.URL.Path) {
+	if s.cfg.UI == nil || s.reservedManagementPath(r.URL.Path) {
 		return false
 	}
 	if s.cfg.UIEnabled != nil && !s.cfg.UIEnabled() {
@@ -21,6 +21,16 @@ func (s *Server) tryUI(w http.ResponseWriter, r *http.Request, instance string) 
 	}
 	s.cfg.UI.ServeHTTP(w, r)
 	return true
+}
+
+// reservedManagementPath keeps native REST, MCP, and the live compat prefix
+// off the SPA fallback so a missing API route stays problem+json.
+func (s *Server) reservedManagementPath(p string) bool {
+	if reservedManagementPath(p) {
+		return true
+	}
+	restPath, mcpPath, prefix := s.liveManagementPaths()
+	return pathIsUnder(p, restPath) || pathIsUnder(p, mcpPath) || pathIsUnder(p, prefix)
 }
 
 // reservedManagementPath keeps /v1 and MCP off the SPA fallback so a

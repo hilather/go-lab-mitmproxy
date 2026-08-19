@@ -38,7 +38,7 @@ The numbered pack is the source of truth after FND-001. Do not invent paths, typ
 - `Transport.RoundTrip` only; never `http.Client` / `Client.Do` (D21). Replay Dials the origin, ignores `HTTP_PROXY`, never hairpins `listeners.proxy.address`.
 - Do not add a random/probabilistic chaos / fault-injection engine in 1.0 (D12). Deterministic, default-off `spec.rules` is the allowed QA knob.
 - The embedded flow-inspector UI is required for GA / 1.0 (PR 13). Do not ship 1.0 without it.
-- No mitmproxy REST, mitmweb, or Python addon surface in 1.0 (ADR 0007). 1.1 optional compat flow REST is a first-party adapter (ADR 0011), default-off, Reset-only. Do **not** put `/compat` on `catalog()` / `compileRoutes` until the compat workstream. `CompatBindings()` is a side table.
+- No mitmproxy REST, mitmweb, or Python addon surface in 1.0 (ADR 0007). 1.1 optional compat flow REST is a first-party adapter (ADR 0011), default-off, Reset-only. Do **not** put `/compat` on `catalog()` / native `compileRoutes`. `CompatBindings()` is a side table matched after authenticate/authorize.
 - 1.1 flags (`acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `protocols.http2`, `compat.flowREST`) are bootstrap + Reset only (D51). The accept mux reads `acceptSOCKS5`/`acceptSOCKS4` only to SOCKS-close (1.0) until the SOCKS workstream. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); inner HTTP/2 capture is not enabled yet (inner `PRI` still `http2_inner`). Other new fields stay unread until their workstream. **D7 stands.**
 - No HTTP Basic on management in 1.0 (no compat consumer). Auth is lab static bearer.
 - Default binds are loopback `127.0.0.1:8888` / `127.0.0.1:8088` (D10). Empty address materializes those defaults, not `:8888`.

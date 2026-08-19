@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-19 (accept mux D42 + http2x codec)
-Related ADRs: 0002, 0004, 0009
+Last reviewed: 2026-08-19 (accept mux D42 + http2x + compat flow REST)
+Related ADRs: 0002, 0004, 0009, 0011
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
 
@@ -17,6 +17,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | HTTP/2 codec | `http2x` StreamID + pseudos, no Dial idents, `DialTLS == nil`, pool refuses redial | `internal/http2x` |
 | Store | insert/delete/wait/wipe epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate bodies, stacked caps, spill | `internal/store` |
 | REST contract | OpenAPI, auth 401, list/get/delete/wait/resume, problem+json | `internal/control/rest` |
+| Compat flow REST | after-auth CSRF, Basic 401, truncated header, disabled 404 vs SPA, goldens | `internal/control/compat`, `internal/control/rest`, `testdata/compat` |
 | MCP | 2026-07-28 initialize, tools/list, tool call, origin, bearer | `internal/control/mcp` |
 | Parity | every `PARITY_REQUIRED` capability | `make test-parity` |
 | Fuzz | YAML decode, HTTP request line/headers, buildinfo | committed `testdata/fuzz` corpora under each package |

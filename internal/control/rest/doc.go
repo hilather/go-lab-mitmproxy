@@ -1,6 +1,8 @@
 // Package rest is the REST transport adapter for the shared capability registry.
 //
 // Routes are registered from internal/capabilities (catalog spellings only).
+// CompatBindings extra /compat paths are compiled separately and matched
+// after authenticate/authorize (never dispatchMount, never native dispatch).
 // Handlers call app.Service and contain no store or proxy mutation logic.
 // Errors are capabilities.ProblemFrom → application/problem+json.
 // Session cookie/CSRF routes are registered from the capability catalog.
