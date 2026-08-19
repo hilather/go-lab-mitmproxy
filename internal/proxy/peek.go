@@ -58,9 +58,13 @@ func peekReplay(c net.Conn, n int) (net.Conn, []byte, error) {
 	return &peekedConn{Conn: c, buf: append([]byte(nil), b...)}, b, err
 }
 
-func (s *Server) dispatchConn(c net.Conn, httpLn *chanListener) {
+func (s *Server) dispatchConn(c net.Conn, kind connKind) {
 	defer s.dispatchWG.Done()
 	if c == nil {
+		return
+	}
+	if kind == kindOrigDest {
+		s.dispatchOrigDest(c)
 		return
 	}
 	spec := withSpecDefaults(s.liveSpec())
@@ -88,6 +92,7 @@ func (s *Server) dispatchConn(c net.Conn, httpLn *chanListener) {
 		s.closeSOCKS(pc)
 		return
 	}
+	httpLn := s.httpLn
 	if httpLn == nil {
 		_ = c.Close()
 		return

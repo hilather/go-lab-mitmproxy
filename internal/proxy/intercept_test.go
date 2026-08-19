@@ -355,7 +355,7 @@ func TestHandshakeNextProtosFromSpec(t *testing.T) {
 		t.Fatalf("flag on client %v", got)
 	}
 	if orig := handshakeOriginNextProtos(); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
-		t.Fatalf("flag on origin still http/1.1 until transcode %v", orig)
+		t.Fatalf("flag on origin stays http/1.1 (h2 inner transcodes) %v", orig)
 	}
 }
 

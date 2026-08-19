@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-19 (h2 match + SOCKS5 CONNECT)
+Last reviewed: 2026-08-19 (h2 transcode WaitPaused + SOCKS5)
 Related ADRs: 0002
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
@@ -48,7 +48,7 @@ rules:
           timeout: 30s         # 1s–60s
 ```
 
-Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query). On an inner HTTP/2 stream the reconstructed request includes ordered pseudo-headers (`:method`, `:scheme`, `:authority`, `:path`); `match.method` uses `:method`, `match.pathPrefix`/`pathExact` use the path-component of `:path` (query stripped), `match.host` uses the host of `:authority`, and `match.headerName` sees leading-`:` names. `match.protocol` is optional and case-insensitive; a non-empty value that does not match the request protocol (including `h2` on an inner h2 stream) matches nothing. SOCKS tunnel metadata stamps `Protocol=socks5` or `socks4` (plus `Via`/`SOCKS`). Inner intercept copies the same `Via`/`SOCKS`. Breakpoints pause the **stream**, not the CONNECT TCP session (D37): request-phase `WaitPaused` runs outside the origin mutex so a paused stream does not block another stream’s request-phase rules.
+Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query). On an inner HTTP/2 stream the reconstructed request includes ordered pseudo-headers (`:method`, `:scheme`, `:authority`, `:path`); `match.method` uses `:method`, `match.pathPrefix`/`pathExact` use the path-component of `:path` (query stripped), `match.host` uses the host of `:authority`, and `match.headerName` sees leading-`:` names. `match.protocol` is optional and case-insensitive; a non-empty value that does not match the request protocol (including `h2` on an inner h2 stream) matches nothing. SOCKS tunnel metadata stamps `Protocol=socks5` or `socks4` (plus `Via`/`SOCKS`). Inner intercept copies the same `Via`/`SOCKS`. Breakpoints pause the **stream**, not the CONNECT TCP session (D37): request-phase `WaitPaused` runs outside the origin mutex so a paused stream does not block another stream’s request-phase rules. The mutex covers origin RoundTrip plus full body drain (D44).
 
 | Action | Request phase | Response phase |
 |---|---|---|
@@ -76,15 +76,15 @@ PR 6 unit test (`internal/rules` + store): `Insert` paused → goroutine `WaitPa
 
 Replay is **not** a rule action. `POST /v1/flows/{id}:replay` calls `proxy.Replay(stored *Flow)`:
 
-- Builds origin-form from the stored request (`scheme`, `host`, `method`, `path`, headers, body).
+- Builds HTTP/1.1 origin-form from the stored request (`scheme`, `host`, `method`, `path`, headers, body). Leading-`:` pseudo-header names are stripped; `Host` comes from `:authority` when present (else `Flow.Host`). This is not “replay the h2 session.”
 - Dials the **origin** via the same resolve-then-guard + `DialContext` path as live traffic.
 - If `scheme=https`, `tls.Client` on that dial using the current snapshot’s upstream verify knobs. Does **not** require `tls.intercept` to be on — replay is an operator-originated origin fetch, not a client CONNECT.
 - `Transport.Proxy = nil`. `HTTP_PROXY=http://127.0.0.1:8888` must not change the dial.
 - Never dial `listeners.proxy.address` (hairpin reject even if that address is loopback).
-- New flow id. Requires `mitm.write`.
-- Reject `Protocol=websocket|connect`, CONNECT-metadata-only flows, and flows with `Request.Truncated` (`validation_failed`).
+- New flow id (`Protocol=http/1.1`). Requires `mitm.write`.
+- Reject `Protocol=websocket|connect`, CONNECT-metadata-only flows, and flows with `Request.Truncated` (`validation_failed`). Captured `Protocol=h2` is replayable.
 
-Tests: HTTP replay; HTTPS replay with intercept both on and off; `HTTP_PROXY` ignored; hairpin address rejected.
+Tests: HTTP replay; HTTPS replay with intercept both on and off; `HTTP_PROXY` ignored; hairpin address rejected; h2 flow replay is HTTP/1.1 origin-form without `:method`.
 
 Live apply `replaceRules` compiles a new snapshot; in-flight requests keep the old snapshot.
 

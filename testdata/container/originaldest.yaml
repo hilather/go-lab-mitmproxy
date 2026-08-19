@@ -1,0 +1,37 @@
+# Runnable orig-dest overlay bootstrap (not the schema fixture).
+# Bearer secretFile matches the compose token mount. originalDestination is on.
+# Health live/ready stay unauthenticated. Flow reads use the smoke token.
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: container-originaldest
+spec:
+  listeners:
+    proxy:
+      address: ":8888"
+    originalDestination:
+      enabled: true
+    management:
+      address: ":8088"
+      restPath: /v1
+      mcpPath: /mcp
+  tls:
+    intercept: true
+    ports: [443]
+    ca:
+      mode: generate
+  ui:
+    enabled: false
+  management:
+    auth:
+      mode: bearer
+      tokens:
+        - id: smoke
+          secretFile: /etc/labmitm/token
+          role: administrator
+          scopes: [mitm.read, mitm.write, mitm.admin, mitm.audit.read]
+  observability:
+    logLevel: info
+    metrics:
+      listen: ""
+      publicPath: false

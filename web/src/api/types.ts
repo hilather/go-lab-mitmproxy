@@ -26,9 +26,21 @@ export type Header = {
 
 export type HTTPMessage = {
   headers?: Header[];
+  trailers?: Header[];
   body?: string;
   size: number;
   truncated: boolean;
+};
+
+export type HTTP2Info = {
+  streamId: number;
+};
+
+export type SOCKSInfo = {
+  version?: number;
+  atyp?: string;
+  dest?: string;
+  command?: string;
 };
 
 export type TLSInfo = {
@@ -66,6 +78,10 @@ export type Flow = {
   request: HTTPMessage;
   response: HTTPMessage;
   tls?: TLSInfo;
+  http2?: HTTP2Info;
+  socks?: SOCKSInfo;
+  via?: string;
+  originalDest?: string;
   timings: Timings;
   ruleIds?: string[];
   truncated: boolean;

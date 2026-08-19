@@ -45,6 +45,22 @@ func (g *gate) acquire(ip netip.Addr, ad model.AdmissionSpec) error {
 	return nil
 }
 
+func (g *gate) inUse() int {
+	if g == nil {
+		return 0
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sessions
+}
+
+func (s *Server) sessionCount() int {
+	if s == nil {
+		return 0
+	}
+	return s.gate.inUse()
+}
+
 func (g *gate) release(ip netip.Addr) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

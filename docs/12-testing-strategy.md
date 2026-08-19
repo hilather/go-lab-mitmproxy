@@ -2,7 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-19 (h2 + SOCKS5 CONNECT + compat)
+Last reviewed: 2026-08-19 (1.1 docs overlay)
+Related ADRs: 0002, 0004, 0009, 0010, 0011
 Related ADRs: 0002, 0004, 0009, 0010, 0011
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -15,6 +16,8 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Proxy protocol | absolute-form GET/POST, hop-by-hop strip, CONNECT Hijack + two GETs, HTTP/2 preface close, SOCKS peek-close (flags off), SOCKS5/4 CONNECT when flags on (IMDS deny, IPv6 BND `::`, intercept without HTTP 200), silent-peer stall (second HTTP before HeaderTimeout), resolve-then-guard (name→IMDS, name→link-local), `https://` 400, CONNECT without port, WebSocket 101, Expect strip, HTTP_PROXY ignored | `internal/proxy` + `internal/proxytest`; transcripts in `testdata/proxy` |
 | TLS intercept | generate CA, files CA, leaf SAN=SNI, client trusting lab CA succeeds, untrusted client fails, upstream verify on/off, ALPN http/1.1 only (flag off), snapshot NextProtos, non-443 CONNECT tunnels, handshake fail → `tls_handshake` (no blind fallback), inner `PRI` → `http2_inner` | `internal/tlsmitm` + fixture origin in `proxytest` |
 | HTTP/2 codec | `http2x` StreamID + pseudos, no Dial idents, `DialTLS == nil`, pool refuses redial | `internal/http2x` |
+| HTTP/2 transcode | two concurrent h2 streams + h1 origin (no `refuses redial`); response `WaitPaused` with a non-empty body does not block a second stream; live and replay strip `:` headers; `h2_trailer_dropped` | `internal/proxy` |
+| Orig-dest | mocked dest; dest-port+local IP close; origin-form POST dest:80; h2c preface close; tagged CONNECT 400 no Dial; tagged absolute-form IMDS does not Dial IMDS; HTTP GET = one `gate` session; ready `OrigDestOff`; non-linux `enabled` fails Start | `internal/proxy` (`origdest_*.go`) |
 | Store | insert/delete/wait/wipe epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate bodies, stacked caps, spill | `internal/store` |
 | REST contract | OpenAPI, auth 401, list/get/delete/wait/resume, problem+json | `internal/control/rest` |
 | Compat flow REST | after-auth CSRF, Basic 401, truncated header, disabled 404 vs SPA, goldens | `internal/control/compat`, `internal/control/rest`, `testdata/compat` |
@@ -23,12 +26,13 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Fuzz | YAML decode, HTTP request line/headers, buildinfo | committed `testdata/fuzz` corpora under each package |
 | Soak | accept N flows, `Wait`, `Wipe` | `internal/perf` (`-soak-n` / `LABMITM_SOAK_N`; CI default 8; local lab target 100 flows/s for 30s) |
 | Race | store insert/delete/wait; snapshot swap; breakpoint resume | `make test-race` |
-| Container | non-root, read-only, no caps, healthcheck, proxy smoke | `scripts/test-container.sh` |
+| Container | non-root, read-only, no caps, healthcheck, proxy smoke. **Never requires `NET_ADMIN`.** | `scripts/test-container.sh` |
+| Orig-dest overlay | D50 contract (appliance cap-less; sidecar `NET_ADMIN`; no published `8890`). Live REDIRECT **skips** without `NET_ADMIN` | `make test-container-originaldest` |
 | Docs | required files, links, example YAML validates | `make test-docs` |
 | Config compat | `testdata/config/valid` + `invalid` | `make test-config-compat` |
 | Changelog | user-visible paths require `CHANGELOG.md` | `make test-changelog` |
 | Tag gate | notes headings + green required CI on the tag SHA | `.github/workflows/release.yml` |
-| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
+| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status, protocol badge / stream id / trailers / SOCKS dest / original dest | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
 
 ## Required Make targets
 
@@ -42,6 +46,8 @@ make test-container security-scan test-changelog
 make web-test web-build
 ```
 
+`make test-container` is the required image contract and must stay cap-less. `make test-container-originaldest` is optional: it always asserts [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml) (appliance `cap_drop: ALL`, no published `8890`, sidecar `NET_ADMIN`) and **skips** live REDIRECT when the host cannot grant `NET_ADMIN`.
+
 FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-fuzz-smoke`, `test-docs`, and `security-scan`. CFG-001 implements `test-config-compat` (`testdata/config/valid` + `invalid`) and extends `test-fuzz-smoke` with `FuzzDecode`. API-001 implements `generate` / `verify-generated` (`api/capabilities/v1.json`, `api/openapi/v1.json`). MCP-001 implements `test-parity` (`internal/capabilities`, `internal/control/rest`, `internal/control/mcp` plus `testdata/mcp/goldens` and `api/mcp/v1.json`). UI-001 implements `web-test` / `web-build` (Node **22.14.0**, Vite, Vitest; copies `web/dist` into `internal/web/dist`). DEP-001 implements `test-container`. SWAP-001 adds `examples/labmitm.yaml` / MCPJungle / labinfo overlay fixtures and `TestLabOverlayExample`. GA-001 commits fuzz corpora, adds `internal/perf` soak (accept N, wait, wipe), implements `make test-changelog`, and adds Release `tag-gate`.
 
 ## Required CI (GA-001)
@@ -54,11 +60,11 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 
 - PROXY-001: `testdata/proxy/absolute-https.txt`, `connect-no-port.txt`, `connect-two-gets.txt`, `connect-hijack.txt`, `upgrade-websocket.txt`, `name-imds.txt`, `name-link-local.txt`, `socks5-connect.txt`, `socks5-imds.txt`, `socks4-off.txt`.
 - TLS fixture (TLS-001): `testdata/tls/**` test-only PEMs; generate-mode client that trusts `CertPEM()` succeeds against a fixture origin; untrusted client fails; `CONNECT :80` with intercept on tunnels; `CONNECT :443` to plaintext stores `Error=tls_handshake` with no blind tunnel.
-- API-001: REST contract tests (`internal/control/rest`) for auth 401, problem+json, list/get/delete/wait/resume/drop/replay, HMAC cursor stale, `GET /v1/ca` cert-only; `proxy.Replay` HTTP/HTTPS, `HTTP_PROXY` ignored, hairpin rejected.
+- API-001: REST contract tests (`internal/control/rest`) for auth 401, problem+json, list/get/delete/wait/resume/drop/replay, HMAC cursor stale, `GET /v1/ca` cert-only; `proxy.Replay` HTTP/HTTPS, `HTTP_PROXY` ignored, hairpin rejected; h2 flow replay is HTTP/1.1 origin-form without `:method`.
 - MCP-001: `testdata/mcp/goldens/{tools,resources,mutating-tools}.txt`; `internal/control/mcp` initialize/tools/list/tool call/origin/bearer; URI-only `subscriptions/listen` on `labmitm://flows`; `api/mcp/v1.json`.
 - SEC-001: `testdata/container/{config.yaml,token}` (bearer, not `dev-loopback-unauth`); REST unauthenticated `GET /v1/flows` is 401; cookie `labmitm_session` + CSRF; token reread on reset/apply keeps sessions on failed secret reread; audit records `actorId`.
-- DEP-001: `Dockerfile` (Go 1.26.6-alpine → scratch, UID `65532`, copy `ca-certificates.crt`, no Node stage); `examples/compose.smoke.yaml`; `scripts/test-container.sh` asserts system CA bundle + `SystemCertPool` non-empty + HTTPS intercept fixture + authenticated `/v1/flows`.
-- UI-001: `web/` React/TS + Vite (Node **22.14.0**); Vitest login/list/detail/status/reset; no token in web storage; no exploit/fuzzer/repeater; escaped HTML bodies; `ca.spkiSha256` on status; `make web-test` / `make web-build`; CI job `web`.
+- DEP-001: `Dockerfile` (Go 1.26.6-alpine → scratch, UID `65532`, copy `ca-certificates.crt`, no Node stage); `examples/compose.smoke.yaml`; `scripts/test-container.sh` asserts system CA bundle + `SystemCertPool` non-empty + HTTPS intercept fixture + authenticated `/v1/flows`. Orig-dest overlay [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml) + `testdata/container/originaldest.yaml`; `make test-container-originaldest` skips live REDIRECT without `NET_ADMIN`.
+- UI-001: `web/` React/TS + Vite (Node **22.14.0**); Vitest login/list/detail/status/reset; no token in web storage; no exploit/fuzzer/repeater; escaped HTML bodies; `ca.spkiSha256` on status; 1.1 list/detail metadata (protocol badge, stream id, trailers, SOCKS dest, original dest); `make web-test` / `make web-build`; CI job `web`.
 - SWAP-001: `examples/labmitm.yaml` (published binds, `allowLegacyClients: true`, recommended `allowHosts`); `examples/mcpjungle/servers/labmitm.json` + `groups/integration.json` (append `labmitm`); `examples/labinfo/services-labmitm.yaml` (catalog id `labmitm`); `TestLabOverlayExample`.
 - GA-001: committed `testdata/fuzz` corpora for `FuzzInfoString`, `FuzzDecode`, `FuzzReadRequest`; `internal/perf` soak (CI N=8); `scripts/checkchangelog`; `scripts/release-diff`; `.github/workflows/release.yml` `tag-gate`; [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md).
 - STORE-001: `testdata/flows/**` golden captured flows; `internal/store` insert/delete/wait/wipe/epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate, stacked caps, spill, race; proxy store-full still forwards.

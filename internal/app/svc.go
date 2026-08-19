@@ -171,16 +171,21 @@ func (s *App) HealthFacts() observability.Facts {
 	s.healthMu.Unlock()
 	storeUp := s.inbox != nil
 	caReady := true
-	if snap := s.Active(); snap != nil && snap.Spec().TLS.Intercept {
-		caReady = snap.CA != nil
+	origOff := true
+	if snap := s.Active(); snap != nil {
+		if snap.Spec().TLS.Intercept {
+			caReady = snap.CA != nil
+		}
+		origOff = !snap.Spec().Listeners.OriginalDestination.Enabled
 	}
 	if fn != nil {
 		f := fn()
 		f.StoreUp = storeUp
 		f.CAReady = caReady
+		f.OrigDestOff = origOff
 		return f
 	}
-	return observability.Facts{StoreUp: storeUp, ProxyBound: storeUp, MgmtBound: storeUp, CAReady: caReady}
+	return observability.Facts{StoreUp: storeUp, ProxyBound: storeUp, MgmtBound: storeUp, CAReady: caReady, OrigDestOff: origOff}
 }
 
 func (s *App) requireCtx(ctx context.Context) error {

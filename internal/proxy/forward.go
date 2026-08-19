@@ -38,6 +38,13 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *r
 		return
 	}
 
+	s.forwardOriginHTTP(w, req, res, host, port, started, sess)
+}
+
+func (s *Server) forwardOriginHTTP(w http.ResponseWriter, req *http.Request, res resolved, host, port string, started time.Time, sess *ruleSession) {
+	if sess == nil {
+		sess = s.beginSession()
+	}
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, req, req.Header, true)
 
 	ws := httputilx.IsWebSocketUpgrade(req.Header)
@@ -60,6 +67,7 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *r
 	var (
 		resp   *http.Response
 		sticky net.Conn
+		err    error
 	)
 	if ws {
 		resp, sticky, err = s.roundTripUpgrade(upCtx, out, res, sess)

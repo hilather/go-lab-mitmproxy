@@ -42,7 +42,7 @@ spec:
       address: "127.0.0.1:8888"
       acceptSOCKS5: false          # 1.1; Reset-only
       acceptSOCKS4: false
-    originalDestination:           # 1.1; Reset-only; unread until orig-dest PR
+    originalDestination:           # 1.1; Reset-only bind
       enabled: false
       address: ""                  # empty + enabled → 127.0.0.1:8890
     management:
@@ -225,7 +225,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `proxy.admission.maxConcurrentStreams` | **`replaceAdmission`**. New TCP sessions only |
 | Listener **addresses** | Reset-only (unchanged) |
 
-Turning on SOCKS, HTTP/2, orig-dest, or compat requires a Reset (or process restart). The accept mux serves SOCKS5/4 CONNECT when `acceptSOCKS5`/`acceptSOCKS4` are true; flags off keep 1.0 SOCKS-close. `originalDestination` / `protocols.http2` / `compat.flowREST` stay unread until their workstreams.
+Last reviewed: 2026-08-19 (accept mux + compat + orig-dest)
 
 Idempotency LRU default 256; reset clears it.
 

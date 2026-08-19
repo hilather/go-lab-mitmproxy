@@ -304,7 +304,7 @@ func TestAcceptLoopRetriesTemporaryThenStops(t *testing.T) {
 	}
 	s.accepting.Store(true)
 	s.acceptWG.Add(1)
-	go s.acceptLoop(ln, nil)
+	go s.acceptLoop(ln, kindProxy)
 	select {
 	case <-retried:
 	case <-time.After(time.Second):

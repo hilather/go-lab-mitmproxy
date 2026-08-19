@@ -28,10 +28,28 @@ func TestStatusReadyUsesHealthFacts(t *testing.T) {
 	}
 }
 
+func TestHealthFactsOrigDestOffFollowsLiveSpec(t *testing.T) {
+	svc, _ := mustBoot(t)
+	svc.SetHealth(func() observability.Facts {
+		return observability.Facts{ProxyBound: true, StoreUp: true, MgmtBound: true, CAReady: true}
+	})
+	st, err := svc.Status(context.Background(), actor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Ready {
+		t.Fatal("live spec orig dest off must overlay OrigDestOff")
+	}
+	facts := svc.HealthFacts()
+	if !facts.OrigDestOff {
+		t.Fatalf("facts=%+v", facts)
+	}
+}
+
 func TestStatusReadyRequiresCAWhenIntercept(t *testing.T) {
 	svc, _ := mustBoot(t)
 	svc.SetHealth(func() observability.Facts {
-		return observability.Facts{ProxyBound: true, StoreUp: true, MgmtBound: true, CAReady: false}
+		return observability.Facts{ProxyBound: true, StoreUp: true, MgmtBound: true, CAReady: false, OrigDestOff: true}
 	})
 	// HealthFacts overwrites CAReady from the live snapshot (intercept off → true).
 	st, err := svc.Status(context.Background(), actor())

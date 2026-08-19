@@ -33,6 +33,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer s.gate.release(ip)
 	s.metrics.accept()
 
+	if dest, ok := origDestFromContext(req); ok {
+		if req.Method == http.MethodConnect {
+			writeProxyError(w, http.StatusBadRequest, domainerr.CodeValidationFailed,
+				"CONNECT is not supported on original-destination", "")
+			return
+		}
+		s.serveOrigDestHTTP(w, req, dest, sess)
+		return
+	}
+
 	if req.Method == http.MethodConnect {
 		s.serveCONNECT(w, req, sess)
 		return

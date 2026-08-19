@@ -14,6 +14,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hilather/go-lab-mitmproxy/internal/app"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 type safeBuffer struct {
@@ -337,6 +340,57 @@ func TestServeReadyGoesUnreadyOnProxyShutdown(t *testing.T) {
 	_ = unready.Body.Close()
 	if unready.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("ready after proxy shutdown status=%d want 503", unready.StatusCode)
+	}
+}
+
+func TestServeOrigDestOffFollowsLiveSpec(t *testing.T) {
+	path := writeServeConfig(t, "", false, true)
+	rt, err := serveFromConfig(context.Background(), serveFlags{
+		Config:           path,
+		ProxyListen:      "127.0.0.1:0",
+		ManagementListen: "off",
+		ShutdownTimeout:  2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = rt.shutdown(ctx)
+	})
+	before := rt.svc.HealthFacts()
+	if !before.OrigDestOff || before.OrigDestBound {
+		t.Fatalf("boot facts=%+v", before)
+	}
+	if !observability.Evaluate(before).Ready {
+		t.Fatalf("disabled orig-dest must be ready: %+v", before)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := strings.Replace(string(raw), "spec:\n",
+		"spec:\n  listeners:\n    originalDestination:\n      enabled: true\n", 1)
+	if enabled == string(raw) {
+		t.Fatal("could not inject originalDestination.enabled")
+	}
+	if err := os.WriteFile(path, []byte(enabled), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.svc.Reset(context.Background(), app.Actor{ID: "test", Class: "test", Transport: "direct"}, app.ResetIn{Reason: "enable orig-dest"}); err != nil {
+		t.Fatal(err)
+	}
+	after := rt.svc.HealthFacts()
+	if after.OrigDestOff {
+		t.Fatalf("Reset-to-enable must not keep OrigDestOff: %+v", after)
+	}
+	if after.OrigDestBound {
+		t.Fatal("Reset must not rebind orig-dest")
+	}
+	if observability.Evaluate(after).Ready {
+		t.Fatalf("enabled unbound must be unready: %+v", after)
 	}
 }
 

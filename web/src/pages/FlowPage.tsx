@@ -15,7 +15,60 @@ import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE, formatBytes } from "../auth/scopes";
 import { contentTypeOf, shouldRenderAsText, toHexDump } from "../ui/bodyView";
 
-type Tab = "request" | "response" | "tls";
+type Tab = "request" | "response" | "trailers" | "tls";
+
+function FlowCaptureMeta({ flow }: { flow: Flow }) {
+  const socksDest = flow.socks?.dest ?? "";
+  const hasMeta =
+    flow.http2 != null || (flow.via ?? "") !== "" || socksDest !== "" || (flow.originalDest ?? "") !== "";
+  if (!hasMeta) {
+    return null;
+  }
+  return (
+    <dl>
+      {flow.http2 != null ? (
+        <div>
+          <dt>Stream ID</dt>
+          <dd>{flow.http2.streamId}</dd>
+        </div>
+      ) : null}
+      {flow.via ? (
+        <div>
+          <dt>Via</dt>
+          <dd>{flow.via}</dd>
+        </div>
+      ) : null}
+      {socksDest !== "" ? (
+        <div>
+          <dt>SOCKS dest</dt>
+          <dd>{socksDest}</dd>
+        </div>
+      ) : null}
+      {flow.originalDest ? (
+        <div>
+          <dt>Original dest</dt>
+          <dd>{flow.originalDest}</dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
+function TrailersPanel({ request, response }: { request: HTTPMessage; response: HTTPMessage }) {
+  const req = request.trailers ?? [];
+  const resp = response.trailers ?? [];
+  if (req.length === 0 && resp.length === 0) {
+    return <p>No trailers.</p>;
+  }
+  return (
+    <>
+      <h2>Request trailers</h2>
+      {req.length === 0 ? <p>No request trailers.</p> : <HeadersTable headers={req} />}
+      <h2>Response trailers</h2>
+      {resp.length === 0 ? <p>No response trailers.</p> : <HeadersTable headers={resp} />}
+    </>
+  );
+}
 
 function HeadersTable({ headers }: { headers: Header[] }) {
   if (headers.length === 0) {
@@ -134,6 +187,7 @@ export function FlowPage() {
   const tabs: { id: Tab; label: string }[] = [
     { id: "request", label: "Request" },
     { id: "response", label: "Response" },
+    { id: "trailers", label: "Trailers" },
     { id: "tls", label: "TLS" },
   ];
 
@@ -146,8 +200,9 @@ export function FlowPage() {
         {flow.method} {flow.url}
       </h1>
       <p>
-        {flow.status > 0 ? `HTTP ${flow.status}` : flow.state} · {flow.host} · {flow.scheme} ·{" "}
-        {flow.protocol}
+        {flow.status > 0 ? `HTTP ${flow.status}` : flow.state} · {flow.host} · {flow.scheme}{" "}
+        <span className="badge">{flow.protocol || "?"}</span>
+        {flow.http2 != null ? <span className="badge">stream {flow.http2.streamId}</span> : null}
         {flow.intercepted ? " · intercepted" : ""}
         {flow.truncated ? " · truncated" : ""}
       </p>
@@ -156,6 +211,7 @@ export function FlowPage() {
         {flow.clientAddr ? ` · ${flow.clientAddr}` : ""}
         {flow.ruleIds && flow.ruleIds.length > 0 ? ` · rules ${flow.ruleIds.join(", ")}` : ""}
       </p>
+      <FlowCaptureMeta flow={flow} />
       {flow.error ? <p className="banner-error">{flow.error}</p> : null}
       {error !== "" ? (
         <p className="banner-error" role="alert">
@@ -218,6 +274,7 @@ export function FlowPage() {
           <MessageBody msg={flow.response} />
         </>
       ) : null}
+      {tab === "trailers" ? <TrailersPanel request={flow.request} response={flow.response} /> : null}
       {tab === "tls" ? (
         flow.tls ? (
           <dl>

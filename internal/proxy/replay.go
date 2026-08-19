@@ -139,6 +139,12 @@ func (s *Server) isHairpin(res resolved, spec model.Spec) bool {
 	if spec.Listeners.Proxy.Address != "" {
 		candidates = append(candidates, spec.Listeners.Proxy.Address)
 	}
+	if addr := s.OrigDestAddr(); addr != nil {
+		candidates = append(candidates, addr.String())
+	}
+	if spec.Listeners.OriginalDestination.Address != "" {
+		candidates = append(candidates, spec.Listeners.OriginalDestination.Address)
+	}
 	for _, c := range candidates {
 		if sameEndpoint(c, target) {
 			return true
@@ -258,12 +264,16 @@ func replayRequest(ctx context.Context, stored *model.Flow, res resolved, host, 
 	} else {
 		req.Host = originHost(host, port)
 	}
+	if auth := headerValue(stored.Request.Headers, ":authority"); auth != "" {
+		req.Host = auth
+	}
 	for _, h := range stored.Request.Headers {
-		if h.Name == "" {
+		if h.Name == "" || isPseudoHeaderName(h.Name) {
 			continue
 		}
 		req.Header.Add(h.Name, h.Value)
 	}
+	stripLeadingColonHeaders(req.Header)
 	httputilx.PrepareRequest(req.Header)
 	return req, nil
 }

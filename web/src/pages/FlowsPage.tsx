@@ -98,12 +98,18 @@ export function FlowsPage() {
             {items.map((f) => (
               <li key={f.id}>
                 <Link to={`/flows/${encodeURIComponent(f.id)}`}>
-                  <span className="badge">{f.method || "?"}</span>
+                  <span>
+                    <span className="badge">{f.method || "?"}</span>
+                    <span className="badge">{f.protocol || "?"}</span>
+                  </span>
                   <span>
                     <span className="subject">
                       {f.status > 0 ? f.status : f.state} {f.host || f.url}
                     </span>
                     <span className="muted"> {f.url}</span>
+                    {f.http2 != null ? <span className="badge">stream {f.http2.streamId}</span> : null}
+                    {f.socks?.dest ? <span className="muted"> SOCKS dest {f.socks.dest}</span> : null}
+                    {f.originalDest ? <span className="muted"> original dest {f.originalDest}</span> : null}
                     {f.intercepted ? <span className="badge">intercepted</span> : null}
                   </span>
                   <time dateTime={f.startedAt}>{f.startedAt ?? ""}</time>

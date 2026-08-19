@@ -10,7 +10,8 @@ GOLANGCI_LINT_MOD ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GO
 
 .PHONY: help fmt format lint vet build generate verify-generated test test-race \
 	test-fuzz-smoke test-parity test-config-compat test-docs test-container \
-	security-scan test-changelog web-install web-test web-build web-embed
+	test-container-originaldest security-scan test-changelog web-install \
+	web-test web-build web-embed
 
 help:
 	@printf '%s\n' \
@@ -34,6 +35,7 @@ help:
 		'  web-build           production Vite build + copy into internal/web/dist' \
 		'  web-embed           copy web/dist into internal/web/dist' \
 		'  test-container      build ghcr.io/hilather/labmitm and check non-root/read-only/no-caps' \
+		'  test-container-originaldest  orig-dest overlay contract; skip live REDIRECT without NET_ADMIN' \
 		'  test-changelog      observable paths require a CHANGELOG.md entry'
 
 fmt: format
@@ -98,6 +100,9 @@ web-embed:
 
 test-container:
 	bash scripts/test-container.sh
+
+test-container-originaldest:
+	bash scripts/test-container-originaldest.sh
 
 test-changelog:
 	$(GO) run ./scripts/checkchangelog

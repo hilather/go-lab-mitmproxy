@@ -301,9 +301,9 @@ func handshakeClientNextProtos(spec model.Spec) []string {
 	return []string{tlsmitm.ALPN}
 }
 
-// handshakeOriginNextProtos is origin ALPN. Inner h2 is transcoded onto
-// HTTP/1.1 origin until origin transcode; this stays http/1.1 even when
-// the leaf advertises h2.
+// handshakeOriginNextProtos is origin ALPN. h2 inner streams transcode onto
+// one HTTP/1.1 origin TCP (D32, D44). Origin stays http/1.1 so the one-shot
+// Dial cannot be asked to speak h2.
 func handshakeOriginNextProtos() []string {
 	return []string{tlsmitm.ALPN}
 }
@@ -554,16 +554,55 @@ func stripLeadingColonHeaders(h http.Header) {
 		return
 	}
 	for k := range h {
-		if strings.HasPrefix(k, ":") {
+		if isPseudoHeaderName(k) {
 			delete(h, k)
 		}
 	}
+}
+
+func isPseudoHeaderName(name string) bool {
+	return strings.HasPrefix(name, ":")
+}
+
+func headerValue(headers []model.Header, name string) string {
+	for _, h := range headers {
+		if strings.EqualFold(h.Name, name) {
+			return h.Value
+		}
+	}
+	return ""
+}
+
+// dropH2RequestTrailers strips request trailers before an HTTP/1.1 origin
+// (D44). Capture keeps values on the flow; the origin hop never sees them.
+func (s *Server) dropH2RequestTrailers(inner *http.Request, in http2x.Stream) []model.Header {
+	var trailers []model.Header
+	if len(in.Trailers) > 0 {
+		trailers = append(trailers, in.Trailers...)
+	}
+	dropped := len(trailers) > 0
+	if inner != nil {
+		if inner.Header != nil && inner.Header.Get("Trailer") != "" {
+			dropped = true
+		}
+		if len(inner.Trailer) > 0 {
+			dropped = true
+			trailers = append(trailers, headersFrom(inner.Trailer)...)
+			// Clone would otherwise send HTTP/1.1 trailers on RoundTrip.
+			inner.Trailer = nil
+		}
+	}
+	if dropped {
+		s.metrics.h2TrailerDropped()
+	}
+	return trailers
 }
 
 func drainOriginBody(resp *http.Response) []model.Header {
 	if resp == nil || resp.Body == nil {
 		return nil
 	}
+	// D44: fully read+close so the origin conn is idle before unlock.
 	full, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	trailers := headersFrom(resp.Trailer)
@@ -623,6 +662,8 @@ func (s *Server) roundTripInnerH2(ctx context.Context, tr *http.Transport, origi
 		return syn, nil, nil
 	}
 
+	sess.reqTrailers = s.dropH2RequestTrailers(inner, in)
+
 	if originMu == nil {
 		originMu = &sync.Mutex{}
 	}
@@ -632,6 +673,8 @@ func (s *Server) roundTripInnerH2(ctx context.Context, tr *http.Transport, origi
 		err      error
 	)
 	func() {
+		// D44: mutex covers RoundTrip and the full origin body drain so a
+		// second stream cannot Dial while resp.Body still owns the conn.
 		originMu.Lock()
 		defer originMu.Unlock()
 		upCtx, upCancel := s.upstreamCtxSess(ctx, sess)
@@ -650,6 +693,7 @@ func (s *Server) roundTripInnerH2(ctx context.Context, tr *http.Transport, origi
 			return
 		}
 		trailers = drainOriginBody(resp)
+		httputilx.PrepareResponse(resp.Header, false)
 	}()
 	if err != nil {
 		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, sess.reqCap, nil)

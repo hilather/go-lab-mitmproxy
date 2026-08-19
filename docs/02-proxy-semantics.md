@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-19 (h2 innerHTTP + SOCKS5 CONNECT)
+Last reviewed: 2026-08-19 (h2 transcode + SOCKS5 + orig-dest)
 Related ADRs: 0002, 0009, 0010
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -40,7 +40,9 @@ srv := &http.Server{
 
 SOCKS detection is **not** possible in the Handler and **must not** run on the Accept goroutine (a silent peer would stall the next client until `HeaderTimeout`). Peeked bytes are the subsequent Read source. HTTP/2 preface **is** handled in the Handler (`Method == "PRI"`). `chanListener.Close` unblocks Accept with `net.ErrClosed` and closes queued conns.
 
-Shutdown order (D42): `accepting=false` → close `rawLn` → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
+When `listeners.originalDestination.enabled` is true (Linux only; default off), `Start` binds a **second** listener (empty address → `127.0.0.1:8890`, D38) and `http.Server.ConnContext` tags recovered dest. Non-linux `enabled: true` fails closed and binds **nothing**. iptables/nft REDIRECT is sidecar/host only; the default image stays UID 65532 without `NET_ADMIN` (D30, D50). Publishing `8890` is not transparent.
+
+Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
 
 ## Request classification
 
@@ -49,8 +51,11 @@ Shutdown order (D42): `accepting=false` → close `rawLn` → wait acceptLoop �
 | Absolute-form `GET http://host[:port]/path HTTP/1.1` | Forward HTTP/1.1 to origin (origin-form on the upstream hop). Default port **80**. Capture. |
 | Absolute-form `https://…` | `400` `validation_failed` with remediation “use CONNECT”. Metric `reason="absolute_https"`. |
 | `CONNECT host:port HTTP/1.1` | **Hijack** (D19). Missing port → `400`. |
-| Origin-form (`GET /path`) | `400` `validation_failed` (`absolute-form or CONNECT required`). |
-| `PRI * HTTP/2.0` | Close connection. Metric `reason="http2"`. |
+| Origin-form (`GET /path`) on `:8888` | `400` `validation_failed` (`absolute-form or CONNECT required`). |
+| Origin-form on orig-dest `:8890` with recovered dest | Legal (D31). Dial dest IP:port only (D57). |
+| Tagged orig-dest `CONNECT` | `400`, no Dial. |
+| Tagged orig-dest absolute-form (incl. `GET http://169.254.169.254/`) | Dial dest IP:port only; never `serveAbsolute` / never Dial Host. |
+| `PRI * HTTP/2.0` on `:8888` **or** orig-dest | Close connection. Metric `reason="http2"`. Before `gate.acquire`. |
 | First byte `0x05` / `0x04` (per-conn peek; `acceptSOCKS5`/`acceptSOCKS4` off) | Close. Metric `reason="socks"`. |
 | First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT, NO AUTH only (D29). Peeked `0x05` is replayed. BIND/UDP → `05 07`. |
 | First byte `0x04` and `acceptSOCKS4: true` | SOCKS4/4a CONNECT. USERID discarded. |
@@ -93,9 +98,9 @@ Normative for every `CONNECT` (D19). Tests: two GETs on one CONNECT; “forgot t
 **Inner HTTP (intercepted CONNECT only):**
 
 - One CONNECT = **one** upstream TCP + **one** upstream TLS conn. Do **not** put this conn in the cleartext `Transport` idle pool.
-- Handshake ALPN is taken from the session snapshot (D46). Default / flag-off is `http/1.1`. Flag-on advertises `h2` then `http/1.1` on the **leaf**; origin NextProtos stay `http/1.1` until origin transcode. Captured `Protocol` is the **inner client** protocol (D47): `h2` when the leaf negotiated `h2`.
+- Handshake ALPN is taken from the session snapshot (D46). Default / flag-off is `http/1.1`. Flag-on advertises `h2` then `http/1.1` on the **leaf**; origin NextProtos stay `http/1.1` (h2 inner is transcoded onto that HTTP/1.1 origin conn). Captured `Protocol` is the **inner client** protocol (D47): `h2` when the leaf negotiated `h2`.
 - **HTTP/1.1 inner** (ALPN `http/1.1`, including flag-on when the client did not offer `h2`): serialized `http.ReadRequest` then `Transport.RoundTrip` with a one-shot `DialContext` that returns the already-handshaked upstream `tls.Conn`. Inner `PRI` → close both sides, `Error=http2_inner`. Inner `Upgrade: websocket` + `101` uses the same 101 + bidirectional copy as cleartext (no frame inspect). RoundTrip failure writes `502` and closes both TLS sides.
-- **HTTP/2 inner** (`protocols.http2.enabled` and leaf ALPN `h2`): `http2x.ServeClient` on the client TLS conn. Each request stream is **one flow** with `HTTP2.StreamID`. `roundTripInnerH2` returns `(resp, trailers, err)` to `ServeClient`; it must **not** write HTTP/1.1 to the client TLS conn and must **not** close CONNECT on a per-stream origin error (RST_STREAM / 502 DATA, not GOAWAY) (D53). Origin is still HTTP/1.1: strip leading-`:` names on the origin request; hold the origin mutex across `RoundTrip` **and** full body drain (D44); request- and response-phase `WaitPaused` stay **outside** the mutex so a paused stream does not block another stream’s request-phase rules (D37).
+- **HTTP/2 inner** (`protocols.http2.enabled` and leaf ALPN `h2`): `http2x.ServeClient` on the client TLS conn. Each request stream is **one flow** with `HTTP2.StreamID`. `roundTripInnerH2` returns `(resp, trailers, err)` to `ServeClient`; it must **not** write HTTP/1.1 to the client TLS conn and must **not** close CONNECT on a per-stream origin error (RST_STREAM / 502 DATA, not GOAWAY) (D53). Origin is still HTTP/1.1 (`MaxConnsPerHost: 1`): strip leading-`:` names on the origin request; hold the origin mutex across `RoundTrip` **and** full body drain so a second stream cannot Dial while `resp.Body` still owns the conn (D44); request- and response-phase `WaitPaused` stay **outside** the mutex so a paused stream does not block another stream (D37). h2→h1 request trailers are dropped toward origin, stored on the flow, and counted `labmitm_h2_trailer_dropped_total`.
 - Inner hop rejects `:method=CONNECT`, Extended CONNECT (`:protocol`), and websocket `Upgrade` on an h2 session: RST_STREAM `PROTOCOL_ERROR`, metric `reason="http2"`, no flow (D48).
 - Client keep-alive on the inner TLS session is allowed. Each inner request / stream is **one flow**.
 
@@ -199,7 +204,19 @@ Reject → `403 Forbidden` (or CONNECT 403 after Hijack if the 200 has not been 
 
 Over admission → `429` (HTTP) or CONNECT `429` (unusual; use `503` for CONNECT if the response has not started). Metric `labmitm_proxy_rejected_total{reason="admission"}`. Admission `maxInFlight` includes paused breakpoint sessions.
 
-`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `headerTimeout` also bounds the per-conn first-byte peek. `Shutdown` (D42): `accepting=false` → close `rawLn` → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines (ctx-bounded; force-close remaining peeks) → `chanListener.Close` → `http.Server.Shutdown` → wait for hijacked sessions up to `--shutdown-timeout`, then force-close them.
+`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `headerTimeout` also bounds the per-conn first-byte peek. `Shutdown` (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines (ctx-bounded; force-close remaining peeks) → `chanListener.Close` → `http.Server.Shutdown` → wait for hijacked sessions up to `--shutdown-timeout`, then force-close them.
+
+Hairpin (D34) compares the pinned IP:port to every live data-plane bind (`s.Addr()`, orig-dest `Addr()`, both spec addresses) via `sameEndpoint`. Orig-dest **direct-connect**: dest port equals the orig-dest listen port **and** dest IP is local/unspecified → close, no Dial.
+
+## Original-destination listener (1.1, opt-in)
+
+Linux REDIRECT + `SO_ORIGINAL_DST` / `IP6T_SO_ORIGINAL_DST` on a separate listener. Dest recover first (no acquire): fail dest / direct-connect / hairpin / CIDR deny → close, no Dial. Peek 1 byte: `0x04`/`0x05` close; `0x16` TLS acquires in dispatch, parses ClientHello (SNI+ALPN) with byte replay, matches `tls.hosts` against **SNI**, Dials dest IP only; else Push `taggedConn` and `ServeHTTP` acquires (D55). Do **not** branch on a single `'P'` (`POST`/`PUT`/`PATCH` share `0x50` with `PRI`).
+
+`ServeHTTP` D57 splice, after PRI and after `gate.acquire`: if orig-dest context is set, `CONNECT` → 400 no Dial; every other method → `serveOrigDestHTTP` (never `serveCONNECT` / `serveAbsolute`). `gate.acquire` once per orig-dest TCP.
+
+Ready (D56): `OrigDestBound || OrigDestOff`. 1.0 default is `OrigDestOff: true`. Warning `origdest_unbound` only when required and unbound.
+
+Topologies and iptables: [docs/13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md#original-destination-linux-redirect). Compose: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml).
 
 ## Related documents
 

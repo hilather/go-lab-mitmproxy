@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: TLS, Proxy, Security
-Last reviewed: 2026-08-19 (1.1 h2 innerHTTP via roundTripInnerH2)
+Last reviewed: 2026-08-19 (1.1 h2→h1 transcode serialize)
 Related ADRs: 0002, 0009
 
 Package `internal/tlsmitm`. Only this package and `internal/proxy` touch `crypto/tls` on the data plane. Management TLS (optional) lives in `internal/control/rest` like LabMail. `internal/tlsmitm` must **not** Dial.
@@ -53,7 +53,7 @@ Leaf `NotAfter: now+24h` is long enough for a lab session. LRU eviction of a liv
 3. Mint or LRU-get leaf.
 4. Return `tls.Config{Certificates, NextProtos: <session snapshot>, MinVersion: tls.VersionTLS12}`.
 
-Handshake NextProtos come from the session snapshot, not Authority compile (D46). Empty `nextProtos` (and flag-off `protocols.http2`) materialize `[]string{"http/1.1"}`. When `protocols.http2.enabled` is true the **client-facing leaf** advertises `["h2","http/1.1"]`; origin ALPN stays `http/1.1` until origin transcode (inner h2 is transcoded onto that HTTP/1.1 origin conn). `compileCA` may still reuse the CA when the TLS spec is unchanged.
+Handshake NextProtos come from the session snapshot, not Authority compile (D46). Empty `nextProtos` (and flag-off `protocols.http2`) materialize `[]string{"http/1.1"}`. When `protocols.http2.enabled` is true the **client-facing leaf** advertises `["h2","http/1.1"]`; origin ALPN stays `http/1.1` and inner h2 streams are serialized onto that one HTTP/1.1 origin TCP (`MaxConnsPerHost: 1`, mutex through body drain) (D32, D44). `compileCA` may still reuse the CA when the TLS spec is unchanged.
 
 Upstream: `tls.Client(rawConn, &tls.Config{ServerName: sni, RootCAs: pool, NextProtos: <session snapshot>, MinVersion: tls.VersionTLS12, InsecureSkipVerify: spec.tls.upstream.insecureSkipVerify})`.
 
@@ -82,7 +82,7 @@ Changing intercept/CA/ports requires compile (apply `replaceTLS` or reset). In-f
 
 Operators download `GET /v1/ca` (`application/x-pem-file`, scope `mitm.read` — **not** on the unauthenticated data plane) or use the UI “Download lab CA” button and install it in the system / browser / language trust store. Document `curl --proxy http://127.0.0.1:8888 --cacert labmitm-ca.pem https://app.lab/`. There is no “click through” bypass in the appliance itself. Health/UI copy must say the CA is not served on `:8888`.
 
-If the inner client negotiated `http/1.1` (flag off, or flag on but the client did not offer `h2`) and then sends an HTTP/2 preface: close both sides; store flow `Error=http2_inner`. When `protocols.http2.enabled` and the leaf ALPN is `h2`, `innerHTTP` runs `http2x.ServeClient`; each stream is one captured flow (`Protocol=h2`, `HTTP2.StreamID`). `roundTripInnerH2` must not write HTTP/1.1 to the client TLS conn and must not close CONNECT on a per-stream 502 (D53). Inner CONNECT / Extended CONNECT / websocket Upgrade on an h2 session is RST `PROTOCOL_ERROR` with no flow (D48).
+If the inner client negotiated `http/1.1` (flag off, or flag on but the client did not offer `h2`) and then sends an HTTP/2 preface: close both sides; store flow `Error=http2_inner`. When `protocols.http2.enabled` and the leaf ALPN is `h2`, `innerHTTP` runs `http2x.ServeClient`; each stream is one captured flow (`Protocol=h2`, `HTTP2.StreamID`). `roundTripInnerH2` must not write HTTP/1.1 to the client TLS conn and must not close CONNECT on a per-stream 502 (D53). Concurrent h2 streams serialize on the HTTP/1.1 origin conn; response `WaitPaused` runs after the origin body is drained and the mutex is released (D44). Inner CONNECT / Extended CONNECT / websocket Upgrade on an h2 session is RST `PROTOCOL_ERROR` with no flow (D48).
 
 Inner HTTP/1.1 `Upgrade: websocket` that the origin answers with `101` is a bidirectional copy on the already-handshaked TLS conns (same 1.0 WebSocket contract as cleartext). HTTP/1.1 inner `RoundTrip` failure writes `502` and closes both sides.
 

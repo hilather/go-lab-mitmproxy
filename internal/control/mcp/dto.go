@@ -452,6 +452,12 @@ func fromStatus(st *app.Status, view *app.StateView) (statusJSON, error) {
 			{Name: "proxy", Address: view.Canonical.Spec.Listeners.Proxy.Address},
 			{Name: "management", Address: view.Canonical.Spec.Listeners.Management.Address},
 		}
+		if view.Canonical.Spec.Listeners.OriginalDestination.Enabled {
+			out.Listeners = append(out.Listeners, listenerJSON{
+				Name:    "originalDestination",
+				Address: view.Canonical.Spec.Listeners.OriginalDestination.Address,
+			})
+		}
 		out.Features = featuresFromSpec(&view.Canonical.Spec)
 	}
 	return out, nil
