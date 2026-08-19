@@ -66,6 +66,25 @@ func TestCheckReportsMissingMetadata(t *testing.T) {
 	}
 }
 
+func TestFuzzCorporaPresent(t *testing.T) {
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkFuzzCorpora(root); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFuzzCorporaReportsMissing(t *testing.T) {
+	dir := t.TempDir()
+	if err := checkFuzzCorpora(dir); err == nil {
+		t.Fatal("expected missing corpora")
+	} else if !strings.Contains(err.Error(), "fuzz corpora missing") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestCheckReportsInvalidExampleYAML(t *testing.T) {
 	dir := t.TempDir()
 	for _, rel := range RequiredRootDocs {

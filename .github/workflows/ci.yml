@@ -1,11 +1,12 @@
-# LabMITM continuous integration (FND-001).
+# LabMITM continuous integration (FND-001 + GA-001).
 #
-# Required jobs: format, lint, unit, documentation, config-compat, generated-file, parity,
+# Required jobs: format, lint, unit, race, fuzz-smoke, generated-file,
+# documentation, security-scan, changelog, parity, config-compat,
 # container-test, web.
 # There is no optional or bypassable job.
 #
-# Later PRs add race, fuzz-smoke, security-scan, and changelog when those
-# targets first exist. Do not mark a failing check optional.
+# Tag creation is gated by .github/workflows/release.yml (tag-gate).
+# Do not mark a failing check optional.
 
 name: CI
 
@@ -73,6 +74,42 @@ jobs:
           path: unit.log
           retention-days: 14
 
+  race:
+    name: race
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Race tests
+        run: make test-race | tee race.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: race-logs
+          path: race.log
+          retention-days: 14
+
+  fuzz-smoke:
+    name: fuzz-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Fuzz smoke
+        run: make test-fuzz-smoke | tee fuzz-smoke.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: fuzz-smoke-logs
+          path: fuzz-smoke.log
+          retention-days: 14
+
   documentation:
     name: documentation
     runs-on: ubuntu-latest
@@ -108,6 +145,32 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Verify generated contracts
         run: make verify-generated
+
+  security-scan:
+    name: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Vulnerability scan
+        run: make security-scan
+
+  changelog:
+    name: changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Changelog entry
+        run: make test-changelog
 
   parity:
     name: parity

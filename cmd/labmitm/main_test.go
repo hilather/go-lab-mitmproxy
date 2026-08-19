@@ -273,8 +273,13 @@ func TestComposeSmokeContract(t *testing.T) {
 
 func TestExampleAndContainerYAML(t *testing.T) {
 	root := repoRoot(t)
-	path := filepath.Join(root, "testdata", "container", "config.yaml")
-	if _, err := config.LoadFile(path); err != nil {
-		t.Fatalf("load testdata/container/config.yaml: %v", err)
+	for _, rel := range []string{
+		filepath.Join("testdata", "container", "config.yaml"),
+		filepath.Join("examples", "labmitm.yaml"),
+	} {
+		path := filepath.Join(root, rel)
+		if _, err := config.LoadFile(path); err != nil {
+			t.Fatalf("load %s: %v", rel, err)
+		}
 	}
 }

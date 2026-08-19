@@ -1,0 +1,87 @@
+# LabMITM tag gate (GA-001).
+#
+# Required job: tag-gate. A release tag is refused when generated files are
+# stale, release notes are incomplete, or any required CI job did not
+# succeed on the exact tag commit.
+#
+# No continue-on-error, no broad retries, no administrative bypass.
+# rc.1 only on green CI.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git tag (vX.Y.Z) or commit to gate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.event.inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.26.6"
+  GOTOOLCHAIN: local
+  GOPROXY: https://proxy.golang.org,direct
+
+jobs:
+  tag-gate:
+    name: tag-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Record exact commit
+        id: rev
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "tag_commit=${sha}"
+
+      - name: Reject dirty worktree
+        run: git diff --exit-code && git diff --cached --exit-code
+
+      - name: Verify generated files
+        run: make verify-generated
+
+      - name: Resolve notes path
+        id: gate
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.ref || github.ref_name }}"
+          ref="${ref#refs/tags/}"
+          notes="docs/releases/${ref}.md"
+          if [ ! -f "${notes}" ]; then
+            echo "missing release notes ${notes}" >&2
+            exit 1
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+          echo "notes=${notes}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release notes headings
+        run: go run ./scripts/release-diff -notes-only -notes "${{ steps.gate.outputs.notes }}"
+
+      - name: Require green CI on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_SHA: ${{ steps.rev.outputs.sha }}
+        run: go run ./scripts/release-diff -require-ci
