@@ -55,8 +55,8 @@ const usageText = `usage: labmitm <command>
 LabMITM is a laboratory HTTP(S) intercepting proxy. validate and
 canonicalize load a fail-closed labmitm.dev/v1alpha1 document. serve
 binds the HTTP/1.1 forward proxy (tls.intercept is a data-plane
-knob, not a second listener). Management, REST, and MCP are not
-bound yet.
+knob, not a second listener). Management REST /v1 binds only when
+--management-listen is an address and bearer auth has ≥1 token.
 
 Commands:
   version         print build and protocol metadata
@@ -64,7 +64,7 @@ Commands:
   validate        fail-closed YAML check (--config)
   canonicalize    emit canonical spec (--config, --format yaml|json)
   serve           load YAML and bind the proxy (--config, --proxy-listen,
-                  --management-listen=off, --shutdown-timeout, --pid-file)
+                  --management-listen, --shutdown-timeout, --pid-file)
 
 Planned (not implemented):
   healthcheck     probe GET /v1/health/ready

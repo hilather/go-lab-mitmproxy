@@ -7,7 +7,7 @@ Related ADRs: 0002
 
 Package `internal/tlsmitm`. Only this package and `internal/proxy` touch `crypto/tls` on the data plane. Management TLS (optional) lives in `internal/control/rest` like LabMail. `internal/tlsmitm` must **not** Dial.
 
-TLS-001 implements generate/files CA, per-host leaf mint, and dual handshake. Handshake failure closes both sides and does not fall back to a blind tunnel (D20). STA-001 compiles the CA into the immutable snapshot (`internal/compiler`); `replaceTLS` recompiles the handle (generate-mode rotates) and in-flight CONNECT sessions keep the Authority they pinned at accept. `app.Service.GetCA` returns the cert PEM only; `GET /v1/ca` is API-001.
+TLS-001 implements generate/files CA, per-host leaf mint, and dual handshake. Handshake failure closes both sides and does not fall back to a blind tunnel (D20). STA-001 compiles the CA into the immutable snapshot (`internal/compiler`); `replaceTLS` recompiles the handle (generate-mode rotates) and in-flight CONNECT sessions keep the Authority they pinned at accept. `app.Service.GetCA` / `GET /v1/ca` return the cert PEM only (never the key).
 
 ## CA
 

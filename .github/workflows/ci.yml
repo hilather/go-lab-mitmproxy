@@ -1,9 +1,9 @@
 # LabMITM continuous integration (FND-001).
 #
-# Required jobs: format, lint, unit, documentation, config-compat.
+# Required jobs: format, lint, unit, documentation, config-compat, generated-file.
 # There is no optional or bypassable job.
 #
-# Later PRs add race, fuzz-smoke, generated-file, security-scan,
+# Later PRs add race, fuzz-smoke, security-scan,
 # container-test, changelog, parity, and web when those
 # targets first exist. Do not mark a failing check optional.
 
@@ -96,3 +96,15 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Config compatibility fixtures
         run: make test-config-compat
+
+  generated-file:
+    name: generated-file
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Verify generated contracts
+        run: make verify-generated

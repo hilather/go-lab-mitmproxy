@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,7 +13,11 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/app"
+	"github.com/hilather/go-lab-mitmproxy/internal/auth"
+	"github.com/hilather/go-lab-mitmproxy/internal/control/rest"
+	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxy"
+	"github.com/hilather/go-lab-mitmproxy/internal/web"
 )
 
 type serveFlags struct {
@@ -58,7 +63,11 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "labmitm proxy listen=%s\n", rt.proxy.Addr().String())
-	_, _ = fmt.Fprintln(stdout, "labmitm management: not bound")
+	if rt.http == nil {
+		_, _ = fmt.Fprintln(stdout, "labmitm management: not bound")
+	} else {
+		_, _ = fmt.Fprintf(stdout, "labmitm management listen=%s\n", rt.http.Addr())
+	}
 	<-ctx.Done()
 	deadline := flags.ShutdownTimeout
 	if deadline <= 0 {
@@ -73,14 +82,12 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 
 type serveRuntime struct {
 	proxy   *proxy.Server
+	http    *rest.Server
 	svc     *app.App
 	pidPath string
 }
 
 func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, error) {
-	if !managementOff(flags.ManagementListen) {
-		return nil, fmt.Errorf("management listener requires API-001 (no verifier); use --management-listen=off")
-	}
 	svc, err := app.Boot(ctx, app.Options{BootstrapPath: flags.Config})
 	if err != nil {
 		return nil, fmt.Errorf("load %s: %w", flags.Config, err)
@@ -110,20 +117,88 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 		svc.Close()
 		return nil, err
 	}
+	svc.SetReplay(srv.Replay)
+	rt := &serveRuntime{proxy: srv, svc: svc, pidPath: flags.PIDFile}
+	mgmt, unbound := managementListen(flags.ManagementListen, snap.Canonical.Spec.Listeners.Management.Address)
+	if !unbound {
+		hs, err := startManagement(svc, mgmt, snap.Canonical.Spec)
+		if err != nil {
+			_ = srv.Shutdown(context.Background())
+			svc.Close()
+			return nil, err
+		}
+		rt.http = hs
+	}
+	svc.SetHealth(func() app.HealthFacts {
+		return app.HealthFacts{
+			ProxyBound: srv.Accepting(),
+			StoreUp:    svc.Inbox() != nil,
+			MgmtBound:  rt.http != nil,
+			MgmtOff:    unbound,
+		}
+	})
 	if err := writePIDFile(flags.PIDFile); err != nil {
-		_ = srv.Shutdown(context.Background())
-		svc.Close()
+		_ = rt.shutdown(context.Background())
 		return nil, fmt.Errorf("pid-file: %w", err)
 	}
-	return &serveRuntime{proxy: srv, svc: svc, pidPath: flags.PIDFile}, nil
+	return rt, nil
 }
 
-func managementOff(flagAddr string) bool {
+func startManagement(svc *app.App, addr string, spec model.Spec) (*rest.Server, error) {
+	if addr == "" {
+		addr = rest.DefaultAddr
+	}
+	verifier, err := auth.FromSpec(spec.Management.Auth)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifier.RequireListen(); err != nil {
+		return nil, err
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	hs, err := rest.New(rest.Config{
+		Addr:           addr,
+		Service:        svc,
+		AllowedOrigins: spec.Management.OriginAllowlist,
+		MaxBodyBytes:   spec.Management.BodyLimit,
+		MaxConcurrent:  spec.Management.MaxConcurrent,
+		RatePerSec:     float64(spec.Management.RequestsPerSecond),
+		RateBurst:      float64(spec.Management.Burst),
+		PublicMetrics:  spec.Observability.Metrics.PublicPath,
+		Auth:           verifier,
+		CookieSecure:   spec.Listeners.Management.TLS.Enabled,
+		UI:             web.NewHandler(nil),
+		UIEnabled: func() bool {
+			snap := svc.Active()
+			if snap == nil || snap.Canonical == nil {
+				return spec.UI.Enabled
+			}
+			return snap.Canonical.Spec.UI.Enabled
+		},
+	})
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	hs.Attach(ln)
+	go func() { _ = hs.Serve(ln) }()
+	return hs, nil
+}
+
+func managementListen(flagAddr, yamlAddr string) (addr string, unbound bool) {
 	switch strings.ToLower(strings.TrimSpace(flagAddr)) {
-	case "", "off", "none", "-":
-		return true
+	case "off", "none", "-":
+		return "", true
+	case "":
+		if yamlAddr == "" {
+			yamlAddr = rest.DefaultAddr
+		}
+		return yamlAddr, false
 	default:
-		return false
+		return strings.TrimSpace(flagAddr), false
 	}
 }
 
@@ -132,8 +207,13 @@ func (r *serveRuntime) shutdown(ctx context.Context) error {
 		return nil
 	}
 	var first error
+	if r.http != nil {
+		first = r.http.Shutdown(ctx)
+	}
 	if r.proxy != nil {
-		first = r.proxy.Shutdown(ctx)
+		if err := r.proxy.Shutdown(ctx); err != nil && first == nil {
+			first = err
+		}
 	}
 	if r.svc != nil {
 		r.svc.Close()
