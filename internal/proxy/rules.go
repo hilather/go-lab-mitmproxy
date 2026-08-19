@@ -31,6 +31,8 @@ type ruleSession struct {
 	reqCap       *cappedWriter
 	skipInsert   bool
 	respTrailers []model.Header
+	via          string
+	socks        *model.SOCKSInfo
 }
 
 // beginSession loads the atomic snapshot (or falls back to Options.Spec).
@@ -350,6 +352,7 @@ func (s *Server) waitBreakpoint(ctx context.Context, f *model.Flow, hit *rules.H
 	if f.StartedAt.IsZero() {
 		f.StartedAt = time.Now().UTC()
 	}
+	stampSession(f, sess)
 	res, err := s.inbox.Insert(ctx, s.sessionEpoch(sess), f)
 	if err != nil {
 		s.metrics.ruleHit(rules.ActionBreakpointTO)

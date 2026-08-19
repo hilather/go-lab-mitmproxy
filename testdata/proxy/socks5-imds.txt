@@ -1,0 +1,5 @@
+# SOCKS5 CONNECT to 169.254.169.254:80 is target_denied (05 02). Do not Dial.
+C-HEX: 05 01 00
+S-HEX: 05 00
+C-HEX: 05 01 00 01 a9 fe a9 fe 00 50
+S-HEX: 05 02 00 01 00 00 00 00 00 00

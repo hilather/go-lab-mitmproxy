@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-19 (h2 :path/:method/:authority match)
+Last reviewed: 2026-08-19 (h2 match + SOCKS5 CONNECT)
 Related ADRs: 0002
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
@@ -48,7 +48,7 @@ rules:
           timeout: 30s         # 1s–60s
 ```
 
-Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query). On an inner HTTP/2 stream the reconstructed request includes ordered pseudo-headers (`:method`, `:scheme`, `:authority`, `:path`); `match.method` uses `:method`, `match.pathPrefix`/`pathExact` use the path-component of `:path` (query stripped), `match.host` uses the host of `:authority`, and `match.headerName` sees leading-`:` names. `match.protocol` is optional and case-insensitive; a non-empty value that does not match the request protocol (including `h2` on an inner h2 stream) matches nothing. Breakpoints pause the **stream**, not the CONNECT TCP session (D37): request-phase `WaitPaused` runs outside the origin mutex so a paused stream does not block another stream’s request-phase rules.
+Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query). On an inner HTTP/2 stream the reconstructed request includes ordered pseudo-headers (`:method`, `:scheme`, `:authority`, `:path`); `match.method` uses `:method`, `match.pathPrefix`/`pathExact` use the path-component of `:path` (query stripped), `match.host` uses the host of `:authority`, and `match.headerName` sees leading-`:` names. `match.protocol` is optional and case-insensitive; a non-empty value that does not match the request protocol (including `h2` on an inner h2 stream) matches nothing. SOCKS tunnel metadata stamps `Protocol=socks5` or `socks4` (plus `Via`/`SOCKS`). Inner intercept copies the same `Via`/`SOCKS`. Breakpoints pause the **stream**, not the CONNECT TCP session (D37): request-phase `WaitPaused` runs outside the origin mutex so a paused stream does not block another stream’s request-phase rules.
 
 | Action | Request phase | Response phase |
 |---|---|---|

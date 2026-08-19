@@ -534,7 +534,20 @@ func (s *Server) closeDispatching() {
 	}
 }
 
+func stampSession(f *model.Flow, sess *ruleSession) {
+	if f == nil || sess == nil {
+		return
+	}
+	if f.Via == "" && sess.via != "" {
+		f.Via = sess.via
+	}
+	if f.SOCKS == nil && sess.socks != nil {
+		f.SOCKS = sess.socks
+	}
+}
+
 func (s *Server) capture(f *model.Flow, sess *ruleSession) {
+	stampSession(f, sess)
 	if s.sink == nil || f == nil {
 		return
 	}

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-19 (h2 innerHTTP + accept mux D42)
+Last reviewed: 2026-08-19 (h2 innerHTTP + SOCKS5 CONNECT)
 Related ADRs: 0002, 0009, 0010
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -32,7 +32,9 @@ srv := &http.Server{
 // go srv.Serve(httpLn)
 // go acceptLoop(rawLn): Accept immediately; go dispatchConn(c)
 // dispatchConn: SetReadDeadline(HeaderTimeout); peek 1 byte (replay buffer).
-// 0x04 / 0x05 → close; metric reason="socks" (acceptSOCKS5/4 off = 1.0).
+// 0x05 && acceptSOCKS5 → serveSOCKS5 (replay peeked byte).
+// 0x04 && acceptSOCKS4 → serveSOCKS4.
+// else 0x04 / 0x05 → close; metric reason="socks" (1.0 default).
 // else → httpLn.Push(c)  // HTTP/1.1 including PRI
 ```
 
@@ -50,6 +52,8 @@ Shutdown order (D42): `accepting=false` → close `rawLn` → wait acceptLoop �
 | Origin-form (`GET /path`) | `400` `validation_failed` (`absolute-form or CONNECT required`). |
 | `PRI * HTTP/2.0` | Close connection. Metric `reason="http2"`. |
 | First byte `0x05` / `0x04` (per-conn peek; `acceptSOCKS5`/`acceptSOCKS4` off) | Close. Metric `reason="socks"`. |
+| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT, NO AUTH only (D29). Peeked `0x05` is replayed. BIND/UDP → `05 07`. |
+| First byte `0x04` and `acceptSOCKS4: true` | SOCKS4/4a CONNECT. USERID discarded. |
 | HTTP/1.0 | Accept if absolute-form `http://` or CONNECT with port; respond HTTP/1.1. |
 
 Authority resolution:
@@ -59,6 +63,12 @@ Authority resolution:
 3. `Host` header must be present for HTTP/1.1 non-CONNECT (stdlib enforces).
 
 Hop-by-hop headers stripped on both legs: `Proxy-Connection`, `Keep-Alive`, `TE`, `Trailer`, `Transfer-Encoding`, `Proxy-Authorization`. `Connection` is stripped **except** when forwarding a WebSocket upgrade. `Upgrade` is kept only on that path.
+
+## SOCKS CONNECT (opt-in)
+
+No third-party SOCKS library. `gate.acquire` runs after a valid CONNECT request is parsed and **before** Dial (same gate as `ServeHTTP`). Hairpin → SOCKS5 `05 02` / SOCKS4 `91`, no Dial. IMDS/link-local CIDR deny does not Dial `169.254.169.254`.
+
+Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`. Intercepted inner flows copy `Via`/`SOCKS`. Username/password and GSSAPI are never selected.
 
 ## CONNECT Hijack and inner session
 

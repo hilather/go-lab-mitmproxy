@@ -233,7 +233,7 @@ func TestSOCKSCloseWhenAcceptFlagsOff(t *testing.T) {
 	}
 }
 
-func TestSOCKSCloseWhenAcceptFlagsOn(t *testing.T) {
+func TestSOCKSGreetingWhenAcceptFlagsOn(t *testing.T) {
 	spec := loadSpec(t)
 	spec.Listeners.Proxy.AcceptSOCKS5 = true
 	spec.Listeners.Proxy.AcceptSOCKS4 = true
@@ -247,13 +247,12 @@ func TestSOCKSCloseWhenAcceptFlagsOn(t *testing.T) {
 	if _, err := c.Write([]byte{0x05, 0x01, 0x00}); err != nil {
 		t.Fatal(err)
 	}
-	buf := make([]byte, 16)
-	n, err := c.Read(buf)
-	if n != 0 && err == nil {
-		t.Fatalf("SOCKS got %q; want close (serve is not implemented)", buf[:n])
+	buf := make([]byte, 2)
+	if _, err := io.ReadFull(c, buf); err != nil {
+		t.Fatal(err)
 	}
-	if err == nil {
-		t.Fatal("expected close after SOCKS greeting with flags on")
+	if buf[0] != 0x05 || buf[1] != 0x00 {
+		t.Fatalf("SOCKS greeting %x; want 05 00 (peeked 0x05 replayed)", buf)
 	}
 }
 

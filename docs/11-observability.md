@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-18 (OBS-001)
+Last reviewed: 2026-08-19 (SOCKS5 CONNECT D29)
 Related ADRs: 0001
 
 ## Logs (`log/slog` JSON)
@@ -30,7 +30,8 @@ Bounded labels only.
 | Name | Kind | Labels |
 |---|---|---|
 | `labmitm_proxy_sessions_total` | counter | `result` (`ok`, `rejected`, `timeout`) |
-| `labmitm_proxy_rejected_total` | counter | `reason` (`admission`, `http2`, `socks`, `target_denied`, `absolute_https`) |
+| `labmitm_proxy_rejected_total` | counter | `reason` (`admission`, `http2`, `socks`, `socks_auth`, `socks_command`, `target_denied`, `absolute_https`) |
+| `labmitm_socks_sessions_total` | counter | `result` (`ok`, `denied`, `auth`, `command`) |
 | `labmitm_flows_total` | counter | `scheme`, `intercepted`, `result` |
 | `labmitm_tls_intercepts_total` | counter | `result` (`ok`, `mint_fail`, `tls_handshake`, `upstream_tls`, `upstream_verify_fail`, `http2_inner`) |
 | `labmitm_rule_hits_total` | counter | `action` |

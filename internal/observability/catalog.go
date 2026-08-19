@@ -26,6 +26,7 @@ const (
 const (
 	MetricProxySessionsTotal  = "labmitm_proxy_sessions_total"
 	MetricProxyRejectedTotal  = "labmitm_proxy_rejected_total"
+	MetricSocksSessionsTotal  = "labmitm_socks_sessions_total"
 	MetricFlowsTotal          = "labmitm_flows_total"
 	MetricTLSInterceptsTotal  = "labmitm_tls_intercepts_total"
 	MetricRuleHitsTotal       = "labmitm_rule_hits_total"
@@ -150,6 +151,7 @@ func Metrics() []MetricDef {
 	defs := []MetricDef{
 		{Name: MetricProxySessionsTotal, Kind: KindCounter, Help: "Proxy sessions that ended.", Labels: []string{"result"}},
 		{Name: MetricProxyRejectedTotal, Kind: KindCounter, Help: "Proxy requests rejected before forward.", Labels: []string{"reason"}},
+		{Name: MetricSocksSessionsTotal, Kind: KindCounter, Help: "SOCKS CONNECT handshake outcomes.", Labels: []string{"result"}},
 		{Name: MetricFlowsTotal, Kind: KindCounter, Help: "Captured flows.", Labels: []string{"scheme", "intercepted", "result"}},
 		{Name: MetricTLSInterceptsTotal, Kind: KindCounter, Help: "TLS intercept handshake outcomes.", Labels: []string{"result"}},
 		{Name: MetricRuleHitsTotal, Kind: KindCounter, Help: "First-match rule actions that fired.", Labels: []string{"action"}},

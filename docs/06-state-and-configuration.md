@@ -225,7 +225,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `proxy.admission.maxConcurrentStreams` | **`replaceAdmission`**. New TCP sessions only |
 | Listener **addresses** | Reset-only (unchanged) |
 
-Turning on SOCKS, HTTP/2, orig-dest, or compat requires a Reset (or process restart). The accept mux reads `acceptSOCKS5`/`acceptSOCKS4` only to keep 1.0 SOCKS-close while they are false (serve is a later PR). `originalDestination` / `protocols.http2` / `compat.flowREST` stay unread until their workstreams.
+Turning on SOCKS, HTTP/2, orig-dest, or compat requires a Reset (or process restart). The accept mux serves SOCKS5/4 CONNECT when `acceptSOCKS5`/`acceptSOCKS4` are true; flags off keep 1.0 SOCKS-close. `originalDestination` / `protocols.http2` / `compat.flowREST` stay unread until their workstreams.
 
 Idempotency LRU default 256; reset clears it.
 

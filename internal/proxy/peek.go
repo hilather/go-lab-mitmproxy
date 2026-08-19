@@ -76,6 +76,14 @@ func (s *Server) dispatchConn(c net.Conn, httpLn *chanListener) {
 		_ = c.Close()
 		return
 	}
+	if b[0] == 0x05 && spec.Listeners.Proxy.AcceptSOCKS5 {
+		s.serveSOCKS5(pc)
+		return
+	}
+	if b[0] == 0x04 && spec.Listeners.Proxy.AcceptSOCKS4 {
+		s.serveSOCKS4(pc)
+		return
+	}
 	if b[0] == 0x04 || b[0] == 0x05 {
 		s.closeSOCKS(pc)
 		return

@@ -15,6 +15,7 @@ type Metrics struct {
 	sessions  map[string]int64
 	tls       map[string]int64
 	rules     map[string]int64
+	socksN    map[string]int64
 	storeFull int64
 	reg       *observability.Registry
 	log       *observability.Logger
@@ -36,6 +37,7 @@ func newMetrics() *Metrics {
 		sessions: make(map[string]int64),
 		tls:      make(map[string]int64),
 		rules:    make(map[string]int64),
+		socksN:   make(map[string]int64),
 	}
 }
 
@@ -113,6 +115,20 @@ func (m *Metrics) storeFullInc() {
 	// counted once even when the proxy still forwards.
 }
 
+func (m *Metrics) socks(result string) {
+	if m == nil {
+		return
+	}
+	result = observability.SocksSessionResult(result)
+	m.mu.Lock()
+	m.socksN[result]++
+	reg := m.reg
+	m.mu.Unlock()
+	if reg != nil {
+		reg.Inc(observability.MetricSocksSessionsTotal, map[string]string{"result": result}, 1)
+	}
+}
+
 func (m *Metrics) ruleHit(action string) {
 	if m == nil || action == "" {
 		return
@@ -171,7 +187,7 @@ func (m *Metrics) StoreFull() int64 {
 }
 
 // Rejected returns the count for reason (admission, http2, socks,
-// target_denied, absolute_https).
+// socks_auth, socks_command, target_denied, absolute_https).
 func (m *Metrics) Rejected(reason string) int64 {
 	if m == nil {
 		return 0
@@ -179,6 +195,16 @@ func (m *Metrics) Rejected(reason string) int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.rejected[reason]
+}
+
+// Socks returns labmitm_socks_sessions_total{result}.
+func (m *Metrics) Socks(result string) int64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.socksN[result]
 }
 
 // TLSIntercepts returns labmitm_tls_intercepts_total{result}.
