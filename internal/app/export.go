@@ -6,6 +6,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 // Export returns canonical YAML or JSON of the active snapshot.
@@ -95,7 +96,7 @@ func (s *App) Status(ctx context.Context, actor Actor) (*Status, error) {
 		return nil, err
 	}
 	st := Status{
-		Ready: ready(s.HealthFacts()),
+		Ready: observability.Evaluate(s.HealthFacts()).Ready,
 		Revisions: model.RevisionStatus{
 			BootstrapRevision: snap.BootstrapRevision,
 			RuntimeRevision:   snap.Revision,

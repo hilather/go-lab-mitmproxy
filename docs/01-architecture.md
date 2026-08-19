@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-18 (MCP-001)
+Last reviewed: 2026-08-18 (SEC-001)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007
 
 ## Problem statement
@@ -280,7 +280,7 @@ labmitm help
 
 There is **no** `serve --token-file`. `labmitm send` / `labmitm request` are **not** shipped.
 
-TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`, default ports `{443}`). API-001 binds management REST when `--management-listen` is an address **and** `management.auth.mode: bearer` has ≥1 usable token. Missing token files fail serve. `--management-listen=off` leaves management unbound.
+TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`, default ports `{443}`). API-001 binds management REST when `--management-listen` is an address **and** `management.auth.mode: bearer` has ≥1 usable token. Missing token files fail serve. `--management-listen=off` leaves management unbound. OBS-001 implements `labmitm healthcheck` and the `127.0.0.1:9090` scrape listener.
 
 ## Invariants
 

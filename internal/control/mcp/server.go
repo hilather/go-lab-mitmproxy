@@ -364,6 +364,7 @@ func (s *Server) reloadAuth() {
 	}
 	next, err := auth.FromSpec(snap.Canonical.Spec.Management.Auth)
 	if err != nil {
+		// Keep the previous verifier on a failed secret reread.
 		return
 	}
 	// Do not swap in an allow-all / empty-bearer index; keep the live verifier.

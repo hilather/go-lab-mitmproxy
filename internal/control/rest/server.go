@@ -17,6 +17,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 const (
@@ -75,13 +76,19 @@ type Config struct {
 	RatePerSec float64
 	// RateBurst is the per-source burst. Zero uses config default.
 	RateBurst float64
-	// PublicMetrics serves GET /v1/metrics. False returns not_found (OBS-001).
+	// PublicMetrics serves GET /v1/metrics. False returns not_found.
 	PublicMetrics bool
+	// Metrics is the process registry. Nil skips HTTP counters and /v1/metrics body.
+	Metrics *observability.Registry
+	// Logger emits slog JSON events. Nil is a no-op.
+	Logger *observability.Logger
 	// SSEHeartbeat is the events stream comment interval. Non-positive uses 15s.
 	SSEHeartbeat time.Duration
 	// Auth is the shared verifier. Nil is deny-all (not allow-all).
 	Auth *auth.Verifier
-	// CookieSecure forces the Secure flag (management TLS). Cookie sessions are SEC-001.
+	// Sessions is the REST-only UI session table. Nil becomes an empty store.
+	Sessions *auth.Store
+	// CookieSecure forces the Secure flag (management TLS).
 	CookieSecure bool
 	// UI serves the embedded stub/SPA when a request is not a native /v1 or MCP path.
 	// rest must not import internal/web; cmd wires this.
@@ -104,6 +111,8 @@ type Server struct {
 	timeout      time.Duration
 	inflight     chan struct{}
 	rate         *limiter
+	metrics      *observability.Registry
+	logger       *observability.Logger
 	sseHeartbeat time.Duration
 
 	cursorMu  sync.Mutex
@@ -142,6 +151,17 @@ func New(cfg Config) (*Server, error) {
 	if hb <= 0 {
 		hb = sseHeartbeat
 	}
+	if cfg.Sessions == nil {
+		cfg.Sessions = auth.NewStore(auth.DefaultSessionConfig())
+	}
+	if cfg.Auth != nil {
+		sessions := cfg.Sessions
+		cfg.Auth.OnIdentityChange(func() {
+			if sessions != nil {
+				sessions.Clear()
+			}
+		})
+	}
 	s := &Server{
 		cfg:          cfg,
 		svc:          cfg.Service,
@@ -150,6 +170,8 @@ func New(cfg Config) (*Server, error) {
 		timeout:      timeout,
 		inflight:     make(chan struct{}, n),
 		rate:         newLimiter(cfg.RatePerSec, cfg.RateBurst),
+		metrics:      cfg.Metrics,
+		logger:       cfg.Logger,
 		sseHeartbeat: hb,
 		cursorKey:    key,
 	}
@@ -276,11 +298,17 @@ func (s *Server) RotateCursors() {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	reqID := requestID(r)
-	w.Header().Set(headerRequestID, reqID)
-	instance := requestURNPrefix + reqID
+	start := time.Now()
 	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 	w = sw
+	reqID := requestID(r)
+	w.Header().Set(headerRequestID, reqID)
+	r.Header.Set(headerRequestID, reqID)
+	instance := requestURNPrefix + reqID
+	capID := ""
+	defer func() {
+		s.observeHTTP(capID, sw.status(), start, reqID)
+	}()
 
 	if err := checkOrigin(r.Header.Get("Origin"), s.cfg.AllowedOrigins); err != nil {
 		s.writeProblem(w, r, instance, err)
@@ -320,6 +348,9 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt, params, pathOK, methodOK := matchRoute(s.routes, r.Method, r.URL.Path)
+	if pathOK {
+		capID = string(rt.cap.ID)
+	}
 	if !pathOK {
 		if s.tryUI(w, r, instance) {
 			return
@@ -366,13 +397,18 @@ func (s *Server) reloadAuth() {
 	}
 	next, err := auth.FromSpec(snap.Canonical.Spec.Management.Auth)
 	if err != nil {
+		// Keep the previous verifier and live UI sessions.
 		return
 	}
 	// Do not swap in an allow-all / empty-bearer index; keep the live verifier.
 	if err := next.RequireListen(); err != nil {
 		return
 	}
+	changed := !s.cfg.Auth.Equivalent(next)
 	s.cfg.Auth.Replace(next)
+	if changed && s.cfg.Sessions != nil {
+		s.cfg.Sessions.Clear()
+	}
 }
 
 func isHealthCap(cap capabilities.Capability) bool {
@@ -445,6 +481,42 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) {
 	w.code = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) status() int {
+	if w == nil || w.code == 0 {
+		return http.StatusOK
+	}
+	return w.code
+}
+
+func (s *Server) observeHTTP(capability string, status int, start time.Time, reqID string) {
+	if s == nil {
+		return
+	}
+	if capability == "" {
+		capability = "unknown"
+	}
+	cls := observability.CodeClass(status)
+	if s.metrics != nil {
+		s.metrics.Inc(observability.MetricHTTPRequestsTotal, map[string]string{
+			"capability": capability,
+			"code_class": cls,
+		}, 1)
+		s.metrics.Observe(observability.MetricHTTPRequestDuration, map[string]string{
+			"capability": capability,
+		}, time.Since(start).Seconds())
+	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:      observability.EventHTTPRequest,
+			Component:  "rest",
+			RequestID:  reqID,
+			Capability: capability,
+			Result:     cls,
+			DurationMS: float64(time.Since(start).Milliseconds()),
+		})
+	}
 }
 
 func (w *statusWriter) Flush() {

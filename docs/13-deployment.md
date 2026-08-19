@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-08-18 (MCP-001)
+Last reviewed: 2026-08-18 (SEC-001)
 Related ADRs: 0001, 0003
 
 Dockerfile, compose, and `scripts/test-container.sh` land in DEP-001 (PR 12). This document freezes the contract so later PRs do not invent ports or image posture.
@@ -38,11 +38,11 @@ Flag semantics (LabMail-shaped; **no** `serve --token-file`):
 
 `labmitm send` / `labmitm request` are **not** shipped.
 
-PROXY-001 implements `serve` (proxy bind only; `--management-listen` defaults to `off`; no `--token-file`). MCP-001 implements `mcp-stdio` (`--config` and `--token-file` required; stdout is protocol, stderr is logs) and mounts `POST /mcp` on the management listener. `healthcheck` remains unimplemented. Invalid bootstrap binds nothing.
+PROXY-001 implements `serve`. MCP-001 implements `mcp-stdio` and mounts `POST /mcp`. OBS-001 implements `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/ready`. Invalid bootstrap binds nothing. Metrics scrape listen defaults to `127.0.0.1:9090`.
 
 ## Hardened container
 
-Dockerfile is LabMail-shaped (Go 1.26.6-alpine → scratch). **No Node stage in PR 12** — `internal/web` embeds committed `dist/` or LabMail-style `stub/` from PR 8. PR 13’s `make web-build` copies `web/dist` into `internal/web/dist` (host/CI), not a Docker Node stage.
+Dockerfile is LabMail-shaped (Go 1.26.6-alpine → scratch). **No Node stage in PR 12** — `internal/web` embeds committed `dist/` or LabMail-style `stub/` from PR 8. PR 13’s `make web-build` copies `web/dist` into `internal/web/dist` (host/CI), not a Docker Node stage. SEC-001’s image fixture is `testdata/container/` (`mode: bearer` plus a ≥256-bit token file; not `dev-loopback-unauth`).
 
 ```
 # build stage copies /etc/ssl/certs/ca-certificates.crt (required)

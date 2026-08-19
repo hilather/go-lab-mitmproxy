@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-18 (STA-001)
+Last reviewed: 2026-08-18 (SEC-001)
 Related ADRs: 0003
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -136,7 +136,7 @@ The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://githu
 - `rules.items[].id` unique and `[a-z0-9-]{1,64}`. Every item requires `phase` (`request`|`response`) and `action.type`. `action.delay` ∈ [0, 30s]. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML.
 - `store.maxBodyBytes` ≥ 1 KiB and ≤ `store.maxBytes`. `maxFlows` ≥ 1. `maxBytes` ≥ 1 MiB.
 - Loader: `management.auth.mode: bearer` with **zero tokens is valid** (empty `spec: {}` must load). Each listed token requires `id`, `secretFile`, and `role`. Overlay `secretFile` paths that are not mounted do not fail validate; if the file exists, the first non-comment line must be ≥32 bytes (256 bits) after trim. `scopes` materialize to `[]` when omitted.
-- Serve/bind (DEP-001 / SEC-001): binding management with `mode: bearer` and zero usable tokens is **refused**. `dev-loopback-unauth` is rejected in the container default fixture. Keep ADR 0005’s listen-refuse sentence as serve-time.
+- Serve/bind (SEC-001): binding management with `mode: bearer` and zero usable tokens is **refused**. `dev-loopback-unauth` is rejected in the container default fixture (`testdata/container/config.yaml` is `mode: bearer`). Keep ADR 0005’s listen-refuse sentence as serve-time. Token files are reread on reset and apply.
 
 ## Revisions
 

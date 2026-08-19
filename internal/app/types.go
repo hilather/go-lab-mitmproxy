@@ -6,6 +6,7 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/audit"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 // Actor is the caller identity recorded on audit and used for scope checks.
@@ -97,14 +98,8 @@ type Status struct {
 	Intercept bool
 }
 
-// HealthFacts is the input to Status.Ready (no observability package yet).
-type HealthFacts struct {
-	ProxyBound bool
-	MgmtBound  bool
-	MgmtOff    bool
-	StoreUp    bool
-	CAReady    bool
-}
+// HealthFacts is the input to Status.Ready / observability.Evaluate.
+type HealthFacts = observability.Facts
 
 // DefaultWaitTimeout is the native wait default when the caller omits timeout.
 const DefaultWaitTimeout = 10 * time.Second

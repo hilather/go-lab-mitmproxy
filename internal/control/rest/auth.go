@@ -12,6 +12,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 func actorOf(p auth.Principal, transport string) app.Actor {
@@ -30,25 +31,98 @@ func (s *Server) authenticate(r *http.Request, skip bool) (app.Actor, error) {
 	}
 	// Nil Auth is deny-all. Allow-all is not a 1.0 posture.
 	if s.cfg.Auth == nil {
+		s.observeAuthFailure("denied")
 		return app.Actor{}, domainerr.Unauthenticated("authentication required")
 	}
 
 	hdr := strings.TrimSpace(r.Header.Get("Authorization"))
-	p, err := s.cfg.Auth.Authenticate(auth.Request{
-		Authorization: hdr,
-		RemoteAddr:    r.RemoteAddr,
-	})
+	if hdr != "" {
+		p, err := s.cfg.Auth.Authenticate(auth.Request{
+			Authorization: hdr,
+			RemoteAddr:    r.RemoteAddr,
+		})
+		if err != nil {
+			s.observeAuthFailure("invalid")
+			return app.Actor{}, err
+		}
+		if s.logger != nil {
+			s.logger.Log(observability.Record{
+				Event:     observability.EventAuthSuccess,
+				Component: "rest",
+				RequestID: r.Header.Get(headerRequestID),
+				Result:    "ok",
+			})
+		}
+		return actorOf(p, "rest"), nil
+	}
+
+	if c, err := r.Cookie(auth.CookieName); err == nil && c.Value != "" && s.cfg.Sessions != nil {
+		sess, _, ok := s.cfg.Sessions.Lookup(c.Value)
+		if ok {
+			return actorOf(auth.PrincipalFromSession(sess), "rest"), nil
+		}
+		// Stale/unknown cookie must not block dev-loopback-unauth.
+	}
+
+	p, err := s.cfg.Auth.Authenticate(auth.Request{RemoteAddr: r.RemoteAddr})
 	if err != nil {
+		s.observeAuthFailure("invalid")
 		return app.Actor{}, err
+	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:     observability.EventAuthSuccess,
+			Component: "rest",
+			RequestID: r.Header.Get(headerRequestID),
+			Result:    "ok",
+		})
 	}
 	return actorOf(p, "rest"), nil
 }
 
-func (s *Server) authorize(_ *http.Request, actor app.Actor, cap capabilities.Capability) error {
+func (s *Server) observeAuthFailure(reason string) {
+	if s == nil {
+		return
+	}
+	reason = observability.AuthFailureReason(reason)
+	if s.metrics != nil {
+		s.metrics.Inc(observability.MetricAuthFailuresTotal, map[string]string{"reason": reason}, 1)
+	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:     observability.EventAuthFailure,
+			Component: "rest",
+			Result:    reason,
+			ErrorCode: string(domainerr.CodeUnauthenticated),
+		})
+	}
+}
+
+func (s *Server) authorize(r *http.Request, actor app.Actor, cap capabilities.Capability) error {
 	if s.cfg.Auth == nil {
 		return domainerr.Unauthenticated("authentication required")
 	}
-	return auth.AuthorizeScopes(actor.Scopes, cap.RequiredScopes)
+	if err := auth.AuthorizeScopes(actor.Scopes, cap.RequiredScopes); err != nil {
+		return err
+	}
+	if !auth.UnsafeMethod(r.Method) {
+		return nil
+	}
+	if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+		return nil
+	}
+	c, err := r.Cookie(auth.CookieName)
+	if err != nil || c.Value == "" {
+		return nil
+	}
+	if s.cfg.Sessions == nil || !s.cfg.Sessions.ValidCSRF(c.Value, r.Header.Get(auth.CSRFHeader)) {
+		return domainerr.Forbidden("CSRF token is missing or invalid")
+	}
+	return nil
+}
+
+func (s *Server) cookieSecure(r *http.Request) bool {
+	return auth.CookieSecure(r, s.cfg.CookieSecure)
 }
 
 type limiter struct {

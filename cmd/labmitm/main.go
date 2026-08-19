@@ -36,13 +36,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		return serveCmd(ctx, args[2:], stdout, stderr)
+	case "healthcheck":
+		return healthcheckCmd(args[2:], stdout, stderr)
 	case "mcp-stdio":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		return mcpStdioCmd(ctx, args[2:], stdout, stderr)
-	case "healthcheck":
-		_, _ = fmt.Fprintf(stderr, "labmitm %s is not implemented yet\n", args[1])
-		return 2
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown command: %s\n", args[1])
 		printUsage(stderr)
@@ -73,4 +72,8 @@ Commands:
 
 Planned (not implemented):
   healthcheck     probe GET /v1/health/ready
+  healthcheck     probe GET /v1/health/ready (--url)
+
+Planned (not implemented):
+  mcp-stdio       Streamable MCP over stdio
 `

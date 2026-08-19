@@ -5,6 +5,7 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/audit"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 // Audit returns the process ring so adapters can share it as a Sink.
@@ -22,7 +23,11 @@ func (s *App) recordAudit(ctx context.Context, ev audit.Event) string {
 	if ev.Result == "" {
 		ev.Result = audit.ResultOK
 	}
-	return s.audit.Record(ctx, ev).ID
+	id := s.audit.Record(ctx, ev).ID
+	if s.metrics != nil && ev.Capability != "" {
+		s.metrics.Inc(observability.MetricAuditEventsTotal, map[string]string{"event": ev.Capability}, 1)
+	}
+	return id
 }
 
 func (s *App) QueryAudit(ctx context.Context, actor Actor, in AuditQuery) (*AuditList, error) {

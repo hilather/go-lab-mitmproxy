@@ -12,6 +12,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, instance string, actor app.Actor, rt compiledRoute, params map[string]string) {
@@ -322,6 +323,13 @@ func (s *Server) handleAuditGet(w http.ResponseWriter, r *http.Request, instance
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request, instance string) {
-	s.writeProblem(w, r, instance, domainerr.NotFound("metrics public path is disabled"))
+	if !s.cfg.PublicMetrics {
+		s.writeProblem(w, r, instance, domainerr.NotFound("metrics public path is disabled"))
+		return
+	}
+	w.Header().Set("Content-Type", observability.OpenMetricsContentType)
+	w.WriteHeader(http.StatusOK)
+	_ = s.metrics.WriteOpenMetrics(w)
 	_ = r
+	_ = instance
 }

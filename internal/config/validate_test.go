@@ -185,3 +185,35 @@ func TestValidateUpstreamVerifyFixture(t *testing.T) {
 		t.Fatalf("want verify path in %+v", de.FieldViolations)
 	}
 }
+
+func TestContainerFixtureIsBearer(t *testing.T) {
+	root := repoRoot(t)
+	st, err := LoadFile(filepath.Join(root, "testdata", "container", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Spec.Management.Auth.Mode != model.MgmtAuthBearer {
+		t.Fatalf("container fixture mode=%q want bearer", st.Spec.Management.Auth.Mode)
+	}
+	if st.Spec.Management.Auth.Mode == model.MgmtAuthDevLoopbackUnauth {
+		t.Fatal("image/default fixtures must not be dev-loopback-unauth")
+	}
+	if len(st.Spec.Management.Auth.Tokens) == 0 {
+		t.Fatal("container fixture must list a token file")
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "testdata", "container", "token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := strings.TrimSpace(string(raw))
+	if len(line) < minTokenSecret {
+		t.Fatalf("container token entropy %d want >= %d", len(line), minTokenSecret)
+	}
+	admin, err := os.ReadFile(filepath.Join(root, "testdata", "config", "valid", "admin.token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strings.TrimSpace(string(admin))) < minTokenSecret {
+		t.Fatal("admin.token entropy below 256 bits")
+	}
+}

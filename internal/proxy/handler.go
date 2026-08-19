@@ -31,6 +31,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer s.gate.release(ip)
+	s.metrics.accept()
 
 	if req.Method == http.MethodConnect {
 		s.serveCONNECT(w, req, sess)

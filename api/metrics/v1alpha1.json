@@ -1,0 +1,499 @@
+{
+  "id": "labmitm.dev/metrics/v1alpha1",
+  "version": "v1alpha1",
+  "allowedLabels": [
+    "action",
+    "capability",
+    "code_class",
+    "component",
+    "event",
+    "intercepted",
+    "reason",
+    "result",
+    "scheme",
+    "tool"
+  ],
+  "forbiddenLabels": [
+    "actor",
+    "actor_id",
+    "address",
+    "authorization",
+    "body",
+    "client",
+    "client_ip",
+    "cookie",
+    "data",
+    "detail",
+    "err",
+    "error",
+    "error_text",
+    "flow_id",
+    "from",
+    "host",
+    "idempotency",
+    "idempotency_key",
+    "message",
+    "password",
+    "peer",
+    "pem",
+    "raw",
+    "remote_addr",
+    "set_cookie",
+    "source_ip",
+    "src",
+    "src_ip",
+    "subject",
+    "to"
+  ],
+  "metrics": [
+    {
+      "name": "labmitm_audit_events_total",
+      "kind": "counter",
+      "help": "Audit ring records.",
+      "labels": [
+        "event"
+      ]
+    },
+    {
+      "name": "labmitm_auth_failures_total",
+      "kind": "counter",
+      "help": "Management authentication failures.",
+      "labels": [
+        "reason"
+      ]
+    },
+    {
+      "name": "labmitm_flows_total",
+      "kind": "counter",
+      "help": "Captured flows.",
+      "labels": [
+        "intercepted",
+        "result",
+        "scheme"
+      ]
+    },
+    {
+      "name": "labmitm_http_request_duration_seconds",
+      "kind": "histogram",
+      "help": "Management HTTP latency.",
+      "labels": [
+        "capability"
+      ],
+      "unit": "seconds"
+    },
+    {
+      "name": "labmitm_http_requests_total",
+      "kind": "counter",
+      "help": "Management HTTP requests.",
+      "labels": [
+        "capability",
+        "code_class"
+      ]
+    },
+    {
+      "name": "labmitm_mcp_calls_total",
+      "kind": "counter",
+      "help": "MCP tool invocations.",
+      "labels": [
+        "result",
+        "tool"
+      ]
+    },
+    {
+      "name": "labmitm_proxy_rejected_total",
+      "kind": "counter",
+      "help": "Proxy requests rejected before forward.",
+      "labels": [
+        "reason"
+      ]
+    },
+    {
+      "name": "labmitm_proxy_sessions_total",
+      "kind": "counter",
+      "help": "Proxy sessions that ended.",
+      "labels": [
+        "result"
+      ]
+    },
+    {
+      "name": "labmitm_rule_hits_total",
+      "kind": "counter",
+      "help": "First-match rule actions that fired.",
+      "labels": [
+        "action"
+      ]
+    },
+    {
+      "name": "labmitm_store_bytes",
+      "kind": "gauge",
+      "help": "Resident inbox bytes.",
+      "labels": null
+    },
+    {
+      "name": "labmitm_store_evictions_total",
+      "kind": "counter",
+      "help": "Oldest-flow evictions.",
+      "labels": null
+    },
+    {
+      "name": "labmitm_store_flows",
+      "kind": "gauge",
+      "help": "Flows currently in the inbox.",
+      "labels": null
+    },
+    {
+      "name": "labmitm_store_full_total",
+      "kind": "counter",
+      "help": "Capture drops because the inbox was full (proxy still forwarded).",
+      "labels": null
+    },
+    {
+      "name": "labmitm_store_waiters",
+      "kind": "gauge",
+      "help": "Blocked Wait callers.",
+      "labels": null
+    },
+    {
+      "name": "labmitm_telemetry_dropped_total",
+      "kind": "counter",
+      "help": "Telemetry samples dropped under backpressure or policy.",
+      "labels": [
+        "reason"
+      ]
+    },
+    {
+      "name": "labmitm_tls_intercepts_total",
+      "kind": "counter",
+      "help": "TLS intercept handshake outcomes.",
+      "labels": [
+        "result"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "auth.failure",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "auth.success",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "flow.paused",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "flow.resumed",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "http.request",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "mcp.call",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "proxy.accepted",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "proxy.rejected",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "proxy.session_end",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "rule.hit",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "state.apply",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "state.reset",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "store.deleted",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "store.full",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "store.inserted",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "store.wiped",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "tls.intercept",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    },
+    {
+      "name": "tls.upstream_insecure",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "flow_id",
+        "host",
+        "host_class",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms",
+        "store_generation"
+      ]
+    }
+  ]
+}

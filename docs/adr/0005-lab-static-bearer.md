@@ -25,7 +25,7 @@ The family (TacLab ADR 0010, LabDNS bearer, LabMail ADR 0005) uses lab static be
 - One verifier, one scope matrix.
 - MCPJungle uses `LABMITM_TOKEN`.
 - A later lab UI that cannot paste a bearer can add Basic behind a new ADR.
-- Image/default fixtures are not `dev-loopback-unauth`. After SEC-001, unauthenticated `GET /v1/flows` is 401.
+- Image/default fixtures are not `dev-loopback-unauth`. Unauthenticated `GET /v1/flows` is 401.
 
 ## Alternatives considered
 

@@ -15,9 +15,11 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/app"
 	"github.com/hilather/go-lab-mitmproxy/internal/auth"
+	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/control/mcp"
 	"github.com/hilather/go-lab-mitmproxy/internal/control/rest"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxy"
 	"github.com/hilather/go-lab-mitmproxy/internal/web"
 )
@@ -70,6 +72,9 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	} else {
 		_, _ = fmt.Fprintf(stdout, "labmitm management listen=%s\n", rt.http.Addr())
 	}
+	if rt.metrics != nil && rt.metrics.Addr() != "" {
+		_, _ = fmt.Fprintf(stdout, "labmitm metrics listen=%s\n", rt.metrics.Addr())
+	}
 	<-ctx.Done()
 	deadline := flags.ShutdownTimeout
 	if deadline <= 0 {
@@ -83,20 +88,37 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 }
 
 type serveRuntime struct {
-	proxy   *proxy.Server
-	http    *rest.Server
-	mcp     *mcp.Server
-	svc     *app.App
-	pidPath string
+	proxy    *proxy.Server
+	http     *rest.Server
+	mcp      *mcp.Server
+	svc      *app.App
+	metrics  *observability.Listener
+	stopLogs context.CancelFunc
+	pidPath  string
 }
 
 func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, error) {
-	svc, err := app.Boot(ctx, app.Options{BootstrapPath: flags.Config})
+	st, err := config.LoadFile(flags.Config)
 	if err != nil {
+		return nil, fmt.Errorf("load %s: %w", flags.Config, err)
+	}
+	reg := observability.NewRegistry()
+	log := observability.NewLogger(os.Stderr, observability.ParseLevel(st.Spec.Observability.LogLevel)).
+		WithQueue(observability.DefaultQueueSize).WithMetrics(reg)
+	logCtx, stopLogs := context.WithCancel(context.Background())
+	go log.Serve(logCtx)
+	svc, err := app.Boot(ctx, app.Options{
+		BootstrapPath: flags.Config,
+		Metrics:       reg,
+		Logger:        log,
+	})
+	if err != nil {
+		stopLogs()
 		return nil, fmt.Errorf("load %s: %w", flags.Config, err)
 	}
 	snap := svc.Active()
 	if snap == nil || snap.Canonical == nil {
+		stopLogs()
 		svc.Close()
 		return nil, fmt.Errorf("compile %s: no snapshot", flags.Config)
 	}
@@ -111,36 +133,45 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 		Store:     svc.Inbox(),
 		Snapshots: svc.Snapshots(),
 		Authority: snap.CA,
+		Metrics:   reg,
+		Logger:    log,
 	})
 	if err != nil {
+		stopLogs()
 		svc.Close()
 		return nil, err
 	}
 	if err := srv.Start(); err != nil {
+		stopLogs()
 		svc.Close()
 		return nil, err
 	}
 	svc.SetReplay(srv.Replay)
-	rt := &serveRuntime{proxy: srv, svc: svc, pidPath: flags.PIDFile}
+	rt := &serveRuntime{proxy: srv, svc: svc, stopLogs: stopLogs, pidPath: flags.PIDFile}
 	mgmt, unbound := managementListen(flags.ManagementListen, snap.Canonical.Spec.Listeners.Management.Address)
 	if !unbound {
-		hs, mcpSrv, err := startManagement(svc, mgmt, snap.Canonical.Spec)
+		hs, mcpSrv, err := startManagement(svc, mgmt, snap.Canonical.Spec, reg, log)
 		if err != nil {
-			_ = srv.Shutdown(context.Background())
-			svc.Close()
+			_ = rt.shutdown(context.Background())
 			return nil, err
 		}
 		rt.http = hs
 		rt.mcp = mcpSrv
 	}
-	svc.SetHealth(func() app.HealthFacts {
-		return app.HealthFacts{
+	svc.SetHealth(func() observability.Facts {
+		return observability.Facts{
 			ProxyBound: srv.Accepting(),
 			StoreUp:    svc.Inbox() != nil,
 			MgmtBound:  rt.http != nil,
 			MgmtOff:    unbound,
 		}
 	})
+	ml, err := observability.Listen(snap.Canonical.Spec.Observability.Metrics.Listen, reg)
+	if err != nil {
+		_ = rt.shutdown(context.Background())
+		return nil, fmt.Errorf("metrics listen: %w", err)
+	}
+	rt.metrics = ml
 	if err := writePIDFile(flags.PIDFile); err != nil {
 		_ = rt.shutdown(context.Background())
 		return nil, fmt.Errorf("pid-file: %w", err)
@@ -148,7 +179,7 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 	return rt, nil
 }
 
-func startManagement(svc *app.App, addr string, spec model.Spec) (*rest.Server, *mcp.Server, error) {
+func startManagement(svc *app.App, addr string, spec model.Spec, reg *observability.Registry, log *observability.Logger) (*rest.Server, *mcp.Server, error) {
 	if addr == "" {
 		addr = rest.DefaultAddr
 	}
@@ -159,6 +190,7 @@ func startManagement(svc *app.App, addr string, spec model.Spec) (*rest.Server, 
 	if err := verifier.RequireListen(); err != nil {
 		return nil, nil, err
 	}
+	sessions := auth.NewStore(auth.DefaultSessionConfig())
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, nil, err
@@ -181,6 +213,9 @@ func startManagement(svc *app.App, addr string, spec model.Spec) (*rest.Server, 
 		_ = ln.Close()
 		return nil, nil, err
 	}
+	ready := func() bool {
+		return observability.Evaluate(svc.HealthFacts()).Ready
+	}
 	hs, err := rest.New(rest.Config{
 		Addr:           addr,
 		Service:        svc,
@@ -190,7 +225,11 @@ func startManagement(svc *app.App, addr string, spec model.Spec) (*rest.Server, 
 		RatePerSec:     float64(spec.Management.RequestsPerSecond),
 		RateBurst:      float64(spec.Management.Burst),
 		PublicMetrics:  spec.Observability.Metrics.PublicPath,
+		Metrics:        reg,
+		Logger:         log,
+		Ready:          ready,
 		Auth:           verifier,
+		Sessions:       sessions,
 		CookieSecure:   spec.Listeners.Management.TLS.Enabled,
 		UI:             web.NewHandler(nil),
 		UIEnabled: func() bool {
@@ -234,16 +273,26 @@ func (r *serveRuntime) shutdown(ctx context.Context) error {
 	if r.mcp != nil {
 		r.mcp.Close()
 	}
-	if r.http != nil {
-		first = r.http.Shutdown(ctx)
-	}
+	// Proxy first so ready goes unready as soon as Shutdown begins.
 	if r.proxy != nil {
-		if err := r.proxy.Shutdown(ctx); err != nil && first == nil {
+		first = r.proxy.Shutdown(ctx)
+	}
+	if r.http != nil {
+		if err := r.http.Shutdown(ctx); err != nil && first == nil {
+			first = err
+		}
+	}
+	if r.metrics != nil {
+		if err := r.metrics.Shutdown(ctx); err != nil && first == nil {
 			first = err
 		}
 	}
 	if r.svc != nil {
 		r.svc.Close()
+	}
+	if r.stopLogs != nil {
+		r.stopLogs()
+		r.stopLogs = nil
 	}
 	if r.pidPath != "" {
 		_ = os.Remove(r.pidPath)

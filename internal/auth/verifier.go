@@ -19,9 +19,10 @@ const realmBearer = `Bearer realm="labmitm"`
 
 // Verifier is the process-local token index. There is no HTTP Basic.
 type Verifier struct {
-	mu     sync.RWMutex
-	mode   string
-	tokens []storedToken
+	mu       sync.RWMutex
+	mode     string
+	tokens   []storedToken
+	onChange []func()
 }
 
 type storedToken struct {
@@ -110,18 +111,42 @@ func Static(secret, id, role string) *Verifier {
 	}
 }
 
+// OnIdentityChange registers a hook fired after Replace when mode / token
+// id+digest+role+scopes changed. REST uses this to drop UI sessions: serve
+// constructs MCP first, so MCP's reloadAuth Replace would otherwise make
+// REST's post-swap Equivalent check miss the change.
+func (v *Verifier) OnIdentityChange(fn func()) {
+	if v == nil || fn == nil {
+		return
+	}
+	v.mu.Lock()
+	v.onChange = append(v.onChange, fn)
+	v.mu.Unlock()
+}
+
 // Replace swaps the compiled index in place so REST/MCP share one pointer.
 func (v *Verifier) Replace(next *Verifier) {
 	if v == nil || next == nil {
 		return
 	}
+	changed := !v.Equivalent(next)
+	mode, toks := next.snapshot()
 	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.mode = next.mode
-	v.tokens = next.tokens
+	v.mode = mode
+	v.tokens = toks
+	hooks := append([]func(){}, v.onChange...)
+	v.mu.Unlock()
+	if !changed {
+		return
+	}
+	for _, fn := range hooks {
+		fn()
+	}
 }
 
-// Equivalent reports whether the compiled identity matches.
+// Equivalent reports whether the compiled identity matches: mode, token
+// id+digest+role+scopes. Session rows snapshot role/scopes at Create, so a
+// demotion must count as a change.
 func (v *Verifier) Equivalent(other *Verifier) bool {
 	if v == nil || other == nil {
 		return v == other

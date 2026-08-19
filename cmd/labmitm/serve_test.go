@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -53,7 +54,7 @@ func TestServeBindsProxyManagementOff(t *testing.T) {
 	done := make(chan int, 1)
 	go func() {
 		done <- serveCmd(ctx, []string{
-			"--config", testdataConfig(t, "valid", "defaults.yaml"),
+			"--config", writeServeConfig(t, "", false, false),
 			"--proxy-listen", "127.0.0.1:0",
 			"--management-listen", "off",
 			"--pid-file", pid,
@@ -152,6 +153,20 @@ func TestServeManagementBindsWithToken(t *testing.T) {
 	if mcpResp.StatusCode != http.StatusOK && mcpResp.StatusCode != http.StatusAccepted {
 		t.Fatalf("POST /mcp status=%d body=%s", mcpResp.StatusCode, mcpBody)
 	}
+	ready := waitHTTP(t, "http://"+mgmt+"/v1/health/ready", "")
+	_ = ready.Body.Close()
+	if ready.StatusCode != http.StatusOK {
+		t.Fatalf("ready status=%d", ready.StatusCode)
+	}
+	var hcOut, hcErr bytes.Buffer
+	if code := healthcheckCmd([]string{"--url", "http://" + mgmt + "/v1/health/ready"}, &hcOut, &hcErr); code != 0 {
+		t.Fatalf("healthcheck exit %d stderr=%q", code, hcErr.String())
+	}
+	hidden := waitHTTP(t, "http://"+mgmt+"/v1/metrics", serveTestToken)
+	_ = hidden.Body.Close()
+	if hidden.StatusCode != http.StatusNotFound {
+		t.Fatalf("publicPath false: metrics status=%d", hidden.StatusCode)
+	}
 	cancel()
 	select {
 	case code := <-done:
@@ -167,12 +182,22 @@ const serveTestToken = "0123456789abcdef0123456789abcdef"
 
 func writeTokenConfig(t *testing.T) string {
 	t.Helper()
+	return writeServeConfig(t, "", false, true)
+}
+
+func writeServeConfig(t *testing.T, metricsListen string, publicPath, withToken bool) string {
+	t.Helper()
 	dir := t.TempDir()
-	tok := filepath.Join(dir, "admin.token")
-	if err := os.WriteFile(tok, []byte(serveTestToken+"\n"), 0o600); err != nil {
-		t.Fatal(err)
+	var authBlock string
+	if withToken {
+		tok := filepath.Join(dir, "admin.token")
+		if err := os.WriteFile(tok, []byte(serveTestToken+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		authBlock = "  management:\n    auth:\n      mode: bearer\n      tokens:\n        - id: admin\n          secretFile: " + tok + "\n          role: administrator\n"
 	}
-	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: lab-proxy\nspec:\n  management:\n    auth:\n      mode: bearer\n      tokens:\n        - id: admin\n          secretFile: " + tok + "\n          role: administrator\n"
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: lab-proxy\nspec:\n" + authBlock +
+		"  observability:\n    metrics:\n      listen: \"" + metricsListen + "\"\n      publicPath: " + strconv.FormatBool(publicPath) + "\n"
 	path := filepath.Join(dir, "labmitm.yaml")
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
@@ -232,6 +257,87 @@ func waitProxyListen(t *testing.T, stdout *safeBuffer) string {
 	}
 	t.Fatalf("timeout waiting for listen, stdout=%q", stdout.String())
 	return ""
+}
+
+func TestServeMetricsListenAndPublicPath(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// YAML rejects port 0 (1–65535). Empty listen disables the scrape
+	// listener; publicPath still serves authenticated GET /v1/metrics.
+	path := writeServeConfig(t, "", true, true)
+	var stdout, stderr safeBuffer
+	done := make(chan int, 1)
+	go func() {
+		done <- serveCmd(ctx, []string{
+			"--config", path,
+			"--proxy-listen", "127.0.0.1:0",
+			"--management-listen", "127.0.0.1:0",
+		}, &stdout, &stderr)
+	}()
+	mgmt := waitPrefix(t, &stdout, "labmitm management listen=")
+	if strings.Contains(stdout.String(), "labmitm metrics listen=") {
+		t.Fatalf("empty metrics.listen must not bind scrape: %q", stdout.String())
+	}
+
+	unauth := waitHTTP(t, "http://"+mgmt+"/v1/metrics", "")
+	_ = unauth.Body.Close()
+	if unauth.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated metrics status=%d want 401", unauth.StatusCode)
+	}
+	pub := waitHTTP(t, "http://"+mgmt+"/v1/metrics", serveTestToken)
+	defer func() { _ = pub.Body.Close() }()
+	if pub.StatusCode != 200 {
+		t.Fatalf("publicPath true: status=%d stderr=%q", pub.StatusCode, stderr.String())
+	}
+	if !strings.Contains(pub.Header.Get("Content-Type"), "openmetrics") {
+		t.Fatalf("content-type=%s", pub.Header.Get("Content-Type"))
+	}
+	body, _ := io.ReadAll(pub.Body)
+	if !strings.Contains(string(body), "# EOF") {
+		t.Fatalf("body=%s", body)
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("serve exit %d stderr=%q", code, stderr.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not exit")
+	}
+}
+
+func TestServeReadyGoesUnreadyOnProxyShutdown(t *testing.T) {
+	rt, err := serveFromConfig(context.Background(), serveFlags{
+		Config:           writeServeConfig(t, "", false, true),
+		ProxyListen:      "127.0.0.1:0",
+		ManagementListen: "127.0.0.1:0",
+		ShutdownTimeout:  2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = rt.shutdown(ctx)
+	})
+	mgmt := rt.http.Addr()
+	ready := waitHTTP(t, "http://"+mgmt+"/v1/health/ready", "")
+	_ = ready.Body.Close()
+	if ready.StatusCode != http.StatusOK {
+		t.Fatalf("ready before shutdown status=%d", ready.StatusCode)
+	}
+	shctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := rt.proxy.Shutdown(shctx); err != nil {
+		t.Fatal(err)
+	}
+	unready := waitHTTP(t, "http://"+mgmt+"/v1/health/ready", "")
+	_ = unready.Body.Close()
+	if unready.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("ready after proxy shutdown status=%d want 503", unready.StatusCode)
+	}
 }
 
 func httptestOrigin(t *testing.T) string {

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-08-18 (STA-001)
+Last reviewed: 2026-08-19 (SEC-001 + OBS-001)
 Related ADRs: 0002, 0003, 0005, 0007
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).
@@ -13,7 +13,7 @@ LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not 
 |---|---|---|
 | Open proxy on a published bind used to attack third parties | **Critical** | Default bind `127.0.0.1:8888`; lab overlay documents LAN publish; target guards deny metadata/link-local; no Proxy-auth in 1.0 so **do not** publish without a network boundary |
 | Stolen lab CA impersonates every HTTPS site the client trusts | **Critical** | Generate-in-memory default (restart rotates); files mode is a mounted secret; never log/export key; `GET /v1/ca` is cert-only and authenticated; UI copy states “lab-only, uninstall after use” |
-| Unauthenticated management read of captured bodies | **High** | Default `mode: bearer`; image fixture has a token file; SEC-001 asserts 401; no `dev-loopback-unauth` in the image default |
+| Unauthenticated management read of captured bodies | **High** | Default `mode: bearer`; image fixture has a token file; unauthenticated `GET /v1/flows` is 401; no `dev-loopback-unauth` in the image default |
 | Body exfil via `mitm.read` token leak | **High** | File-ref tokens ≥256 bits; redaction in logs/export/audit (no `Authorization` / `Cookie` / `Set-Cookie` values in slog); audit records id/host/status/size, not bodies |
 | XSS via captured HTML in the operator browser | **High** | No `innerHTML`; default text/escaped view; optional preview iframe `sandbox` without scripts/same-origin; CSP on UI assets |
 | SSRF to cloud metadata / link-local | **High** | Resolve-then-guard every A/AAAA; Dial pinned IP; no second lookup (D16). Residual: Alibaba `100.100.100.200`, RFC1918 default-allow |
@@ -33,12 +33,13 @@ LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not 
 ```
 internal/proxy      may import model, store, rules, tlsmitm, observability, httputilx
 internal/tlsmitm    may import model, observability — handshake only; NO Dial
-internal/store      may import model
+internal/store      may import model, observability
 internal/rules      may import model
 internal/compiler   may import model, tlsmitm (CA generate/load)
 internal/snapshot   may import model
-internal/app        may import model, store, snapshot, audit, config, compiler, proxy.Replay
-internal/control/*  may import app, capabilities, auth — NOT proxy internals except via app
+internal/app        may import model, store, snapshot, audit, config, compiler, proxy.Replay, observability
+internal/control/*  may import app, capabilities, auth, observability — NOT proxy internals except via app
+internal/observability  leaf telemetry only — no domain, snapshot, or control-plane imports
 ```
 
 Static check (`internal/proxy/import_test.go` plus a repo-wide walk): `Dial`, `DialTimeout`, `Dialer.Dial`, `DialContext` idents are **forbidden by default** in every production `internal/*/*.go` except `internal/proxy`. Explicitly forbidden in `internal/tlsmitm`. Allowed only in `internal/proxy` and `*_test.go` / `internal/proxytest`.
@@ -50,12 +51,13 @@ See [docs/03-tls-interception.md](https://github.com/hilather/go-lab-mitmproxy/b
 ## Authn/z details
 
 - Tokens: **≥256 bits** entropy, compared as SHA-256 digests. File refs only.
-- Failed Bearer returns `401` `unauthenticated` with `WWW-Authenticate: Bearer realm="labmitm"`.
-- UI session cookie name **`labmitm_session`**: `HttpOnly`, `SameSite=Lax`, `Secure` iff management TLS; CSRF header `X-LabMITM-CSRF` required on cookie-authenticated mutations even over HTTP.
+- Failed Bearer returns `401` `unauthenticated` with `WWW-Authenticate: Bearer realm="labmitm"`. MCP is bearer-only (no Basic).
+- UI session cookie name **`labmitm_session`**: `HttpOnly`, `SameSite=Lax`, `Secure` iff management TLS; CSRF header `X-LabMITM-CSRF` required on cookie-authenticated mutations even over HTTP (`POST /v1/session`, `DELETE /v1/session`). `GET /v1/session` returns the CSRF secret for a valid cookie (reload recovery). Session JSON (and other REST JSON) is `Cache-Control: no-store`. Token files are reread on reset and apply; the session table is cleared only when the compiled auth identity changes. A failed secret reread keeps the previous verifier and live sessions. Max concurrent sessions: 64.
 - No `.well-known/oauth-protected-resource` (ADR 0005).
 - `X-Forwarded-For` is not trusted.
 - No CORS headers. OPTIONS is not a success path.
-- Default container YAML is `bearer`. `dev-loopback-unauth` is not the image default.
+- Origin: present non-loopback Origin is rejected unless on `originAllowlist`. Missing Origin is allowed. Only `http`/`https` Origins are accepted.
+- Default container YAML is `bearer` (`testdata/container/`). `dev-loopback-unauth` is not the image default.
 - No HTTP Basic.
 
 Scopes and roles: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).

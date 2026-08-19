@@ -1165,7 +1165,7 @@
     },
     "/v1/session": {
       "delete": {
-        "description": "Clear the flow-inspector UI session cookie. Implemented in SEC-001.",
+        "description": "Clear the flow-inspector UI session cookie.",
         "operationId": "delete_v1_session",
         "parameters": [],
         "responses": {
@@ -1199,7 +1199,7 @@
         "x-mutating": true
       },
       "get": {
-        "description": "Current session principal (cookie or bearer). Cookie path is SEC-001.",
+        "description": "Current session principal (cookie or bearer). Cookie path returns CSRF for reload recovery.",
         "operationId": "get_v1_session",
         "parameters": [],
         "responses": {
@@ -1233,7 +1233,7 @@
         "x-mutating": false
       },
       "post": {
-        "description": "Cookie + CSRF session for the flow-inspector UI. Accepts bearer. Implemented in SEC-001.",
+        "description": "Cookie + CSRF session for the flow-inspector UI. Accepts bearer.",
         "operationId": "post_v1_session",
         "parameters": [],
         "responses": {
@@ -1583,7 +1583,7 @@
       "name": "changes"
     },
     {
-      "description": "Cookie + CSRF session for the flow-inspector UI. Accepts bearer. Implemented in SEC-001.",
+      "description": "Cookie + CSRF session for the flow-inspector UI. Accepts bearer.",
       "name": "session"
     },
     {

@@ -4,20 +4,26 @@ import (
 	"net/http"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/app"
+	"github.com/hilather/go-lab-mitmproxy/internal/auth"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 )
 
 func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request, instance string, actor app.Actor) {
-	// Cookie + CSRF is SEC-001. Catalog row is registered so OpenAPI stays complete.
-	s.writeProblem(w, r, instance, domainerr.NotFound("UI session is not available"))
-	_ = r
-	_ = actor
-}
-
-func (s *Server) handleSessionDelete(w http.ResponseWriter, r *http.Request, instance string, actor app.Actor) {
-	s.writeProblem(w, r, instance, domainerr.NotFound("UI session is not available"))
-	_ = r
-	_ = actor
+	if s.cfg.Sessions == nil {
+		s.writeProblem(w, r, instance, domainerr.Internal("session store unavailable"))
+		return
+	}
+	p := auth.Principal{ID: actor.ID, Class: actor.Class, Role: actor.Role, Scopes: actor.Scopes}
+	cookie, csrf, sess, err := s.cfg.Sessions.Create(p)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	http.SetCookie(w, auth.NewSessionCookie(cookie, s.cookieSecure(r), s.cfg.Sessions.MaxAge()))
+	s.writeJSON(w, http.StatusOK, sessionCreateJSON{
+		CSRF:      csrf,
+		ExpiresAt: rfc3339(s.cfg.Sessions.ExpiresAt(sess)),
+	})
 }
 
 func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request, instance string, actor app.Actor) {
@@ -29,7 +35,23 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request, instan
 	if out.Scopes == nil {
 		out.Scopes = []string{}
 	}
+	if c, err := r.Cookie(auth.CookieName); err == nil && s.cfg.Sessions != nil {
+		if sess, csrf, ok := s.cfg.Sessions.Lookup(c.Value); ok {
+			out.CSRF = csrf
+			out.ExpiresAt = rfc3339(s.cfg.Sessions.ExpiresAt(sess))
+		}
+	}
 	s.writeJSON(w, http.StatusOK, out)
 	_ = instance
-	_ = r
+}
+
+func (s *Server) handleSessionDelete(w http.ResponseWriter, r *http.Request, instance string, actor app.Actor) {
+	if c, err := r.Cookie(auth.CookieName); err == nil && s.cfg.Sessions != nil {
+		s.cfg.Sessions.Delete(c.Value)
+	}
+	http.SetCookie(w, auth.ClearSessionCookie(s.cookieSecure(r)))
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
+	_ = instance
+	_ = actor
 }

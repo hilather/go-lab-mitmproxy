@@ -10,7 +10,7 @@ LabMITM is a **lab appliance**, not a public edge proxy and not an attack framew
 [![Go](https://img.shields.io/github/go-mod/go-version/hilather/go-lab-mitmproxy?label=Go)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/hilather/go-lab-mitmproxy/blob/main/LICENSE)
 
-Status: **HTTP/1.1 forward proxy plus optional TLS intercept, a bounded in-memory flow store, native REST `/v1`, and MCP `POST /mcp`**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). Management REST/MCP bind only with a usable bearer token (or `--management-listen=off`). Session cookies, production UI, and the container image are later PRs.
+Status: **HTTP/1.1 forward proxy plus optional TLS intercept, a bounded in-memory flow store, native REST `/v1`, MCP `POST /mcp`, and lab static bearer**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). Management REST/MCP bind only with a usable bearer token (or `--management-listen=off`). Unauthenticated `GET /v1/flows` is 401. REST cookie `labmitm_session` + CSRF. Production UI and the container image are later PRs.
 
 Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-lab-mitmproxy) · Binary `labmitm` · Image (later) `ghcr.io/hilather/labmitm` · YAML `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`
 

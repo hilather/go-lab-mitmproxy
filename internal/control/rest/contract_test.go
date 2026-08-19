@@ -301,9 +301,14 @@ func TestNoCORSHeaders(t *testing.T) {
 	}
 }
 
-func TestSessionNotImplemented(t *testing.T) {
+func TestSessionCreateIsOK(t *testing.T) {
 	s, _ := newTestServer(t)
 	h := s.Handler()
-	requireProblem(t, doReq(t, h, http.MethodPost, "/v1/session", `{}`), http.StatusNotFound, "not_found")
+	got := doReq(t, h, http.MethodPost, "/v1/session", `{}`)
+	requireStatus(t, got, http.StatusOK)
+	m := decodeJSON(t, got)
+	if m["csrf"] == "" || m["expiresAt"] == "" {
+		t.Fatalf("session create=%s", got.Body.String())
+	}
 	requireStatus(t, doReq(t, h, http.MethodGet, "/v1/session", ""), http.StatusOK)
 }

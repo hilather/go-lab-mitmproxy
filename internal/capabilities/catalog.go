@@ -111,19 +111,19 @@ func catalog() []Capability {
 		},
 		{
 			ID: SessionCreate, Title: "Create session", Version: VersionTag,
-			Description: "Cookie + CSRF session for the flow-inspector UI. Accepts bearer. Implemented in SEC-001.",
+			Description: "Cookie + CSRF session for the flow-inspector UI. Accepts bearer.",
 			Idempotent:  false, RESTOnly: true, Mutating: true,
 			REST: []RESTBinding{{Method: "POST", Path: "/v1/session"}},
 		},
 		{
 			ID: SessionDelete, Title: "Delete session", Version: VersionTag,
-			Description: "Clear the flow-inspector UI session cookie. Implemented in SEC-001.",
+			Description: "Clear the flow-inspector UI session cookie.",
 			Idempotent:  true, RESTOnly: true, Mutating: true,
 			REST: []RESTBinding{{Method: "DELETE", Path: "/v1/session"}},
 		},
 		{
 			ID: SessionGet, Title: "Get session", Version: VersionTag,
-			Description: "Current session principal (cookie or bearer). Cookie path is SEC-001.",
+			Description: "Current session principal (cookie or bearer). Cookie path returns CSRF for reload recovery.",
 			Idempotent:  true, RESTOnly: true,
 			REST: []RESTBinding{{Method: "GET", Path: "/v1/session"}},
 		},

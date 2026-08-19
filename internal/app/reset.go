@@ -9,6 +9,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 )
@@ -72,6 +73,14 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 		Applied:         true,
 		Generation:      next.Generation,
 		RuntimeRevision: next.Revision,
+	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:           observability.EventStateReset,
+			Component:       "app",
+			Result:          "ok",
+			StoreGeneration: storeGeneration(s.inbox),
+		})
 	}
 	res.AuditEventID = s.recordAudit(ctx, audit.Event{
 		Time:            s.now(),

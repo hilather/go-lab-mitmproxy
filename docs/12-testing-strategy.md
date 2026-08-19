@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-18 (MCP-001)
+Last reviewed: 2026-08-18 (SEC-001)
 Related ADRs: 0002, 0004
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -52,6 +52,7 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 - TLS fixture (TLS-001): `testdata/tls/**` test-only PEMs; generate-mode client that trusts `CertPEM()` succeeds against a fixture origin; untrusted client fails; `CONNECT :80` with intercept on tunnels; `CONNECT :443` to plaintext stores `Error=tls_handshake` with no blind tunnel.
 - API-001: REST contract tests (`internal/control/rest`) for auth 401, problem+json, list/get/delete/wait/resume/drop/replay, HMAC cursor stale, `GET /v1/ca` cert-only; `proxy.Replay` HTTP/HTTPS, `HTTP_PROXY` ignored, hairpin rejected.
 - MCP-001: `testdata/mcp/goldens/{tools,resources,mutating-tools}.txt`; `internal/control/mcp` initialize/tools/list/tool call/origin/bearer; URI-only `subscriptions/listen` on `labmitm://flows`; `api/mcp/v1.json`.
+- SEC-001: `testdata/container/{config.yaml,token}` (bearer, not `dev-loopback-unauth`); REST unauthenticated `GET /v1/flows` is 401; cookie `labmitm_session` + CSRF; token reread on reset/apply keeps sessions on failed secret reread; audit records `actorId`.
 - STORE-001: `testdata/flows/**` golden captured flows; `internal/store` insert/delete/wait/wipe/epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate, stacked caps, spill, race; proxy store-full still forwards.
 - RULES-001: `internal/rules` first-match, default-off, AND match, no Dial; Resume without HTTP (store only, test-constructed snapshot); proxy delay/drop/status/header/body/breakpoint, stream-vs-mutate `body_skipped`, inner CONNECT drop.
 - STA-001: `internal/compiler` (rules engine + CA handle; reuse CA unless `replaceTLS` / reset); `internal/snapshot` atomic swap; `internal/audit` ring + redact (`BEGIN PRIVATE` never logged); `internal/app` Plan/Apply/Reset/Export, reset-wipes-flows, failed reset leaves snapshot+inbox, generate-mode CA rotates on reset, idempotency LRU, `replaceStoreCaps` / `replaceRules` / `replaceTLS` / `replaceAdmission` / `replaceTargets`; proxy loads snapshot per request / CONNECT (in-flight keeps the pin, including response-phase rules); accept-time epoch so reset cannot refill the inbox from an in-flight hop.
