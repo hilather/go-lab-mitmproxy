@@ -298,3 +298,105 @@ func TestServeClientConcurrentStreamIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestServeClientUnreadDATADoesNotStall(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	paused := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_ = ServeClient(ctx, server, func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
+			if in.Path == "/pause" {
+				close(paused)
+				<-release
+				_, _ = io.Copy(io.Discard, in.Body)
+				return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil, nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("other")),
+			}, nil, nil
+		})
+	}()
+	cc, err := (&http2.Transport{}).NewClientConn(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cc.Close() }()
+
+	postErr := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://app.lab/pause", strings.NewReader("payload-bytes"))
+		if err != nil {
+			postErr <- err
+			return
+		}
+		resp, err := cc.RoundTrip(req)
+		if err != nil {
+			postErr <- err
+			return
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		postErr <- nil
+	}()
+	select {
+	case <-paused:
+	case <-ctx.Done():
+		t.Fatal("pause handler did not start")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/other", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := cc.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("GET stalled behind unread POST DATA: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if string(body) != "other" {
+		t.Fatalf("body %q", body)
+	}
+	close(release)
+	if err := <-postErr; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServeClientLargeResponse(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	payload := strings.Repeat("x", 128*1024)
+	go func() {
+		_ = ServeClient(ctx, server, func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(payload)),
+			}, nil, nil
+		})
+	}()
+	cc, err := (&http2.Transport{}).NewClientConn(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cc.Close() }()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/big", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := cc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != payload {
+		t.Fatalf("len=%d", len(got))
+	}
+}

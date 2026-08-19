@@ -34,7 +34,7 @@ var hopHeaders = map[string]bool{
 }
 
 type streamState struct {
-	body *io.PipeWriter
+	body *bodyBuf
 }
 
 // ServeClient runs an h2 server on client (already ALPN h2). It does not Dial.
@@ -106,6 +106,20 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 		lastID uint32
 	)
 	streams := make(map[uint32]*streamState)
+	out := newOutFlow()
+	defer out.close()
+
+	credit := func(id uint32, n int) {
+		if n <= 0 {
+			return
+		}
+		_ = write(func() error {
+			if err := fr.WriteWindowUpdate(id, uint32(n)); err != nil {
+				return err
+			}
+			return fr.WriteWindowUpdate(0, uint32(n))
+		})
+	}
 
 	finish := func(id uint32) {
 		mu.Lock()
@@ -119,11 +133,13 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 			}
 		}
 		mu.Unlock()
+		out.forget(id)
 	}
 
 	for {
 		f, err := fr.ReadFrame()
 		if err != nil {
+			out.close()
 			mu.Lock()
 			closed = true
 			for id, st := range streams {
@@ -150,6 +166,17 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 		switch f := f.(type) {
 		case *http2.SettingsFrame:
 			if !f.IsAck() {
+				if err := f.ForeachSetting(func(s http2.Setting) error {
+					switch s.ID {
+					case http2.SettingInitialWindowSize:
+						out.applyInitialWindow(s.Val)
+					case http2.SettingMaxFrameSize:
+						out.setMaxFrame(s.Val)
+					}
+					return nil
+				}); err != nil {
+					return err
+				}
 				if err := write(fr.WriteSettingsAck); err != nil {
 					return err
 				}
@@ -162,6 +189,9 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 				}
 			}
 		case *http2.WindowUpdateFrame:
+			if f.Increment > 0 {
+				out.add(f.StreamID, int32(f.Increment))
+			}
 		case *http2.RSTStreamFrame:
 			finish(f.StreamID)
 		case *http2.GoAwayFrame:
@@ -177,18 +207,12 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 				continue
 			}
 			if payload := f.Data(); len(payload) > 0 {
+				// Non-blocking: bodyBuf.Write never waits for the handler Read.
 				if _, err := st.body.Write(append([]byte(nil), payload...)); err != nil {
 					finish(f.StreamID)
 					_ = write(func() error { return fr.WriteRSTStream(f.StreamID, http2.ErrCodeCancel) })
 					continue
 				}
-				n := uint32(len(payload))
-				_ = write(func() error {
-					if err := fr.WriteWindowUpdate(f.StreamID, n); err != nil {
-						return err
-					}
-					return fr.WriteWindowUpdate(0, n)
-				})
 			}
 			if f.StreamEnded() {
 				_ = st.body.Close()
@@ -220,41 +244,38 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 			}
 			lastID = id
 			open++
-			pr, pw := io.Pipe()
+			body := newBodyBuf(func(n int) { credit(id, n) })
 			if f.StreamEnded() {
-				_ = pw.Close()
+				_ = body.Close()
 			}
-			streams[id] = &streamState{body: pw}
+			streams[id] = &streamState{body: body}
 			mu.Unlock()
+			out.open(id)
 
-			in := streamFromMeta(id, f, pr)
+			in := streamFromMeta(id, f, body)
 			go serveStream(ctx, h, in, func(resp *http.Response, trailers []model.Header, herr error) {
 				defer finish(id)
-				_ = write(func() error {
-					mu.Lock()
-					gone := closed
-					mu.Unlock()
-					if gone {
-						if resp != nil && resp.Body != nil {
-							_ = resp.Body.Close()
-						}
-						return nil
+				mu.Lock()
+				gone := closed
+				mu.Unlock()
+				if gone {
+					if resp != nil && resp.Body != nil {
+						_ = resp.Body.Close()
 					}
-					if herr != nil {
-						code := http2.ErrCodeInternal
-						if errors.Is(herr, ErrInnerCONNECT) {
-							code = http2.ErrCodeProtocol
-						}
-						if resp != nil && resp.Body != nil {
-							_ = resp.Body.Close()
-						}
-						return fr.WriteRSTStream(id, code)
+					return
+				}
+				if herr != nil || resp == nil {
+					code := http2.ErrCodeInternal
+					if errors.Is(herr, ErrInnerCONNECT) {
+						code = http2.ErrCodeProtocol
 					}
-					if resp == nil {
-						return fr.WriteRSTStream(id, http2.ErrCodeInternal)
+					if resp != nil && resp.Body != nil {
+						_ = resp.Body.Close()
 					}
-					return writeResponse(fr, enc, encBuf, id, resp, trailers)
-				})
+					_ = write(func() error { return fr.WriteRSTStream(id, code) })
+					return
+				}
+				_ = writeResponse(fr, enc, encBuf, write, out, id, resp, trailers)
 			})
 		}
 	}
@@ -309,7 +330,7 @@ func cloneFields(in []hpack.HeaderField) []model.Header {
 	return out
 }
 
-func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, id uint32, resp *http.Response, trailers []model.Header) error {
+func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, write func(func() error) error, out *outFlow, id uint32, resp *http.Response, trailers []model.Header) error {
 	if resp.Body != nil {
 		defer func() { _ = resp.Body.Close() }()
 	}
@@ -317,26 +338,28 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, id u
 	if status == 0 {
 		status = http.StatusOK
 	}
-	buf.Reset()
-	if err := enc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)}); err != nil {
-		return err
-	}
-	if resp.Header != nil {
-		for k, vs := range resp.Header {
-			lk := strings.ToLower(k)
-			if hopHeaders[lk] || lk == "host" {
-				continue
-			}
-			for _, v := range vs {
-				if err := enc.WriteField(hpack.HeaderField{Name: lk, Value: v}); err != nil {
-					return err
+	hasBody := resp.Body != nil
+	hasTrailers := len(trailers) > 0
+	if err := write(func() error {
+		buf.Reset()
+		if err := enc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)}); err != nil {
+			return err
+		}
+		if resp.Header != nil {
+			for k, vs := range resp.Header {
+				lk := strings.ToLower(k)
+				if hopHeaders[lk] || lk == "host" {
+					continue
+				}
+				for _, v := range vs {
+					if err := enc.WriteField(hpack.HeaderField{Name: lk, Value: v}); err != nil {
+						return err
+					}
 				}
 			}
 		}
-	}
-	hasBody := resp.Body != nil
-	hasTrailers := len(trailers) > 0
-	if err := writeHeaderBlock(fr, id, buf.Bytes(), !hasBody && !hasTrailers); err != nil {
+		return writeHeaderBlock(fr, id, buf.Bytes(), !hasBody && !hasTrailers)
+	}); err != nil {
 		return err
 	}
 	if hasBody {
@@ -345,17 +368,30 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, id u
 		for {
 			n, err := resp.Body.Read(chunk)
 			if n > 0 {
-				end := err == io.EOF && !hasTrailers
-				if werr := fr.WriteData(id, end, chunk[:n]); werr != nil {
-					return werr
-				}
-				if end {
-					sawEnd = true
+				off := 0
+				for off < n {
+					take, werr := out.take(id, n-off)
+					if werr != nil {
+						return werr
+					}
+					end := err == io.EOF && off+take == n && !hasTrailers
+					payload := append([]byte(nil), chunk[off:off+take]...)
+					if werr := write(func() error {
+						return fr.WriteData(id, end, payload)
+					}); werr != nil {
+						return werr
+					}
+					if end {
+						sawEnd = true
+					}
+					off += take
 				}
 			}
 			if err == io.EOF {
 				if !hasTrailers && !sawEnd {
-					if werr := fr.WriteData(id, true, nil); werr != nil {
+					if werr := write(func() error {
+						return fr.WriteData(id, true, nil)
+					}); werr != nil {
 						return werr
 					}
 				}
@@ -367,17 +403,19 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, id u
 		}
 	}
 	if hasTrailers {
-		buf.Reset()
-		for _, th := range trailers {
-			name := strings.ToLower(th.Name)
-			if name == "" || hopHeaders[name] {
-				continue
+		return write(func() error {
+			buf.Reset()
+			for _, th := range trailers {
+				name := strings.ToLower(th.Name)
+				if name == "" || hopHeaders[name] {
+					continue
+				}
+				if err := enc.WriteField(hpack.HeaderField{Name: name, Value: th.Value}); err != nil {
+					return err
+				}
 			}
-			if err := enc.WriteField(hpack.HeaderField{Name: name, Value: th.Value}); err != nil {
-				return err
-			}
-		}
-		return writeHeaderBlock(fr, id, buf.Bytes(), true)
+			return writeHeaderBlock(fr, id, buf.Bytes(), true)
+		})
 	}
 	return nil
 }
