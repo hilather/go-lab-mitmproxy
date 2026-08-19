@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-18 (RULES-001)
-Related ADRs: 0002
+Last reviewed: 2026-08-19 (accept mux D42)
+Related ADRs: 0002, 0010
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 
@@ -13,15 +13,13 @@ This document is the accept/reject table. Do not invent additional request class
 
 ## Listener
 
-Listener is `net.Listen("tcp", addr)` wrapped by a `peekListener` plus `http.Server`:
+Accept never peeks (D42). `net.Listen("tcp", addr)` feeds a per-conn dispatch goroutine; HTTP is handed to `http.Server` through `chanListener`:
 
 ```go
 var proto http.Protocols
 proto.SetHTTP1(true) // HTTP/2 off
-ln, err := net.Listen("tcp", addr)
-// peekListener.Accept wraps each conn: Peek(1). If 0x04 or 0x05, close
-// and increment labmitm_proxy_rejected_total{reason="socks"}. Else return
-// a conn whose Read replays the peeked byte.
+rawLn, err := net.Listen("tcp", addr)
+httpLn := newChanListener(rawLn.Addr()) // Accept / Close / Addr
 srv := &http.Server{
     Handler:           proxyHandler, // not the management mux
     ReadHeaderTimeout: 10 * time.Second,
@@ -31,9 +29,16 @@ srv := &http.Server{
     TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
     ErrorLog:          slogDiscard,
 }
+// go srv.Serve(httpLn)
+// go acceptLoop(rawLn): Accept immediately; go dispatchConn(c)
+// dispatchConn: SetReadDeadline(HeaderTimeout); peek 1 byte (replay buffer).
+// 0x04 / 0x05 → close; metric reason="socks" (acceptSOCKS5/4 off = 1.0).
+// else → httpLn.Push(c)  // HTTP/1.1 including PRI
 ```
 
-SOCKS detection is **not** possible in the Handler; it must peek on `Accept`. HTTP/2 preface **is** handled in the Handler (`Method == "PRI"`).
+SOCKS detection is **not** possible in the Handler and **must not** run on the Accept goroutine (a silent peer would stall the next client until `HeaderTimeout`). Peeked bytes are the subsequent Read source. HTTP/2 preface **is** handled in the Handler (`Method == "PRI"`). `chanListener.Close` unblocks Accept with `net.ErrClosed` and closes queued conns.
+
+Shutdown order (D42): `accepting=false` → close `rawLn` → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
 
 ## Request classification
 
@@ -44,7 +49,7 @@ SOCKS detection is **not** possible in the Handler; it must peek on `Accept`. HT
 | `CONNECT host:port HTTP/1.1` | **Hijack** (D19). Missing port → `400`. |
 | Origin-form (`GET /path`) | `400` `validation_failed` (`absolute-form or CONNECT required`). |
 | `PRI * HTTP/2.0` | Close connection. Metric `reason="http2"`. |
-| First byte `0x05` / `0x04` (peek on Accept) | Close. Metric `reason="socks"`. |
+| First byte `0x05` / `0x04` (per-conn peek; `acceptSOCKS5`/`acceptSOCKS4` off) | Close. Metric `reason="socks"`. |
 | HTTP/1.0 | Accept if absolute-form `http://` or CONNECT with port; respond HTTP/1.1. |
 
 Authority resolution:
@@ -184,10 +189,11 @@ Reject → `403 Forbidden` (or CONNECT 403 after Hijack if the 200 has not been 
 
 Over admission → `429` (HTTP) or CONNECT `429` (unusual; use `503` for CONNECT if the response has not started). Metric `labmitm_proxy_rejected_total{reason="admission"}`. Admission `maxInFlight` includes paused breakpoint sessions.
 
-`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `Shutdown` waits for hijacked sessions up to `--shutdown-timeout`, then force-closes them.
+`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `headerTimeout` also bounds the per-conn first-byte peek. `Shutdown` (D42): `accepting=false` → close `rawLn` → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines (ctx-bounded; force-close remaining peeks) → `chanListener.Close` → `http.Server.Shutdown` → wait for hijacked sessions up to `--shutdown-timeout`, then force-close them.
 
 ## Related documents
 
 - TLS intercept: [docs/03-tls-interception.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/03-tls-interception.md)
 - Store: [docs/04-flow-store.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/04-flow-store.md)
 - Rules: [docs/05-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/05-rules.md)
+- SOCKS / orig-dest: [docs/adr/0010-socks-and-original-destination.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md)

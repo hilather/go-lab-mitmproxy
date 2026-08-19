@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-19 (1.1 additive schema)
+Last reviewed: 2026-08-19 (1.1 additive schema + accept mux D42)
 Related ADRs: 0003, 0008
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -225,7 +225,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `proxy.admission.maxConcurrentStreams` | **`replaceAdmission`**. New TCP sessions only |
 | Listener **addresses** | Reset-only (unchanged) |
 
-Turning on SOCKS, HTTP/2, orig-dest, or compat requires a Reset (or process restart). Runtime does not read these flags yet except schema/normalize/validate.
+Turning on SOCKS, HTTP/2, orig-dest, or compat requires a Reset (or process restart). The accept mux reads `acceptSOCKS5`/`acceptSOCKS4` only to keep 1.0 SOCKS-close while they are false (serve is a later PR). `originalDestination` / `protocols.http2` / `compat.flowREST` stay unread until their workstreams.
 
 Idempotency LRU default 256; reset clears it.
 

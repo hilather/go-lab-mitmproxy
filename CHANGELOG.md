@@ -25,7 +25,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- None.
+- Proxy accept mux (D42): Accept never peeks. A per-connection goroutine peeks one byte under `headerTimeout` and still SOCKS-closes `0x04`/`0x05` when `acceptSOCKS5`/`acceptSOCKS4` are off (serve is a later PR). `chanListener` hands HTTP (including `PRI`) to `http.Server`. Shutdown is stop accept → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
 
 ### Fixed
 
