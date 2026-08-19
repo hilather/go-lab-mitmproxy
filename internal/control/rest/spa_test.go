@@ -38,6 +38,28 @@ func TestSPADisabledIs404(t *testing.T) {
 	requireProblem(t, got, http.StatusNotFound, "not_found")
 }
 
+func TestMountsForwardMCPPath(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cfg.Mounts = map[string]http.Handler{
+		"/mcp": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}),
+	}
+	mux := http.NewServeMux()
+	for path, h := range s.cfg.Mounts {
+		mux.Handle(path, h)
+	}
+	s.mounts = mux
+
+	got := doReq(t, s.Handler(), http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+	requireStatus(t, got, http.StatusOK)
+	if got.Body.String() != `{"ok":true}` {
+		t.Fatalf("mount body=%s", got.Body.String())
+	}
+}
+
 func TestSPADoesNotCaptureAPI(t *testing.T) {
 	s, _ := newTestServer(t)
 	s.cfg.UI = web.NewHandler(nil)

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-18 (STA-001)
+Last reviewed: 2026-08-18 (MCP-001)
 Related ADRs: 0002, 0004
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -38,11 +38,11 @@ make test-container security-scan test-changelog
 make web-test web-build
 ```
 
-FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-fuzz-smoke`, `test-docs`, and `security-scan`. CFG-001 implements `test-config-compat` (`testdata/config/valid` + `invalid`) and extends `test-fuzz-smoke` with `FuzzDecode`. API-001 implements `generate` / `verify-generated` (`api/capabilities/v1.json`, `api/openapi/v1.json`). `test-parity`, `test-container`, `test-changelog`, `web-test`, and `web-build` fail closed until their owning PR.
+FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-fuzz-smoke`, `test-docs`, and `security-scan`. CFG-001 implements `test-config-compat` (`testdata/config/valid` + `invalid`) and extends `test-fuzz-smoke` with `FuzzDecode`. API-001 implements `generate` / `verify-generated` (`api/capabilities/v1.json`, `api/openapi/v1.json`). MCP-001 implements `test-parity` (`internal/capabilities`, `internal/control/rest`, `internal/control/mcp` plus `testdata/mcp/goldens` and `api/mcp/v1.json`). `test-container`, `test-changelog`, `web-test`, and `web-build` fail closed until their owning PR.
 
-## Required CI (CFG-001)
+## Required CI (MCP-001)
 
-Jobs: format, lint, unit, documentation, config-compat, generated-file. There is no optional or bypassable job. Later PRs add race, fuzz-smoke, security-scan, container-test, changelog, parity, and web when those targets first exist.
+Jobs: format, lint, unit, documentation, config-compat, generated-file, parity. There is no optional or bypassable job. Later PRs add race, fuzz-smoke, security-scan, container-test, changelog, and web when those targets first exist.
 
 Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`. govulncheck `v1.1.4`. Actions SHA-pinned.
 
@@ -51,6 +51,7 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 - PROXY-001: `testdata/proxy/absolute-https.txt`, `connect-no-port.txt`, `connect-two-gets.txt`, `connect-hijack.txt`, `upgrade-websocket.txt`, `name-imds.txt`, `name-link-local.txt`.
 - TLS fixture (TLS-001): `testdata/tls/**` test-only PEMs; generate-mode client that trusts `CertPEM()` succeeds against a fixture origin; untrusted client fails; `CONNECT :80` with intercept on tunnels; `CONNECT :443` to plaintext stores `Error=tls_handshake` with no blind tunnel.
 - API-001: REST contract tests (`internal/control/rest`) for auth 401, problem+json, list/get/delete/wait/resume/drop/replay, HMAC cursor stale, `GET /v1/ca` cert-only; `proxy.Replay` HTTP/HTTPS, `HTTP_PROXY` ignored, hairpin rejected.
+- MCP-001: `testdata/mcp/goldens/{tools,resources,mutating-tools}.txt`; `internal/control/mcp` initialize/tools/list/tool call/origin/bearer; URI-only `subscriptions/listen` on `labmitm://flows`; `api/mcp/v1.json`.
 - STORE-001: `testdata/flows/**` golden captured flows; `internal/store` insert/delete/wait/wipe/epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate, stacked caps, spill, race; proxy store-full still forwards.
 - RULES-001: `internal/rules` first-match, default-off, AND match, no Dial; Resume without HTTP (store only, test-constructed snapshot); proxy delay/drop/status/header/body/breakpoint, stream-vs-mutate `body_skipped`, inner CONNECT drop.
 - STA-001: `internal/compiler` (rules engine + CA handle; reuse CA unless `replaceTLS` / reset); `internal/snapshot` atomic swap; `internal/audit` ring + redact (`BEGIN PRIVATE` never logged); `internal/app` Plan/Apply/Reset/Export, reset-wipes-flows, failed reset leaves snapshot+inbox, generate-mode CA rotates on reset, idempotency LRU, `replaceStoreCaps` / `replaceRules` / `replaceTLS` / `replaceAdmission` / `replaceTargets`; proxy loads snapshot per request / CONNECT (in-flight keeps the pin, including response-phase rules); accept-time epoch so reset cannot refill the inbox from an in-flight hop.

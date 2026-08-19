@@ -88,6 +88,10 @@ type Config struct {
 	UI http.Handler
 	// UIEnabled reports spec.ui.enabled. Nil means enabled whenever UI != nil.
 	UIEnabled func() bool
+	// Mounts are additional handlers (MCP POST /mcp) served after the shared
+	// timeout, inflight, and origin gates but ahead of native /v1 routing.
+	// rest must not import internal/control/mcp; cmd wires this.
+	Mounts map[string]http.Handler
 }
 
 // Server is the stdlib net/http management listener.
@@ -104,6 +108,8 @@ type Server struct {
 
 	cursorMu  sync.Mutex
 	cursorKey []byte
+
+	mounts *http.ServeMux
 
 	mu     sync.Mutex
 	http   *http.Server
@@ -150,6 +156,13 @@ func New(cfg Config) (*Server, error) {
 	s.svc.OnReset(s.RotateCursors)
 	s.svc.OnReset(s.reloadAuth)
 	s.svc.OnApply(s.reloadAuth)
+	if len(cfg.Mounts) > 0 {
+		mux := http.NewServeMux()
+		for path, h := range cfg.Mounts {
+			mux.Handle(path, h)
+		}
+		s.mounts = mux
+	}
 	s.handler = http.HandlerFunc(s.serveHTTP)
 	return s, nil
 }
@@ -288,7 +301,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	var cancel context.CancelFunc
-	if s.timeout > 0 && !isWaitPath(r.URL.Path) && !isSSEPath(r.URL.Path) {
+	if s.timeout > 0 && !isWaitPath(r.URL.Path) && !isSSEPath(r.URL.Path) && !s.isMountedPath(r) {
 		ctx, cancel = context.WithTimeout(ctx, s.timeout)
 		defer cancel()
 	}
@@ -299,6 +312,12 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			s.writeProblem(w, r, instance, domainerr.Internal("internal error"))
 		}
 	}()
+
+	// MCP (and other cmd-wired mounts) run after origin/inflight/timeout so
+	// POST /mcp cannot bypass the shared gates. MCP applies its own auth.
+	if s.dispatchMount(w, r, instance) {
+		return
+	}
 
 	rt, params, pathOK, methodOK := matchRoute(s.routes, r.Method, r.URL.Path)
 	if !pathOK {
@@ -366,6 +385,30 @@ func isWaitPath(path string) bool {
 
 func isSSEPath(path string) bool {
 	return strings.HasSuffix(path, "/events/stream")
+}
+
+func (s *Server) isMountedPath(r *http.Request) bool {
+	if s == nil || s.mounts == nil || r == nil {
+		return false
+	}
+	_, pattern := s.mounts.Handler(r)
+	return pattern != ""
+}
+
+func (s *Server) dispatchMount(w http.ResponseWriter, r *http.Request, instance string) bool {
+	if s.mounts == nil {
+		return false
+	}
+	h, pattern := s.mounts.Handler(r)
+	if pattern == "" {
+		return false
+	}
+	if err := s.rate.allow(r.RemoteAddr); err != nil {
+		s.writeProblem(w, r, instance, err)
+		return true
+	}
+	h.ServeHTTP(w, r)
+	return true
 }
 
 func requestID(r *http.Request) string {

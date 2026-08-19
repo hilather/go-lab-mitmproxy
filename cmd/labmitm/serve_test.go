@@ -130,6 +130,28 @@ func TestServeManagementBindsWithToken(t *testing.T) {
 	if live.StatusCode != http.StatusOK {
 		t.Fatalf("live status=%d", live.StatusCode)
 	}
+	pingBody := `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"serve-test","version":"dev"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
+	mcpReq, err := http.NewRequest(http.MethodPost, "http://"+mgmt+"/mcp", strings.NewReader(pingBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpReq.Header.Set("Content-Type", "application/json")
+	mcpReq.Header.Set("Accept", "application/json, text/event-stream")
+	mcpReq.Header.Set("MCP-Protocol-Version", "2026-07-28")
+	mcpReq.Header.Set("Mcp-Method", "server/discover")
+	mcpReq.Header.Set("Authorization", "Bearer "+serveTestToken)
+	mcpResp, err := http.DefaultClient.Do(mcpReq)
+	if err != nil {
+		t.Fatalf("POST /mcp: %v", err)
+	}
+	mcpBody, _ := io.ReadAll(mcpResp.Body)
+	_ = mcpResp.Body.Close()
+	if mcpResp.StatusCode == http.StatusNotFound || mcpResp.StatusCode == http.StatusUnauthorized {
+		t.Fatalf("POST /mcp not mounted or unauth status=%d body=%s", mcpResp.StatusCode, mcpBody)
+	}
+	if mcpResp.StatusCode != http.StatusOK && mcpResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST /mcp status=%d body=%s", mcpResp.StatusCode, mcpBody)
+	}
 	cancel()
 	select {
 	case code := <-done:

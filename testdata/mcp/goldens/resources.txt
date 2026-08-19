@@ -1,0 +1,8 @@
+labmitm://capabilities
+labmitm://status
+labmitm://schema/config
+labmitm://state
+labmitm://flows
+labmitm://flows/{id}
+labmitm://ca
+labmitm://audit/recent

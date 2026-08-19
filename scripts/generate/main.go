@@ -1,5 +1,5 @@
-// Command generate writes api/capabilities/v1.json and api/openapi/v1.json.
-// MCP and metrics catalogs land in MCP-001 / OBS-001.
+// Command generate writes api/capabilities/v1.json, api/openapi/v1.json,
+// and api/mcp/v1.json. Metrics catalog lands in OBS-001.
 package main
 
 import (
@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
+	"github.com/hilather/go-lab-mitmproxy/internal/control/mcp"
 	"github.com/hilather/go-lab-mitmproxy/internal/control/rest"
 )
 
@@ -52,9 +53,14 @@ func plannedFiles() ([]artifact, error) {
 	if err != nil {
 		return nil, fmt.Errorf("openapi: %w", err)
 	}
+	mcpManifest, err := mcp.RenderManifest()
+	if err != nil {
+		return nil, fmt.Errorf("mcp: %w", err)
+	}
 	return []artifact{
 		{capabilities.ManifestRelPath, manifest},
 		{rest.OpenAPIRelPath, openapi},
+		{mcp.ManifestRelPath, mcpManifest},
 	}, nil
 }
 

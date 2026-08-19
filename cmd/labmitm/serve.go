@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/app"
 	"github.com/hilather/go-lab-mitmproxy/internal/auth"
+	"github.com/hilather/go-lab-mitmproxy/internal/control/mcp"
 	"github.com/hilather/go-lab-mitmproxy/internal/control/rest"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxy"
@@ -83,6 +85,7 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 type serveRuntime struct {
 	proxy   *proxy.Server
 	http    *rest.Server
+	mcp     *mcp.Server
 	svc     *app.App
 	pidPath string
 }
@@ -121,13 +124,14 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 	rt := &serveRuntime{proxy: srv, svc: svc, pidPath: flags.PIDFile}
 	mgmt, unbound := managementListen(flags.ManagementListen, snap.Canonical.Spec.Listeners.Management.Address)
 	if !unbound {
-		hs, err := startManagement(svc, mgmt, snap.Canonical.Spec)
+		hs, mcpSrv, err := startManagement(svc, mgmt, snap.Canonical.Spec)
 		if err != nil {
 			_ = srv.Shutdown(context.Background())
 			svc.Close()
 			return nil, err
 		}
 		rt.http = hs
+		rt.mcp = mcpSrv
 	}
 	svc.SetHealth(func() app.HealthFacts {
 		return app.HealthFacts{
@@ -144,20 +148,38 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 	return rt, nil
 }
 
-func startManagement(svc *app.App, addr string, spec model.Spec) (*rest.Server, error) {
+func startManagement(svc *app.App, addr string, spec model.Spec) (*rest.Server, *mcp.Server, error) {
 	if addr == "" {
 		addr = rest.DefaultAddr
 	}
 	verifier, err := auth.FromSpec(spec.Management.Auth)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := verifier.RequireListen(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	mcpPath := spec.Listeners.Management.MCPPath
+	if mcpPath == "" {
+		mcpPath = mcp.DefaultPath
+	}
+	mcpSrv, err := mcp.New(mcp.Config{
+		Service:            svc,
+		AllowedOrigins:     spec.Management.OriginAllowlist,
+		AllowLegacyClients: spec.Management.MCP.AllowLegacyClients,
+		MaxBodyBytes:       spec.Management.BodyLimit,
+		MaxConcurrent:      spec.Management.MaxConcurrent,
+		RatePerSec:         float64(spec.Management.RequestsPerSecond),
+		RateBurst:          float64(spec.Management.Burst),
+		Auth:               verifier,
+	})
+	if err != nil {
+		_ = ln.Close()
+		return nil, nil, err
 	}
 	hs, err := rest.New(rest.Config{
 		Addr:           addr,
@@ -178,14 +200,16 @@ func startManagement(svc *app.App, addr string, spec model.Spec) (*rest.Server, 
 			}
 			return snap.Canonical.Spec.UI.Enabled
 		},
+		Mounts: map[string]http.Handler{mcpPath: mcpSrv.Handler()},
 	})
 	if err != nil {
+		mcpSrv.Close()
 		_ = ln.Close()
-		return nil, err
+		return nil, nil, err
 	}
 	hs.Attach(ln)
 	go func() { _ = hs.Serve(ln) }()
-	return hs, nil
+	return hs, mcpSrv, nil
 }
 
 func managementListen(flagAddr, yamlAddr string) (addr string, unbound bool) {
@@ -207,6 +231,9 @@ func (r *serveRuntime) shutdown(ctx context.Context) error {
 		return nil
 	}
 	var first error
+	if r.mcp != nil {
+		r.mcp.Close()
+	}
 	if r.http != nil {
 		first = r.http.Shutdown(ctx)
 	}

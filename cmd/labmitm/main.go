@@ -36,7 +36,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		return serveCmd(ctx, args[2:], stdout, stderr)
-	case "healthcheck", "mcp-stdio":
+	case "mcp-stdio":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return mcpStdioCmd(ctx, args[2:], stdout, stderr)
+	case "healthcheck":
 		_, _ = fmt.Fprintf(stderr, "labmitm %s is not implemented yet\n", args[1])
 		return 2
 	default:
@@ -55,8 +59,8 @@ const usageText = `usage: labmitm <command>
 LabMITM is a laboratory HTTP(S) intercepting proxy. validate and
 canonicalize load a fail-closed labmitm.dev/v1alpha1 document. serve
 binds the HTTP/1.1 forward proxy (tls.intercept is a data-plane
-knob, not a second listener). Management REST /v1 binds only when
---management-listen is an address and bearer auth has ≥1 token.
+knob, not a second listener). Management REST /v1 and POST /mcp bind
+only when --management-listen is an address and bearer auth has ≥1 token.
 
 Commands:
   version         print build and protocol metadata
@@ -65,8 +69,8 @@ Commands:
   canonicalize    emit canonical spec (--config, --format yaml|json)
   serve           load YAML and bind the proxy (--config, --proxy-listen,
                   --management-listen, --shutdown-timeout, --pid-file)
+  mcp-stdio       Streamable MCP over stdio (--config, --token-file)
 
 Planned (not implemented):
   healthcheck     probe GET /v1/health/ready
-  mcp-stdio       Streamable MCP over stdio
 `

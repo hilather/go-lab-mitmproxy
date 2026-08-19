@@ -20,14 +20,14 @@ help:
 		'  vet                 go vet ./...' \
 		'  lint                go vet + golangci-lint $(GOLANGCI_LINT_VERSION)' \
 		'  build               go build -o bin/labmitm ./cmd/labmitm' \
-		'  generate            write api/capabilities/v1.json and api/openapi/v1.json' \
+		'  generate            write api/capabilities/v1.json, api/openapi/v1.json, api/mcp/v1.json' \
 		'  verify-generated    fail if generate would change those files' \
 		'  test                go test ./...' \
 		'  test-race           go test -race ./...' \
 		'  test-fuzz-smoke     buildinfo + config FuzzDecode seed corpora (5s each)' \
 		'  test-docs           required documents, metadata, and links' \
 		'  security-scan       govulncheck' \
-		'  test-parity         unimplemented until MCP-001 (PR 9); fail-closed' \
+		'  test-parity         REST/MCP capability parity and MCP goldens' \
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
 		'  web-test            unimplemented until UI-001 (PR 13); fail-closed' \
 		'  web-build           unimplemented until UI-001 (PR 13); fail-closed' \
@@ -71,7 +71,7 @@ security-scan:
 	$(GO) run $(GOVULNCHECK_MOD) ./...
 
 test-parity:
-	@echo 'test-parity: unimplemented until MCP-001 (PR 9)' >&2; exit 1
+	$(GO) test ./internal/capabilities ./internal/control/rest ./internal/control/mcp -count=1
 
 test-config-compat:
 	$(GO) test ./internal/config -run TestConfigCompat -count=1
