@@ -128,6 +128,35 @@ func TestHeaderNamePresentWithoutContains(t *testing.T) {
 	}
 }
 
+func TestMatchProtocolAND(t *testing.T) {
+	eng := snapshotEngine(true, model.RuleSpec{
+		ID: "h2", Enabled: true, Phase: model.RulePhaseRequest,
+		Match:  model.RuleMatchSpec{Protocol: model.FlowProtocolHTTP2},
+		Action: model.RuleActionSpec{Type: model.ActionDrop},
+	})
+	if eng.Match(model.RulePhaseRequest, Request{Path: "/", Protocol: ""}) != nil {
+		t.Fatal("empty request protocol must not match protocol: h2")
+	}
+	if eng.Match(model.RulePhaseRequest, Request{Path: "/", Protocol: model.FlowProtocolHTTP11}) != nil {
+		t.Fatal("http/1.1 must not match protocol: h2")
+	}
+	if hit := eng.Match(model.RulePhaseRequest, Request{Path: "/", Protocol: model.FlowProtocolHTTP2}); hit == nil || hit.ID != "h2" {
+		t.Fatalf("h2 %+v", hit)
+	}
+	if hit := eng.Match(model.RulePhaseRequest, Request{Path: "/", Protocol: "H2"}); hit == nil {
+		t.Fatal("protocol match is case-insensitive")
+	}
+
+	anyProto := snapshotEngine(true, model.RuleSpec{
+		ID: "any", Enabled: true, Phase: model.RulePhaseRequest,
+		Match:  model.RuleMatchSpec{PathPrefix: "/"},
+		Action: model.RuleActionSpec{Type: model.ActionDrop},
+	})
+	if anyProto.Match(model.RulePhaseRequest, Request{Path: "/", Protocol: model.FlowProtocolHTTP11}) == nil {
+		t.Fatal("empty match.protocol still matches")
+	}
+}
+
 func TestNilEngine(t *testing.T) {
 	var e *Engine
 	if e.Match(model.RulePhaseRequest, Request{}) != nil || e.Enabled() {

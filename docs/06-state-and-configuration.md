@@ -29,7 +29,7 @@ payloadgen, attack, sslstrip, hstsstrip
 
 Plus any key that would imply wrapping the Python binary (`mitmproxy`, `mitmdump`, `mitmweb` as config sections). Reserved keys are **not a LabMITM surface** (D41). Legal 1.1 names are camelCase only (`acceptSOCKS5` is legal; `accept-socks5` fails KnownFields; `spec.socks` / `spec.compat.mitmproxyREST` stay reserved).
 
-## Bootstrap schema (normative 1.0)
+## Bootstrap schema (v1alpha1; 1.1 fields default off)
 
 ```yaml
 apiVersion: labmitm.dev/v1alpha1

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-19 (match.protocol)
+Last reviewed: 2026-08-19 (match.protocol AND)
 Related ADRs: 0002
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
@@ -48,7 +48,7 @@ rules:
           timeout: 30s         # 1s–60s
 ```
 
-Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query).
+Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query). `match.protocol` is optional and case-insensitive; a non-empty value that does not match the request protocol (including `h2` / `socks5` / `socks4` until those hops exist) matches nothing.
 
 | Action | Request phase | Response phase |
 |---|---|---|

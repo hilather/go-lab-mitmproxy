@@ -50,6 +50,31 @@ func TestRulesDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestProtocolH2DropDoesNotMatchHTTP11(t *testing.T) {
+	var originHits int
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originHits++
+		_, _ = io.WriteString(w, "ok")
+	}))
+	spec := withRules(t, model.RuleSpec{
+		ID:      "drop-h2",
+		Enabled: true,
+		Phase:   model.RulePhaseRequest,
+		Match:   model.RuleMatchSpec{Protocol: model.FlowProtocolHTTP2},
+		Action:  model.RuleActionSpec{Type: model.ActionDrop, Status: 403},
+	})
+	px := startProxy(t, Options{Spec: spec})
+	if via := throughProxy(t, px.Addr().String(), originURL+"/x"); via != "ok" {
+		t.Fatalf("body %q", via)
+	}
+	if originHits != 1 {
+		t.Fatalf("origin hits %d", originHits)
+	}
+	if px.Metrics().RuleHits(model.ActionDrop) != 0 {
+		t.Fatal("protocol: h2 must not match HTTP/1.1")
+	}
+}
+
 func TestRequestDrop(t *testing.T) {
 	var originHits int
 	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

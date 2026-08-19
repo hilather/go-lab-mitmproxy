@@ -103,6 +103,17 @@ func TestNormalizeAcceptSOCKS5CamelCase(t *testing.T) {
 	}
 }
 
+func TestLoadExplicitZeroMaxConcurrentStreams(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  proxy:\n    admission:\n      maxConcurrentStreams: 0\n"
+	st, err := Load([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Spec.Proxy.Admission.MaxConcurrentStreams != DefaultMaxConcurrentStreams {
+		t.Fatalf("maxConcurrentStreams=%d want %d", st.Spec.Proxy.Admission.MaxConcurrentStreams, DefaultMaxConcurrentStreams)
+	}
+}
+
 func TestNormalizeHTTP2Flag(t *testing.T) {
 	st, err := LoadFile(testdata(t, "valid", "protocols-http2.yaml"))
 	if err != nil {

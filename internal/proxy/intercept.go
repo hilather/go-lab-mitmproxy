@@ -20,8 +20,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
-// interceptMeta is shared intercept input. HTTP CONNECT writes 200 then
-// calls serveInterceptConn. SOCKS/orig-dest call it without an HTTP reply.
+// interceptMeta is shared intercept input after the client is already acked.
 type interceptMeta struct {
 	ConnectHost  string
 	Port         string
@@ -33,8 +32,9 @@ type interceptMeta struct {
 	SOCKS        *model.SOCKSInfo
 }
 
+// serveInterceptConn runs dual handshake + inner HTTP. It must not write
+// HTTP 200; CONNECT already did.
 func (s *Server) serveInterceptConn(client net.Conn, bufrw *bufio.ReadWriter, up net.Conn, meta interceptMeta, sess *ruleSession) {
-	_, _, _ = meta.Via, meta.OriginalDest, meta.SOCKS
 	req := meta.ClientReq
 	host := meta.ConnectHost
 	port := meta.Port

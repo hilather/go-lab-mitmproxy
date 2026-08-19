@@ -6,7 +6,7 @@ const DefaultCompatPathPrefix = "/compat"
 
 // CompatBindings is a side table of REST_ONLY extra spellings of existing
 // flows.* IDs. catalog(), All(), compileRoutes, and RenderOpenAPI do not
-// include these paths. PR 6 matches this table after authenticate/authorize.
+// include these paths.
 func CompatBindings() []Capability {
 	prefix := DefaultCompatPathPrefix
 	out := []Capability{

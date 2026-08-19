@@ -145,7 +145,7 @@
         "headerTimeout": { "$ref": "#/$defs/duration", "description": "default 10s" },
         "dialTimeout": { "$ref": "#/$defs/duration", "description": "default 10s" },
         "upstreamTimeout": { "$ref": "#/$defs/duration", "description": "default 60s" },
-        "maxConcurrentStreams": { "type": "integer", "minimum": 1, "description": "default 100; 0 materializes 100; live via replaceAdmission" }
+        "maxConcurrentStreams": { "type": "integer", "minimum": 0, "description": "default 100; 0 materializes 100; live via replaceAdmission" }
       }
     },
     "targets": {
