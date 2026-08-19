@@ -114,7 +114,7 @@ Supported topologies only:
 1. Shared netns: SUT uses `network_mode: service:labmitm`. A sidecar (not the appliance) has `CAP_NET_ADMIN` and installs REDIRECT. labmitm stays unprivileged.
 2. Host network: labmitm `--network host` (still UID 65532) + **host** iptables REDIRECT to `127.0.0.1:8890`.
 
-Copyable overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml). Do not redirect 8088, 8888, 8890, or 9090.
+Copyable overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml). Do not redirect 8088, 8888, 8890, or 9090. **REDIRECT must not apply to the appliance UID `65532`** (iptables `-m owner --uid-owner 65532 -j RETURN` at the top of the OUTPUT chain; ip6tables analogue if IPv6 REDIRECT is installed). Otherwise dest-IP Dial of `:80`/`:443` is REDIRECTed back to `:8890` and hairpins. Do not treat Docker `-p 8890:8890` as a substitute.
 
 Ready is `OrigDestBound || OrigDestOff` (D56). When the spec leaves orig-dest disabled, `OrigDestOff` is true so 1.0 processes stay ready.
 

@@ -34,6 +34,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- Orig-dest compose overlay skips UID 65532 on OUTPUT REDIRECT (dest-IP Dial must not hairpin to `:8890`) and mounts a bearer bootstrap (`testdata/container/originaldest.yaml`) so `--management-listen=:8088` can bind. Ready `OrigDestOff` is re-read from the live snapshot so Reset-to-enable-without-bind is unready.
 - Intercepted CONNECT treats inner `Upgrade: websocket` + `101` as a bidirectional copy (same 1.0 contract as cleartext). Inner `RoundTrip` failure writes `502` and closes both TLS sides instead of leaving the client waiting.
 - Replay hairpin reject covers unspecified proxy binds (`:8888`, `0.0.0.0`, `::`) so a lab-overlay replay cannot Dial the unauthenticated data plane on the listen port.
 - Flow body downloads (`GET /v1/flows/{id}/request|response`) no longer reflect captured `Content-Type`. They are `application/octet-stream` with `Content-Disposition: attachment` and `Content-Security-Policy: default-src 'none'`. The inspector fetches a blob instead of navigating the operator document to captured HTML.

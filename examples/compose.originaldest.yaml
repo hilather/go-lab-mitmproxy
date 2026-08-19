@@ -13,11 +13,11 @@
 # labmitm stays UID 65532, cap_drop ALL. iptables is sidecar/host only.
 # The default image does not get NET_ADMIN. `make test-container` is unchanged.
 #
-# Enable in bootstrap YAML (Reset-only):
-#   spec.listeners.originalDestination.enabled: true
-#   empty address → 127.0.0.1:8890
-#
+# OUTPUT REDIRECT of :80/:443 must skip UID 65532 or dest-IP Dial (and
+# :8888 upstream Dial) hairpins back to :8890. Owner match is valid on
+# OUTPUT in both supported topologies; SUT processes are not UID 65532.
 # Do NOT redirect management/proxy/metrics/orig-dest ports (8088, 8888, 8890, 9090).
+# Do not treat Docker `-p 8890:8890` as a substitute.
 
 services:
   labmitm:
@@ -30,7 +30,7 @@ services:
       - "8888:8888/tcp"
       - "8088:8088/tcp"
     volumes:
-      - ../testdata/config/valid/original-destination.yaml:/etc/labmitm/config.yaml:ro
+      - ../testdata/container/originaldest.yaml:/etc/labmitm/config.yaml:ro
       - ../testdata/container/token:/etc/labmitm/token:ro
     read_only: true
     tmpfs:
@@ -63,6 +63,7 @@ services:
         apk add --no-cache iptables >/dev/null
         iptables -t nat -N LABMITM_OD || true
         iptables -t nat -F LABMITM_OD
+        iptables -t nat -A LABMITM_OD -m owner --uid-owner 65532 -j RETURN
         iptables -t nat -A LABMITM_OD -p tcp --dport 8088 -j RETURN
         iptables -t nat -A LABMITM_OD -p tcp --dport 8888 -j RETURN
         iptables -t nat -A LABMITM_OD -p tcp --dport 8890 -j RETURN

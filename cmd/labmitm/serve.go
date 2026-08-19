@@ -158,11 +158,11 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 		rt.http = hs
 		rt.mcp = mcpSrv
 	}
-	origOff := true
-	if snap.Canonical != nil {
-		origOff = !snap.Canonical.Spec.Listeners.OriginalDestination.Enabled
-	}
 	svc.SetHealth(func() observability.Facts {
+		origOff := true
+		if live := svc.Active(); live != nil {
+			origOff = !live.Spec().Listeners.OriginalDestination.Enabled
+		}
 		return observability.Facts{
 			ProxyBound:    srv.Accepting(),
 			StoreUp:       svc.Inbox() != nil,
