@@ -65,15 +65,19 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	rawLn net.Listener
-	http  *http.Server
+	rawLn  net.Listener
+	httpLn *chanListener
+	http   *http.Server
 
-	mu        sync.Mutex
-	hijacked  map[net.Conn]struct{}
-	hijackWG  sync.WaitGroup
-	started   bool
-	stopped   bool
-	accepting atomic.Bool
+	mu          sync.Mutex
+	hijacked    map[net.Conn]struct{}
+	dispatching map[net.Conn]struct{}
+	hijackWG    sync.WaitGroup
+	acceptWG    sync.WaitGroup
+	dispatchWG  sync.WaitGroup
+	started     bool
+	stopped     bool
+	accepting   atomic.Bool
 }
 
 // New validates opts. Start binds and serves.
@@ -92,17 +96,18 @@ func New(opts Options) (*Server, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
-		addr:     opts.Address,
-		sink:     sink,
-		inbox:    opts.Store,
-		resolver: res,
-		dialFn:   opts.DialContext,
-		snaps:    opts.Snapshots,
-		gate:     newGate(),
-		metrics:  newMetrics(),
-		ctx:      ctx,
-		cancel:   cancel,
-		hijacked: make(map[net.Conn]struct{}),
+		addr:        opts.Address,
+		sink:        sink,
+		inbox:       opts.Store,
+		resolver:    res,
+		dialFn:      opts.DialContext,
+		snaps:       opts.Snapshots,
+		gate:        newGate(),
+		metrics:     newMetrics(),
+		ctx:         ctx,
+		cancel:      cancel,
+		hijacked:    make(map[net.Conn]struct{}),
+		dispatching: make(map[net.Conn]struct{}),
 	}
 	s.metrics.attach(opts.Metrics, opts.Logger)
 	if s.inbox == nil {
@@ -278,13 +283,9 @@ func (s *Server) Start() error {
 		return fmt.Errorf("proxy: listen: %w", err)
 	}
 	s.rawLn = ln
+	httpLn := newChanListener(ln.Addr())
+	s.httpLn = httpLn
 	ad := s.specNow().Proxy.Admission
-	peeked := &peekListener{
-		Listener: ln,
-		reject: func() {
-			s.metrics.reject("socks")
-		},
-	}
 	proto := http1Only()
 	s.http = &http.Server{
 		Handler:           s,
@@ -300,8 +301,29 @@ func (s *Server) Start() error {
 	}
 	s.started = true
 	s.accepting.Store(true)
-	go func() { _ = s.http.Serve(peeked) }()
+	s.acceptWG.Add(1)
+	go s.acceptLoop(ln, httpLn)
+	go func() { _ = s.http.Serve(httpLn) }()
 	return nil
+}
+
+func (s *Server) acceptLoop(rawLn net.Listener, httpLn *chanListener) {
+	defer s.acceptWG.Done()
+	if rawLn == nil {
+		return
+	}
+	for {
+		c, err := rawLn.Accept()
+		if err != nil {
+			return
+		}
+		if !s.accepting.Load() {
+			_ = c.Close()
+			return
+		}
+		s.dispatchWG.Add(1)
+		go s.dispatchConn(c, kindProxy, httpLn)
+	}
 }
 
 // Addr is the bound proxy address.
@@ -324,17 +346,29 @@ func (s *Server) Metrics() *Metrics {
 	return s.metrics
 }
 
-// Shutdown stops accept, drains hijacked tunnels, then the http.Server.
+// Shutdown stops accept, closes the HTTP handoff, drains http.Server,
+// then hijacked tunnels (D42).
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.accepting.Store(false)
 	s.cancel()
 	s.mu.Lock()
 	s.stopped = true
+	raw := s.rawLn
+	httpLn := s.httpLn
 	hs := s.http
 	s.mu.Unlock()
 	var first error
+	if err := closeQuiet(raw); err != nil && first == nil {
+		first = err
+	}
+	s.acceptWG.Wait()
+	s.closeDispatching()
+	s.dispatchWG.Wait()
+	if err := closeQuiet(httpLn); err != nil && first == nil {
+		first = err
+	}
 	if hs != nil {
-		if err := hs.Shutdown(ctx); err != nil {
+		if err := hs.Shutdown(ctx); err != nil && !shutdownClosed(err) && first == nil {
 			first = err
 		}
 	}
@@ -358,6 +392,21 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 	return first
+}
+
+func closeQuiet(c io.Closer) error {
+	if c == nil {
+		return nil
+	}
+	err := c.Close()
+	if shutdownClosed(err) {
+		return nil
+	}
+	return err
+}
+
+func shutdownClosed(err error) bool {
+	return err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, http.ErrServerClosed)
 }
 
 func (s *Server) beginHijacked() {
@@ -390,6 +439,36 @@ func (s *Server) closeHijacked() {
 	s.mu.Lock()
 	conns := make([]net.Conn, 0, len(s.hijacked))
 	for c := range s.hijacked {
+		conns = append(conns, c)
+	}
+	s.mu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
+	}
+}
+
+func (s *Server) trackDispatch(c net.Conn) {
+	if c == nil {
+		return
+	}
+	s.mu.Lock()
+	s.dispatching[c] = struct{}{}
+	s.mu.Unlock()
+}
+
+func (s *Server) untrackDispatch(c net.Conn) {
+	if c == nil {
+		return
+	}
+	s.mu.Lock()
+	delete(s.dispatching, c)
+	s.mu.Unlock()
+}
+
+func (s *Server) closeDispatching() {
+	s.mu.Lock()
+	conns := make([]net.Conn, 0, len(s.dispatching))
+	for c := range s.dispatching {
 		conns = append(conns, c)
 	}
 	s.mu.Unlock()

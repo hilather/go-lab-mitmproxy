@@ -36,7 +36,7 @@ This ADR supersedes ADR 0002’s **“TPROXY and SOCKS are 1.1+” sentence** on
 
 **D57 — Orig-dest splice in `ServeHTTP` is after acquire and before the 1.0 CONNECT / `serveAbsolute` ladder.** Tagged conns Dial dest IP:port only.
 
-Flags default off and are unread by the proxy until the SOCKS and orig-dest workstreams. Foundation only adds spec fields and extracts `serveInterceptConn` so later PRs can intercept without writing HTTP 200.
+Flags default off. The D42 accept mux peeks in a per-conn goroutine and still SOCKS-closes `0x04`/`0x05` while the flags are false. SOCKS serve and orig-dest bind are later workstreams. `serveInterceptConn` is the shared intercept entry (no HTTP 200).
 
 ## Consequences
 

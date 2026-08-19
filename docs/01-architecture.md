@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-19 (1.1 foundation ADRs 0008–0011)
+Last reviewed: 2026-08-19 (1.1 foundation + accept mux D42)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011
 
 ## Problem statement
@@ -86,7 +86,7 @@ Family container-internal binds that must not collide:
 
 ## 1.1 opt-in (types; flags default off)
 
-Additive `labmitm.dev/v1alpha1` fields exist so later workstreams can enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off and are unread by the proxy** except that CONNECT already calls the extracted `serveInterceptConn` helper (behavior-identical HTTP 200 then intercept).
+Additive `labmitm.dev/v1alpha1` fields exist so later workstreams can enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off.** The proxy accept mux peeks in a per-conn goroutine (D42) and still SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. CONNECT already calls the extracted `serveInterceptConn` helper (behavior-identical HTTP 200 then intercept).
 
 - [ADR 0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md): additive schema; reserved keys stay; flags are bootstrap + **Reset only** (D51).
 - [ADR 0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md): supersedes ADR 0002 **D8 scope only**. **D7 stands.**
