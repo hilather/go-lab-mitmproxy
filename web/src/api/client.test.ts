@@ -6,6 +6,8 @@ import {
   bearerAuthorization,
   clearMemoryCSRF,
   createSession,
+  downloadFlowBody,
+  flowBodyFilename,
   listAllFlows,
   setMemoryCSRF,
 } from "./client";
@@ -96,5 +98,27 @@ describe("API client", () => {
     expect(list.items[50]?.id).toBe("f51");
     expect(list.nextCursor).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("downloads a flow body as a blob attachment, not a document navigation", async () => {
+    expect(flowBodyFilename("01JTEST", "response")).toBe("flow-01JTEST-response.bin");
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async () =>
+        new Response("<html><script>alert(1)</script></html>", {
+          status: 200,
+          headers: { "Content-Type": "application/octet-stream" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const createObjectURL = vi.fn(() => "blob:lab-invalid/flow-body");
+    const revokeObjectURL = vi.fn();
+    vi.spyOn(URL, "createObjectURL").mockImplementation(createObjectURL);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(revokeObjectURL);
+
+    await downloadFlowBody("01JTEST", "response");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/v1/flows/01JTEST/response");
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("Accept")).toBe("application/octet-stream");
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalled();
   });
 });

@@ -203,6 +203,42 @@ export function responseBodyURL(id: string): string {
   return `/v1/flows/${encodeURIComponent(id)}/response`;
 }
 
+export type FlowBodySide = "request" | "response";
+
+export function flowBodyFilename(id: string, side: FlowBodySide): string {
+  return `flow-${id}-${side}.bin`;
+}
+
+// Fetch via the cookie session and trigger a blob download so a click
+// cannot become a top-level navigation to captured HTML.
+export async function downloadFlowBody(id: string, side: FlowBodySide): Promise<void> {
+  const path = side === "request" ? requestBodyURL(id) : responseBodyURL(id);
+  const resp = await apiFetch(path, { headers: { Accept: "application/octet-stream" } });
+  if (!resp.ok) {
+    const text = await resp.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      parsed = undefined;
+    }
+    throw new APIError(problemFrom(resp.status, resp.statusText, parsed));
+  }
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = flowBodyFilename(id, side);
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export const CA_DOWNLOAD_URL = "/v1/ca";
 
 export async function deleteFlow(id: string): Promise<void> {

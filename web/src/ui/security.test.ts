@@ -42,6 +42,14 @@ describe("XSS and secret handling", () => {
     }
   });
 
+  it("flow body downloads are attachments, not document navigations", () => {
+    const page = readFileSync(join(srcRoot, "pages/FlowPage.tsx"), "utf8");
+    expect(page).toMatch(/download=\{flowBodyFilename/);
+    expect(page).toMatch(/ev\.preventDefault\(\)/);
+    expect(page).toMatch(/downloadFlowBody/);
+    expect(page).not.toMatch(/<a href=\{responseBodyURL\([^)]+\)\}>/);
+  });
+
   it("login is bearer-only", () => {
     const page = readFileSync(join(srcRoot, "pages/LoginPage.tsx"), "utf8");
     expect(page).toMatch(/API bearer token/);

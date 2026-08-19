@@ -64,7 +64,7 @@ Scopes and roles: [docs/07-control-plane-and-parity.md](https://github.com/hilat
 
 ## HTML preview / XSS
 
-Default 1.0 view is escaped text. Optional preview iframe (off by default): `sandbox` without `allow-scripts` / `allow-same-origin`, CSP `default-src 'none'`. Never parent `innerHTML` of captured HTML.
+Default 1.0 view is escaped text. Optional preview iframe (off by default): `sandbox` without `allow-scripts` / `allow-same-origin`, CSP `default-src 'none'`. Never parent `innerHTML` of captured HTML. `GET /v1/flows/{id}/request|response` must not reflect captured `Content-Type`; serve `application/octet-stream` with `Content-Disposition: attachment` and `Content-Security-Policy: default-src 'none'` so a browser GET cannot render captured HTML on the management origin.
 
 ## Data handling
 

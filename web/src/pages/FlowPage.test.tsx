@@ -55,6 +55,12 @@ describe("FlowPage", () => {
       if (url.endsWith("/v1/session")) {
         return json(200, sessionView());
       }
+      if (url.endsWith("/v1/flows/01JTEST/response") || url.endsWith("/v1/flows/01JTEST/request")) {
+        return new Response("<html><script>alert(1)</script></html>", {
+          status: 200,
+          headers: { "Content-Type": "application/octet-stream", "Content-Disposition": "attachment" },
+        });
+      }
       if (url.includes("/v1/flows/01JTEST") && !url.includes("/request") && !url.includes("/response")) {
         return json(200, flow);
       }
@@ -77,14 +83,25 @@ describe("FlowPage", () => {
     expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
 
+    const createObjectURL = vi.fn(() => "blob:lab-invalid/flow-body");
+    const revokeObjectURL = vi.fn();
+    vi.spyOn(URL, "createObjectURL").mockImplementation(createObjectURL);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(revokeObjectURL);
+
     await user.click(screen.getByRole("tab", { name: /Response/i }));
     expect(await screen.findByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument();
     expect(document.querySelector("iframe")).toBeNull();
     expect(document.querySelector("[dangerouslySetInnerHTML]")).toBeNull();
-    expect(screen.getByRole("link", { name: /Download response body/i })).toHaveAttribute(
-      "href",
-      "/v1/flows/01JTEST/response",
-    );
+    const link = screen.getByRole("link", { name: /Download response body/i });
+    expect(link).toHaveAttribute("download", "flow-01JTEST-response.bin");
+    expect(link).toHaveAttribute("href", "/v1/flows/01JTEST/response");
+
+    await user.click(link);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/flows/01JTEST/response"))).toBe(true);
+    });
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalled();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/v1/flows/01JTEST"))).toBe(true);
     });

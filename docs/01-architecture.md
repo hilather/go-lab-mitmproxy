@@ -180,7 +180,7 @@ Required for GA / 1.0 (D13, PR 13). The UI talks REST only. XSS/CSP: [docs/08-re
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie `labmitm_session` + `X-LabMITM-CSRF`. Cookie is REST-only. No Basic form. |
 | Pages | Flow list, flow detail (headers / textual or hex body / TLS / download), CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status, audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream` (SSE). Fallback: 3s poll of `GET /v1/flows`. |
-| Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
+| Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download is `download=` plus blob fetch; raw body GETs are `application/octet-stream` + attachment. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle, Relay |
 
 `spec.ui.enabled: false` serves 404 for `/` but keeps REST/MCP.

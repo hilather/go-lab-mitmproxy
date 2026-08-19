@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { APIError, deleteFlow, getFlow, requestBodyURL, responseBodyURL } from "../api/client";
+import {
+  APIError,
+  deleteFlow,
+  downloadFlowBody,
+  flowBodyFilename,
+  getFlow,
+  requestBodyURL,
+  responseBodyURL,
+  type FlowBodySide,
+} from "../api/client";
 import type { Flow, Header, HTTPMessage } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE, formatBytes } from "../auth/scopes";
@@ -94,6 +103,14 @@ export function FlowPage() {
     }
   }
 
+  async function onDownload(side: FlowBodySide) {
+    try {
+      await downloadFlowBody(id, side);
+    } catch (err) {
+      setError(err instanceof APIError ? err.message : "Download failed.");
+    }
+  }
+
   if (error !== "" && flow === null) {
     return (
       <main className="page">
@@ -168,7 +185,16 @@ export function FlowPage() {
       {tab === "request" ? (
         <>
           <p>
-            <a href={requestBodyURL(flow.id)}>Download request body</a>
+            <a
+              href={requestBodyURL(flow.id)}
+              download={flowBodyFilename(flow.id, "request")}
+              onClick={(ev) => {
+                ev.preventDefault();
+                void onDownload("request");
+              }}
+            >
+              Download request body
+            </a>
           </p>
           <HeadersTable headers={flow.request.headers ?? []} />
           <MessageBody msg={flow.request} />
@@ -177,7 +203,16 @@ export function FlowPage() {
       {tab === "response" ? (
         <>
           <p>
-            <a href={responseBodyURL(flow.id)}>Download response body</a>
+            <a
+              href={responseBodyURL(flow.id)}
+              download={flowBodyFilename(flow.id, "response")}
+              onClick={(ev) => {
+                ev.preventDefault();
+                void onDownload("response");
+              }}
+            >
+              Download response body
+            </a>
           </p>
           <HeadersTable headers={flow.response.headers ?? []} />
           <MessageBody msg={flow.response} />
