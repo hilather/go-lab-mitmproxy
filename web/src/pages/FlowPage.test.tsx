@@ -106,4 +106,73 @@ describe("FlowPage", () => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/v1/flows/01JTEST"))).toBe(true);
     });
   });
+
+  it("shows protocol badge, stream id, trailers, SOCKS dest, and original dest", async () => {
+    const user = userEvent.setup();
+    const h2Flow = {
+      ...flow,
+      id: "01JH2SOCKS",
+      protocol: "h2",
+      via: "socks5",
+      originalDest: "192.0.2.10:443",
+      http2: { streamId: 13 },
+      socks: { version: 5, atyp: "domain", dest: "app.lab.test:443", command: "connect" },
+      request: {
+        ...flow.request,
+        headers: [
+          { name: ":method", value: "GET" },
+          { name: ":path", value: "/login" },
+        ],
+        trailers: [{ name: "x-req-trailer", value: "alpha" }],
+      },
+      response: {
+        ...flow.response,
+        trailers: [{ name: "x-resp-trailer", value: "omega" }],
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.includes("/v1/flows/01JH2SOCKS") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, h2Flow);
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+
+    renderApp(
+      <Routes>
+        <Route path="/flows/:id" element={<FlowPage />} />
+      </Routes>,
+      { route: "/flows/01JH2SOCKS" },
+    );
+
+    expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
+    expect(screen.getByText("h2")).toHaveClass("badge");
+    expect(screen.getByText("stream 13")).toHaveClass("badge");
+    expect(screen.getByText("Stream ID")).toBeInTheDocument();
+    expect(screen.getByText("13")).toBeInTheDocument();
+    expect(screen.getByText("SOCKS dest")).toBeInTheDocument();
+    expect(screen.getByText("app.lab.test:443")).toBeInTheDocument();
+    expect(screen.getByText("Original dest")).toBeInTheDocument();
+    expect(screen.getByText("192.0.2.10:443")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: /Trailers/i }));
+    expect(await screen.findByRole("heading", { name: "Request trailers" })).toBeInTheDocument();
+    expect(screen.getByText("x-req-trailer")).toBeInTheDocument();
+    expect(screen.getByText("alpha")).toBeInTheDocument();
+    expect(screen.getByText("x-resp-trailer")).toBeInTheDocument();
+    expect(screen.getByText("omega")).toBeInTheDocument();
+  });
 });

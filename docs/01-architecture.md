@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-19 (h2 transcode + SOCKS5 + orig-dest)
+Last reviewed: 2026-08-19 (1.1 inspector + h2 + SOCKS + orig-dest)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011
 
 ## Problem statement
@@ -189,7 +189,7 @@ Required for GA / 1.0 (D13, PR 13). The UI talks REST only. XSS/CSP: [docs/08-re
 | Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` (copy step; `web/` has its own `go.mod` so parent `go test ./...` does not walk `node_modules`) |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie `labmitm_session` + `X-LabMITM-CSRF`. Cookie is REST-only. No Basic form. |
-| Pages | Flow list, flow detail (headers / textual or hex body / TLS / download), CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status, audit (if scoped), gated reset |
+| Pages | Flow list, flow detail (protocol badge, HTTP/2 stream id, headers / trailers / textual or hex body / TLS / download, SOCKS dest, original dest), CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status, audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream` (SSE). Fallback: 3s poll of `GET /v1/flows`. |
 | Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download is `download=` plus blob fetch; raw body GETs are `application/octet-stream` + attachment. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle, Relay |

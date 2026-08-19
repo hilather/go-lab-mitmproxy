@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-19 (h2 transcode + SOCKS5 + orig-dest)
+Last reviewed: 2026-08-19 (inspector + h2 + SOCKS + orig-dest)
 Related ADRs: 0002, 0004, 0009, 0010, 0011
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -29,7 +29,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Config compat | `testdata/config/valid` + `invalid` | `make test-config-compat` |
 | Changelog | user-visible paths require `CHANGELOG.md` | `make test-changelog` |
 | Tag gate | notes headings + green required CI on the tag SHA | `.github/workflows/release.yml` |
-| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
+| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status, protocol badge / stream id / trailers / SOCKS dest / original dest | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
 
 ## Required Make targets
 
@@ -59,7 +59,7 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 - MCP-001: `testdata/mcp/goldens/{tools,resources,mutating-tools}.txt`; `internal/control/mcp` initialize/tools/list/tool call/origin/bearer; URI-only `subscriptions/listen` on `labmitm://flows`; `api/mcp/v1.json`.
 - SEC-001: `testdata/container/{config.yaml,token}` (bearer, not `dev-loopback-unauth`); REST unauthenticated `GET /v1/flows` is 401; cookie `labmitm_session` + CSRF; token reread on reset/apply keeps sessions on failed secret reread; audit records `actorId`.
 - DEP-001: `Dockerfile` (Go 1.26.6-alpine → scratch, UID `65532`, copy `ca-certificates.crt`, no Node stage); `examples/compose.smoke.yaml`; `scripts/test-container.sh` asserts system CA bundle + `SystemCertPool` non-empty + HTTPS intercept fixture + authenticated `/v1/flows`.
-- UI-001: `web/` React/TS + Vite (Node **22.14.0**); Vitest login/list/detail/status/reset; no token in web storage; no exploit/fuzzer/repeater; escaped HTML bodies; `ca.spkiSha256` on status; `make web-test` / `make web-build`; CI job `web`.
+- UI-001: `web/` React/TS + Vite (Node **22.14.0**); Vitest login/list/detail/status/reset; no token in web storage; no exploit/fuzzer/repeater; escaped HTML bodies; `ca.spkiSha256` on status; 1.1 list/detail metadata (protocol badge, stream id, trailers, SOCKS dest, original dest); `make web-test` / `make web-build`; CI job `web`.
 - SWAP-001: `examples/labmitm.yaml` (published binds, `allowLegacyClients: true`, recommended `allowHosts`); `examples/mcpjungle/servers/labmitm.json` + `groups/integration.json` (append `labmitm`); `examples/labinfo/services-labmitm.yaml` (catalog id `labmitm`); `TestLabOverlayExample`.
 - GA-001: committed `testdata/fuzz` corpora for `FuzzInfoString`, `FuzzDecode`, `FuzzReadRequest`; `internal/perf` soak (CI N=8); `scripts/checkchangelog`; `scripts/release-diff`; `.github/workflows/release.yml` `tag-gate`; [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md).
 - STORE-001: `testdata/flows/**` golden captured flows; `internal/store` insert/delete/wait/wipe/epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate, stacked caps, spill, race; proxy store-full still forwards.
