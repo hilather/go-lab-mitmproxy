@@ -1,0 +1,12 @@
+# One CONNECT is one upstream TCP. PlayTranscript covers CONNECT + first GET.
+# The second GET is executed in connect_test.go TestCONNECTTwoGETs (leftover
+# response headers make a second S: status-line match unreliable here).
+C: CONNECT {{HOST}} HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 200 Connection Established
+S:
+C: GET /a HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 200 *

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (PROXY-001)
 Related ADRs: 0001, 0003
 
 Dockerfile, compose, and `scripts/test-container.sh` land in DEP-001 (PR 12). This document freezes the contract so later PRs do not invent ports or image posture.
@@ -38,7 +38,7 @@ Flag semantics (LabMail-shaped; **no** `serve --token-file`):
 
 `labmitm send` / `labmitm request` are **not** shipped.
 
-FND-001 implements `version` and `help` only.
+PROXY-001 implements `serve` (proxy bind only; `--management-listen` defaults to `off`; no `--token-file`). `healthcheck` and `mcp-stdio` remain unimplemented. Invalid bootstrap binds nothing.
 
 ## Hardened container
 

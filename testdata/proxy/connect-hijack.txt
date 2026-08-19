@@ -1,0 +1,7 @@
+# After CONNECT 200, a TLS ClientHello (0x16) must be copied, not parsed
+# as an HTTP request. A missed Hijack shows up as HTTP/1.1 400.
+C: CONNECT {{HOST}} HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 200 Connection Established
+S:

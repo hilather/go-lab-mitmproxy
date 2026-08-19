@@ -2,10 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (PROXY-001 review)
 Related ADRs: 0002
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
+
+**PROXY-001 residual:** `tls.intercept: true` is accepted in YAML but CONNECT is still a raw tunnel. TLS intercept (leaf mint, dual handshake, no silent fallback) lands in TLS-001. Capture uses a Null sink until STORE-001.
 
 This document is the accept/reject table. Do not invent additional request classes, replies, or limits without an ADR.
 
@@ -88,7 +90,7 @@ Upstream request is origin-form. Use `http.Transport.RoundTrip` **only** — nev
 - `DisableCompression: true`
 - HTTP/2 disabled; `TLSNextProto` empty
 - `Proxy: nil` (never honor `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`)
-- `DialContext` from `internal/proxy/upstream` (the only Dial site; pins the resolved IP)
+- `DialContext` from `internal/proxy/dial.go` (`dialTCP` / `dialPinned`; the only Dial site; pins the resolved IP)
 - Timeouts from admission spec
 - `MaxIdleConnsPerHost=8` for **cleartext absolute-form only**. CONNECT/TLS sessions do **not** use this pool.
 
@@ -180,6 +182,8 @@ Reject → `403 Forbidden` (or CONNECT 403 after Hijack if the 200 has not been 
 | `upstreamTimeout` | 60s |
 
 Over admission → `429` (HTTP) or CONNECT `429` (unusual; use `503` for CONNECT if the response has not started). Metric `labmitm_proxy_rejected_total{reason="admission"}`. Admission `maxInFlight` includes paused breakpoint sessions.
+
+`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `Shutdown` waits for hijacked sessions up to `--shutdown-timeout`, then force-closes them.
 
 ## Related documents
 

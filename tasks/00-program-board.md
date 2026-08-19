@@ -1,7 +1,7 @@
 # Program Board
 
-Status: in-progress (CFG-001 next)
-Last reviewed: 2026-08-18 (FND-001)
+Status: in-progress (TLS-001 next)
+Last reviewed: 2026-08-18 (PROXY-001)
 
 Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs/` is the source of truth.
 
@@ -10,8 +10,8 @@ Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs
 | Order | Task | ID | Depends on | Primary output | Status |
 |---:|---|---|---|---|---|
 | 1 | Repository foundation | FND-001 | None | Go module, CI, Makefile, design pack, stub CLI | done |
-| 2 | Domain model and fail-closed YAML | CFG-001 | FND-001 | `labmitm.dev/v1alpha1`, reserved-key reject, revisions | not-started |
-| 3 | HTTP/1.1 forward proxy (no TLS intercept) | PROXY-001 | CFG-001 | Absolute-form + CONNECT Hijack, resolve-then-guard | not-started |
+| 2 | Domain model and fail-closed YAML | CFG-001 | FND-001 | `labmitm.dev/v1alpha1`, reserved-key reject, revisions | done |
+| 3 | HTTP/1.1 forward proxy (no TLS intercept) | PROXY-001 | CFG-001 | Absolute-form + CONNECT Hijack, resolve-then-guard | done |
 | 4 | Lab CA and TLS interception | TLS-001 | PROXY-001 | In-process CA, leaf mint, HTTPS intercept (**M1 gate**) | not-started |
 | 5 | Bounded flow store | STORE-001 | PROXY-001, TLS-001 | ULID store, stacked caps, wait, wipe, breakpoint primitives | not-started |
 | 6 | Deterministic rewrite and breakpoint | RULES-001 | STORE-001 | First-match rules; no compiler in this PR | not-started |

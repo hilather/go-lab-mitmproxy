@@ -1,0 +1,6 @@
+# Resolve-then-guard: name → 169.254.169.254/32 is target_denied.
+# Played with a stub Resolver (metadata.google.internal). Do not Dial.
+C: GET http://metadata.google.internal/ HTTP/1.1
+C: Host: metadata.google.internal
+C:
+S: HTTP/1.1 403 *

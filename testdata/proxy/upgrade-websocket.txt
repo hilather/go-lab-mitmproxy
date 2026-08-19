@@ -1,0 +1,9 @@
+# WebSocket: keep Upgrade + Connection: Upgrade, 101, then raw copy.
+C: GET http://{{HOST}}/ws HTTP/1.1
+C: Host: {{HOST}}
+C: Upgrade: websocket
+C: Connection: Upgrade
+C: Sec-WebSocket-Version: 13
+C: Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+C:
+S: HTTP/1.1 101 *

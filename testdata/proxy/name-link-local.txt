@@ -1,0 +1,5 @@
+# Resolve-then-guard: name → fe80::/10 is target_denied. Do not Dial.
+C: GET http://linklocal.test/ HTTP/1.1
+C: Host: linklocal.test
+C:
+S: HTTP/1.1 403 *

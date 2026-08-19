@@ -1,0 +1,5 @@
+# Origin-form without reverse-proxy is 400.
+C: GET /login HTTP/1.1
+C: Host: app.lab
+C:
+S: HTTP/1.1 400 *

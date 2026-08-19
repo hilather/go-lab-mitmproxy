@@ -1,0 +1,37 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+  labels:
+    env: lab
+    addon-version: test
+spec:
+  tls:
+    intercept: false
+    upstream:
+      insecureSkipVerify: true
+  rules:
+    enabled: true
+    items:
+      - id: drop-login
+        enabled: true
+        phase: request
+        match:
+          pathPrefix: /login
+          method: POST
+        action:
+          type: drop
+          status: 403
+          headers:
+            set:
+              X-Attack: blocked
+              Addon-Version: "1"
+            remove:
+              - Attack
+  management:
+    auth:
+      mode: bearer
+      tokens:
+        - id: admin
+          secretFile: testdata/config/valid/admin.token
+          role: administrator
