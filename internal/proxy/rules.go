@@ -31,6 +31,8 @@ type ruleSession struct {
 	reqCap       *cappedWriter
 	skipInsert   bool
 	respTrailers []model.Header
+	via          string
+	socks        *model.SOCKSInfo
 }
 
 // beginSession loads the atomic snapshot (or falls back to Options.Spec).

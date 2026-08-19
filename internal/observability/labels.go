@@ -97,10 +97,20 @@ func ProxySessionResult(result string) string {
 // ProxyRejectReason collapses a reject cause to a bounded label.
 func ProxyRejectReason(reason string) string {
 	switch strings.ToLower(strings.TrimSpace(reason)) {
-	case "admission", "http2", "socks", "target_denied", "absolute_https":
+	case "admission", "http2", "socks", "socks_auth", "socks_command", "target_denied", "absolute_https":
 		return strings.ToLower(strings.TrimSpace(reason))
 	default:
 		return "admission"
+	}
+}
+
+// SocksSessionResult collapses a SOCKS handshake outcome to a bounded label.
+func SocksSessionResult(result string) string {
+	switch strings.ToLower(strings.TrimSpace(result)) {
+	case "ok", "denied", "auth", "command":
+		return strings.ToLower(strings.TrimSpace(result))
+	default:
+		return "denied"
 	}
 }
 

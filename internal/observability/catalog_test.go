@@ -37,7 +37,7 @@ func TestCatalogLabelPolicy(t *testing.T) {
 		}
 	}
 	required := []string{
-		MetricProxySessionsTotal, MetricProxyRejectedTotal, MetricFlowsTotal,
+		MetricProxySessionsTotal, MetricProxyRejectedTotal, MetricSocksSessionsTotal, MetricFlowsTotal,
 		MetricTLSInterceptsTotal, MetricRuleHitsTotal, MetricStoreFlows,
 		MetricStoreBytes, MetricStoreEvictions, MetricStoreFullTotal,
 		MetricStoreWaiters, MetricHTTPRequestsTotal, MetricHTTPRequestDuration,

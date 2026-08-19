@@ -2,7 +2,9 @@
 //
 // It accepts absolute-form http:// requests and CONNECT tunnels. Accept
 // never peeks (D42): a per-conn goroutine peeks one byte under
-// HeaderTimeout and closes SOCKS (0x04/0x05) when accept flags are off.
+// HeaderTimeout and, when acceptSOCKS5/acceptSOCKS4 are off, closes
+// SOCKS (0x04/0x05). Flags on: SOCKS5/4 CONNECT (NO AUTH) is served
+// on the same listener (peek replay; no HTTP 200).
 // HTTP/2 preface is a hard close in the Handler. TLS intercept
 // (tls.intercept:true on listed ports) mints a lab
 // leaf and runs an inner HTTP/1.1 session; handshake failure closes both

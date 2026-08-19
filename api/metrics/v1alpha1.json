@@ -124,6 +124,14 @@
       ]
     },
     {
+      "name": "labmitm_socks_sessions_total",
+      "kind": "counter",
+      "help": "SOCKS CONNECT handshake outcomes.",
+      "labels": [
+        "result"
+      ]
+    },
+    {
       "name": "labmitm_store_bytes",
       "kind": "gauge",
       "help": "Resident inbox bytes.",

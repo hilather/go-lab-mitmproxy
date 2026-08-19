@@ -106,8 +106,12 @@ func TestBoundedResultHelpers(t *testing.T) {
 	if ProxySessionResult("OK") != "ok" || ProxySessionResult("nope") != "rejected" {
 		t.Fatal("session result")
 	}
-	if ProxyRejectReason("socks") != "socks" || ProxyRejectReason("x") != "admission" {
+	if ProxyRejectReason("socks") != "socks" || ProxyRejectReason("socks_auth") != "socks_auth" ||
+		ProxyRejectReason("socks_command") != "socks_command" || ProxyRejectReason("x") != "admission" {
 		t.Fatal("reject reason")
+	}
+	if SocksSessionResult("OK") != "ok" || SocksSessionResult("nope") != "denied" {
+		t.Fatal("socks result")
 	}
 	if TLSInterceptResult("upstream_tls") != "upstream_tls" || TLSInterceptResult("x") != "tls_handshake" {
 		t.Fatal("tls result")

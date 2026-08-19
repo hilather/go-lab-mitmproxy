@@ -1,0 +1,10 @@
+# SOCKS5 NO AUTH CONNECT IPv4, then origin-form GET on the tunnel.
+# {{IPV4}} is 4 hex bytes, {{PORT}} is 2-byte big-endian dest port, {{HOST}} is HTTP Host.
+C-HEX: 05 01 00
+S-HEX: 05 00
+C-HEX: 05 01 00 01 {{IPV4}} {{PORT}}
+S-HEX: 05 00 00 01 00 00 00 00 00 00
+C: GET /hello HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 200 *
