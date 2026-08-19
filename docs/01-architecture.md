@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-19 (1.1 inspector + h2 + SOCKS + orig-dest)
+Last reviewed: 2026-08-19 (1.1 docs overlay)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011
 
 ## Problem statement
@@ -84,9 +84,9 @@ Family container-internal binds that must not collide:
 - QUIC / HTTP/3, gRPC-over-h2 inspect, DTLS.
 - Being a general attack framework or “burp-like” scanner.
 
-## 1.1 opt-in (types; flags default off)
+## 1.1 opt-in (flags default off)
 
-Additive `labmitm.dev/v1alpha1` fields exist so later workstreams can enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off.** The proxy accept mux peeks in a per-conn goroutine (D42) and SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. When those flags are on, SOCKS5/4 CONNECT (NO AUTH) is multiplexed on `listeners.proxy` and calls `serveInterceptConn` without an HTTP 200. HTTP CONNECT still writes 200 then intercepts. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); when enabled and the leaf ALPN is `h2`, inner streams are captured via `roundTripInnerH2`. Orig-dest stays unread. Inner h2 transcodes onto one HTTP/1.1 origin TCP (D44).
+Additive `labmitm.dev/v1alpha1` fields enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off.** 1.0 defaults remain the process defaults until the operator sets the flags and **Reset**s (D51). CONNECT calls the extracted `serveInterceptConn` helper. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); when enabled and the leaf ALPN is `h2`, inner streams are captured via `roundTripInnerH2` and transcoded onto one HTTP/1.1 origin TCP (D44). The proxy accept mux peeks in a per-conn goroutine (D42) and SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. When those flags are on, SOCKS5/4 CONNECT (NO AUTH) is multiplexed on `listeners.proxy` and calls `serveInterceptConn` without an HTTP 200. HTTP CONNECT still writes 200 then intercepts. Orig-dest is a separate Linux REDIRECT listener (D50). Compat flow REST is an after-auth adapter under a configurable prefix (default `/compat`).
 
 - [ADR 0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md): additive schema; reserved keys stay; flags are bootstrap + **Reset only** (D51).
 - [ADR 0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md): supersedes ADR 0002 **D8 scope only**. **D7 stands.**
@@ -324,27 +324,31 @@ TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`,
 9. CONNECT is Hijacked and never returned to `http.Server`.
 10. Intercept handshake failure does not fall back to a blind tunnel.
 
-## Residual limitations (1.0)
+## Residual limitations
 
-See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md).
+See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). 1.0 defaults remain the process defaults.
 
-- HTTP/1.1 only. Clients that require HTTP/2 to the origin will fail ALPN.
-- No SOCKS, TPROXY, reverse-proxy.
+- HTTP/3 / QUIC still out. HTTP/2 is inner+origin only (`protocols.http2`, default off). Client-facing `:8888` / orig-dest cleartext stay HTTP/1.1; `PRI` is a hard close.
+- No Python VM, mitmweb, dumpfile, CLI-flag clone, or wrapping Python mitmproxy.
+- No TPROXY in the appliance (`tproxy` reserved). No reverse-proxy.
+- Orig-dest is Linux-only REDIRECT + `SO_ORIGINAL_DST`, default off. Supported topologies are shared-netns + sidecar iptables or host-network REDIRECT (D50). Publishing `8890` is not transparent.
+- Compat flow REST is a mitmproxy-inspired **subset** (default off, Reset-only). Not mitmproxy 11 compatible.
+- SOCKS5/4 CONNECT is opt-in, NO AUTH, CONNECT only. BIND/UDP/GSSAPI/password are out.
+- 1.1 flags (`acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `protocols.http2`, `compat.flowREST`) are bootstrap + **Reset only** (D51).
 - No WebSocket frame inspect (101 + bidirectional copy only).
-- No mitmproxy addon / mitmweb compatibility.
 - Generate-mode CA rotates on every restart/reset.
 - Store-full still forwards (capture dropped).
 - Single replica; no shared flow store.
 - MCP clients requiring OAuth PRM cannot authorize. MCPJungle needs `allowLegacyClients: true`.
 - Proxy data plane unauthenticated; publishing `:8888` on a LAN is an operator choice.
-- No Proxy-Authorization.
+- No Proxy-Authorization. No HTTP Basic on management.
 - HTML preview of captured pages is escaped text.
 - Intercept **breaks origin mTLS and certificate pinning**.
 - Default metadata CIDRs are AWS/GCP IPv4 + AWS IPv6 IMDS. Alibaba `100.100.100.200/32` and RFC1918 are **not** default-deny.
 - Not a general attack tool.
 - Worst-case RSS ≈ 256 + 64 + 4 + 64 = **388 MiB**.
 - Default soak in CI is 8 flows; local lab target is 100 flows/s for 30s. Absolute QPS is not a CI gate.
-- Overlay examples live in this repo; mcp-integration-lab compose-in is a follow-on (D18).
+- Overlay examples live in this repo; mcp-integration-lab compose-in is a follow-on (D18). Do not claim the lab already runs LabMITM.
 
 ## Related documents
 

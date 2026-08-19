@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-19 (h2_trailer_dropped + SOCKS5 + origdest)
+Last reviewed: 2026-08-19 (1.1 docs overlay)
 Related ADRs: 0001
 
 ## Logs (`log/slog` JSON)
@@ -59,7 +59,11 @@ Ready does **not** require MCP clients, a non-empty store, or successful upstrea
 
 Ready becomes unready as soon as proxy `Shutdown` begins.
 
+1.0 default is `OrigDestOff: true` (orig-dest disabled). Warning `origdest_unbound` (and `listener_unbound`) fires only when original-destination is **required** and unbound. Flag-off processes stay ready.
+
 Healthcheck CLI: `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/ready`.
+
+There is no `labmitm_h2_streams_total` or `labmitm_origdest_sessions_total` in the 1.1 catalog. SOCKS outcomes are `labmitm_socks_sessions_total`. Orig-dest recover/deny closes increment `labmitm_proxy_rejected_total{reason="origdest"}`. Inner HTTP/2 preface while the flag is off stays `labmitm_tls_intercepts_total{result="http2_inner"}`.
 
 ## Alerting (operator, not shipped as SaaS)
 
@@ -67,3 +71,4 @@ Healthcheck CLI: `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/read
 - `store_full` rate > 0 in a lab that expected capture
 - `tls.upstream_insecure` after a profile that claimed verify-on
 - `auth_failures` spike
+- `origdest_unbound` when `originalDestination.enabled` is true and the listener did not bind
