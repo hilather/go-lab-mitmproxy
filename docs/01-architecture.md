@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-18 (DEP-001)
+Last reviewed: 2026-08-19 (DEP-001 + UI-001)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007
 
 ## Problem statement
@@ -102,7 +102,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D10** | **Default proxy bind is `127.0.0.1:8888`. Default management bind is `127.0.0.1:8088`.** Explicit LabMail deviation (LabMail defaults are all-interfaces). | An intercepting proxy is an open-proxy loaded gun. |
 | **D11** | **Store is memory-first with stacked caps.** Default `fullPolicy: reject`. Store-full **still forwards**. | Prevents OOM. Capture is best-effort. |
 | **D12** | **No chaos engine in 1.0.** `spec.rules` is deterministic, default-off, first-match-wins. | A capture appliance’s job is explainable behavior. |
-| **D13** | **Embedded flow-inspector UI ships in 1.0.** React + TypeScript + Vite, Node **22.14.0**. | Family replacement contract. GA is not done without PR 13. |
+| **D13** | **Embedded flow-inspector UI ships in 1.0.** React + TypeScript + Vite, Node **22.14.0**. Frozen table: [Embedded operator UI](#embedded-operator-ui). | Family replacement contract. GA is not done without PR 13. |
 | **D14** | **Go 1.26, official MCP SDK `v1.7.0`, protocol `2026-07-28`, Apache-2.0.** `KnownFields(true)`. CI pin `GO_VERSION=1.26.6`. | Family pins. |
 | **D15** | **`allowLegacyClients` default false; lab overlay sets true.** `subscriptions/listen` stays 2026-07-28. | So MCPJungle can register without a LabMITM patch. |
 | **D16** | **Data-plane Dial is required, isolated, and resolve-then-guard.** Dial only in `internal/proxy`. | Hostname-only guards miss CNAME→IMDS. |
@@ -168,6 +168,22 @@ UI (static) -----> REST only                    -> store / snapshot / audit / ru
 ```
 
 **Invariant:** `internal/proxy` and `internal/tlsmitm` must not import `internal/control` (including `internal/control/mcp` and `internal/control/rest`) or `internal/web`. Management failure must not stop the proxy. The proxy must not block on MCP clients.
+
+## Embedded operator UI
+
+Required for GA / 1.0 (D13, PR 13). The UI talks REST only. XSS/CSP: [docs/08-rest-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/08-rest-api.md) and [docs/10-security-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/10-security-architecture.md).
+
+| Item | Choice |
+|---|---|
+| Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
+| Embed | `internal/web` `go:embed` of `web/dist` (copy step; `web/` has its own `go.mod` so parent `go test ./...` does not walk `node_modules`) |
+| Auth | Login page: paste bearer. `POST /v1/session`. Cookie `labmitm_session` + `X-LabMITM-CSRF`. Cookie is REST-only. No Basic form. |
+| Pages | Flow list, flow detail (headers / textual or hex body / TLS / download), CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status, audit (if scoped), gated reset |
+| Live update | `EventSource` `GET /v1/events/stream` (SSE). Fallback: 3s poll of `GET /v1/flows`. |
+| Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
+| Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle, Relay |
+
+`spec.ui.enabled: false` serves 404 for `/` but keeps REST/MCP.
 
 ## Package layout
 

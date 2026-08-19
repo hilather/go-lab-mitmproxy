@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-08-18 (DEP-001)
+Last reviewed: 2026-08-19 (DEP-001 + UI-001)
 Related ADRs: 0001, 0003
 
 DEP-001 shipped the hardened image, `examples/compose.smoke.yaml`, and `scripts/test-container.sh`. Ports and image posture stay frozen here. This document freezes the contract so later PRs do not invent ports or image posture.
@@ -42,7 +42,7 @@ PROXY-001 implements `serve` (proxy bind; `--management-listen` defaults to `off
 
 ## Hardened container
 
-Dockerfile is LabMail-shaped (Go 1.26.6-alpine → scratch). **No Node stage in PR 12** — `internal/web` embeds committed `dist/` or LabMail-style `stub/` from PR 8. PR 13’s `make web-build` copies `web/dist` into `internal/web/dist` (host/CI), not a Docker Node stage. SEC-001’s image fixture is `testdata/container/` (`mode: bearer` plus a ≥256-bit token file; not `dev-loopback-unauth`).
+Dockerfile is LabMail-shaped (Go 1.26.6-alpine → scratch). **No Node stage in PR 12** — UI-001 added `make web-build` (Node **22.14.0**) which copies `web/dist` into `internal/web/dist` for `go:embed` on the host/CI, not a Docker Node stage. UI contract (pages, EventSource + 3s poll, no fuzzer/exploit/repeater): [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#embedded-operator-ui). `spec.ui.enabled: false` 404s `/` and keeps REST/MCP. SEC-001’s image fixture is `testdata/container/` (`mode: bearer` plus a ≥256-bit token file; not `dev-loopback-unauth`).
 
 ```
 # build stage copies /etc/ssl/certs/ca-certificates.crt (required)

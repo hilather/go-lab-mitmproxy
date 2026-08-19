@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-08-19 (SEC-001 + OBS-001)
+Last reviewed: 2026-08-19 (DEP-001 + UI-001)
 Related ADRs: 0002, 0003, 0005, 0007
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).

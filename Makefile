@@ -10,7 +10,7 @@ GOLANGCI_LINT_MOD ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GO
 
 .PHONY: help fmt format lint vet build generate verify-generated test test-race \
 	test-fuzz-smoke test-parity test-config-compat test-docs test-container \
-	security-scan test-changelog web-test web-build
+	security-scan test-changelog web-install web-test web-build web-embed
 
 help:
 	@printf '%s\n' \
@@ -29,8 +29,10 @@ help:
 		'  security-scan       govulncheck' \
 		'  test-parity         REST/MCP capability parity and MCP goldens' \
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
-		'  web-test            unimplemented until UI-001 (PR 13); fail-closed' \
-		'  web-build           unimplemented until UI-001 (PR 13); fail-closed' \
+		'  web-install         npm ci in web/ (Node 22.14.0)' \
+		'  web-test            Vitest flow-inspector SPA tests' \
+		'  web-build           production Vite build + copy into internal/web/dist' \
+		'  web-embed           copy web/dist into internal/web/dist' \
 		'  test-container      build ghcr.io/hilather/labmitm and check non-root/read-only/no-caps' \
 		'  test-changelog      unimplemented until GA-001 (PR 14); fail-closed'
 
@@ -76,11 +78,21 @@ test-parity:
 test-config-compat:
 	$(GO) test ./internal/config -run TestConfigCompat -count=1
 
+web-install:
+	npm --prefix web ci
+
 web-test:
-	@echo 'web-test: unimplemented until UI-001 (PR 13)' >&2; exit 1
+	npm --prefix web test
 
 web-build:
-	@echo 'web-build: unimplemented until UI-001 (PR 13)' >&2; exit 1
+	npm --prefix web run build
+	$(MAKE) web-embed
+
+web-embed:
+	@mkdir -p internal/web/dist
+	@rm -rf internal/web/dist/assets
+	@if [ -d web/dist ]; then cp -a web/dist/. internal/web/dist/; fi
+	@echo "copied web/dist -> internal/web/dist"
 
 test-container:
 	bash scripts/test-container.sh
