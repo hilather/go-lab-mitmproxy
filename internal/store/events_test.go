@@ -16,7 +16,7 @@ func TestSubscribeInsertDeleteWipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := <-ch
-	if got.Kind != EventInserted || got.ID != res.ID || got.Gen == 0 {
+	if got.Kind != EventInserted || got.ID != res.ID || got.Gen == 0 || got.Host != "h" {
 		t.Fatalf("insert event %+v", got)
 	}
 	if err := s.Delete(res.ID); err != nil {

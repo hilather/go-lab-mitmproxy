@@ -16,6 +16,7 @@ const (
 type Event struct {
 	Kind string
 	ID   string
+	Host string
 	Gen  uint64
 }
 

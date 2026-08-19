@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"testing"
@@ -94,6 +95,73 @@ func TestReplayHairpinRejected(t *testing.T) {
 	de, ok := domainerr.As(err)
 	if !ok || de.Code != domainerr.CodeTargetDenied {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestReplayHairpinWildcardSpec(t *testing.T) {
+	for _, listen := range []string{":8888", "0.0.0.0:8888", "[::]:8888"} {
+		spec := loadSpec(t)
+		spec.Listeners.Proxy.Address = listen
+		px := startProxy(t, Options{Address: "127.0.0.1:0", Spec: spec})
+		_, err := px.Replay(context.Background(), &model.Flow{
+			Method:   http.MethodGet,
+			URL:      "http://127.0.0.1:8888/",
+			Host:     "127.0.0.1:8888",
+			Scheme:   "http",
+			Protocol: model.FlowProtocolHTTP11,
+		})
+		if err == nil {
+			t.Fatalf("wildcard spec %q must hairpin 127.0.0.1:8888", listen)
+		}
+		de, ok := domainerr.As(err)
+		if !ok || de.Code != domainerr.CodeTargetDenied {
+			t.Fatalf("spec %q err=%v", listen, err)
+		}
+	}
+}
+
+func TestReplayHairpinWildcardBind(t *testing.T) {
+	px := startProxy(t, Options{Address: "0.0.0.0:0"})
+	_, port, err := net.SplitHostPort(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := net.JoinHostPort("127.0.0.1", port)
+	_, err = px.Replay(context.Background(), &model.Flow{
+		Method:   http.MethodGet,
+		URL:      "http://" + host + "/",
+		Host:     host,
+		Scheme:   "http",
+		Protocol: model.FlowProtocolHTTP11,
+	})
+	if err == nil {
+		t.Fatal("0.0.0.0 bind must hairpin 127.0.0.1 on the same port")
+	}
+	de, ok := domainerr.As(err)
+	if !ok || de.Code != domainerr.CodeTargetDenied {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestSameEndpointWildcard(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{":8888", "127.0.0.1:8888", true},
+		{"0.0.0.0:8888", "127.0.0.1:8888", true},
+		{"[::]:8888", "127.0.0.1:8888", true},
+		{":8888", "[::1]:8888", true},
+		{"127.0.0.1:8888", "127.0.0.1:8888", true},
+		{"127.0.0.1:8888", "127.0.0.1:9999", false},
+		{":8888", "8.8.8.8:8888", false},
+		{"0.0.0.0:8888", "8.8.8.8:8888", false},
+	}
+	for _, tc := range cases {
+		if got := sameEndpoint(tc.a, tc.b); got != tc.want {
+			t.Errorf("sameEndpoint(%q,%q)=%v want %v", tc.a, tc.b, got, tc.want)
+		}
 	}
 }
 

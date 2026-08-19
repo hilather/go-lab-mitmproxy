@@ -49,7 +49,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, instance s
 				continue
 			}
 			payload, err := json.Marshal(sseEventJSON{
-				ID: ev.ID, StoreGeneration: ev.Generation,
+				ID: ev.ID, Host: ev.Host, StoreGeneration: ev.Generation,
 			})
 			if err != nil {
 				continue

@@ -231,7 +231,7 @@ func (s *App) Subscribe(ctx context.Context, actor Actor, buffer int) (<-chan Fl
 				if !ok {
 					return
 				}
-				next := FlowEvent{Type: mapFlowEvent(ev.Kind), ID: ev.ID, Generation: ev.Gen}
+				next := FlowEvent{Type: mapFlowEvent(ev.Kind), ID: ev.ID, Host: ev.Host, Generation: ev.Gen}
 				select {
 				case out <- next:
 				case <-done:

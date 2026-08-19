@@ -130,6 +130,7 @@ const (
 type FlowEvent struct {
 	Type       string
 	ID         string
+	Host       string
 	Generation uint64
 }
 

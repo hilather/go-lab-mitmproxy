@@ -38,7 +38,7 @@ func (m *Memory) Pause(id string) error {
 	rec.pauseResult = pauseResult{}
 	m.generation++
 	m.cond.Broadcast()
-	m.emitLocked(Event{Kind: EventPaused, ID: id, Gen: m.generation})
+	m.emitLocked(Event{Kind: EventPaused, ID: id, Host: rec.flow.Host, Gen: m.generation})
 	return nil
 }
 
@@ -74,7 +74,7 @@ func (m *Memory) Resume(id string, patch *ResumePatch) error {
 	m.generation++
 	m.finishPausedLocked(id, pauseResult{patch: applied})
 	m.cond.Broadcast()
-	m.emitLocked(Event{Kind: EventResumed, ID: id, Gen: m.generation})
+	m.emitLocked(Event{Kind: EventResumed, ID: id, Host: rec.flow.Host, Gen: m.generation})
 	return nil
 }
 
@@ -96,7 +96,7 @@ func (m *Memory) Drop(id string) error {
 	m.generation++
 	m.finishPausedLocked(id, pauseResult{err: ErrDropped})
 	m.cond.Broadcast()
-	m.emitLocked(Event{Kind: EventDropped, ID: id, Gen: m.generation})
+	m.emitLocked(Event{Kind: EventDropped, ID: id, Host: rec.flow.Host, Gen: m.generation})
 	return nil
 }
 

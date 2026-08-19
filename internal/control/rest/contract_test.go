@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/auth"
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
@@ -142,6 +143,36 @@ func TestNilAuthIsDenyAll(t *testing.T) {
 	}
 	got := doReqAuth(t, s.Handler(), http.MethodGet, "/v1/flows", "", testToken)
 	requireProblem(t, got, http.StatusUnauthorized, "unauthenticated")
+}
+
+func TestViewerForbiddenOnWriteAndAdmin(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{
+		Service:    svc,
+		RatePerSec: -1,
+		Auth:       auth.Static(testToken, "viewer", model.RoleViewer),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	id := insertFlow(t, svc, "app.lab")
+
+	replay := doReq(t, h, http.MethodPost, "/v1/flows/"+id+":replay", "")
+	requireProblem(t, replay, http.StatusForbidden, "forbidden")
+
+	reset := doReq(t, h, http.MethodPost, "/v1/state:reset", `{"reason":"no"}`)
+	requireProblem(t, reset, http.StatusForbidden, "forbidden")
+
+	ca := doReq(t, h, http.MethodGet, "/v1/ca", "")
+	requireStatus(t, ca, http.StatusOK)
+	if strings.Contains(ca.Body.String(), "PRIVATE KEY") {
+		t.Fatal("GET /v1/ca leaked a private key")
+	}
+
+	basic := httptestReq(http.MethodGet, "/v1/ca", "")
+	basic.Header.Set("Authorization", "Basic YWRtaW46eA==")
+	requireProblem(t, doRaw(h, basic), http.StatusUnauthorized, "unauthenticated")
 }
 
 func TestContractMutations(t *testing.T) {

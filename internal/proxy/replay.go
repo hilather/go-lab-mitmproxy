@@ -148,16 +148,27 @@ func (s *Server) isHairpin(res resolved, spec model.Spec) bool {
 }
 
 func sameEndpoint(a, b string) bool {
-	ah, ap, err := net.SplitHostPort(strings.TrimSpace(a))
+	ah, ap, err := splitListenHostPort(a)
 	if err != nil {
 		return false
 	}
-	bh, bp, err := net.SplitHostPort(strings.TrimSpace(b))
+	bh, bp, err := splitListenHostPort(b)
 	if err != nil {
 		return false
 	}
 	if ap != bp {
 		return false
+	}
+	if unspecifiedHost(ah) && unspecifiedHost(bh) {
+		return true
+	}
+	// Wildcard / unspecified bind (:8888, 0.0.0.0, ::) hairpins every
+	// local unicast on that port (lab overlay publishes :8888).
+	if unspecifiedHost(ah) {
+		return isLocalIP(bh)
+	}
+	if unspecifiedHost(bh) {
+		return isLocalIP(ah)
 	}
 	ai := net.ParseIP(ah)
 	bi := net.ParseIP(bh)
@@ -165,6 +176,48 @@ func sameEndpoint(a, b string) bool {
 		return ai.Equal(bi)
 	}
 	return strings.EqualFold(ah, bh)
+}
+
+// splitListenHostPort accepts "host:port", ":port", and "[::]:port".
+func splitListenHostPort(addr string) (host, port string, err error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return "", "", errors.New("empty listen address")
+	}
+	return net.SplitHostPort(addr)
+}
+
+func unspecifiedHost(host string) bool {
+	h := strings.TrimSpace(host)
+	if h == "" || h == "*" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsUnspecified()
+}
+
+func isLocalIP(host string) bool {
+	ip := net.ParseIP(strings.TrimSpace(host))
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok || n.IP == nil {
+			continue
+		}
+		if n.IP.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func replayRequest(ctx context.Context, stored *model.Flow, res resolved, host, port, scheme string) (*http.Request, error) {

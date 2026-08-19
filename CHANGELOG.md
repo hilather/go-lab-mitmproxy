@@ -22,6 +22,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 ### Fixed
 
 - Intercepted CONNECT treats inner `Upgrade: websocket` + `101` as a bidirectional copy (same 1.0 contract as cleartext). Inner `RoundTrip` failure writes `502` and closes both TLS sides instead of leaving the client waiting.
+- Replay hairpin reject covers unspecified proxy binds (`:8888`, `0.0.0.0`, `::`) so a lab-overlay replay cannot Dial the unauthenticated data plane on the listen port.
 
 ### Removed or deprecated
 
