@@ -139,6 +139,12 @@ func (s *Server) isHairpin(res resolved, spec model.Spec) bool {
 	if spec.Listeners.Proxy.Address != "" {
 		candidates = append(candidates, spec.Listeners.Proxy.Address)
 	}
+	if addr := s.OrigDestAddr(); addr != nil {
+		candidates = append(candidates, addr.String())
+	}
+	if spec.Listeners.OriginalDestination.Address != "" {
+		candidates = append(candidates, spec.Listeners.OriginalDestination.Address)
+	}
 	for _, c := range candidates {
 		if sameEndpoint(c, target) {
 			return true

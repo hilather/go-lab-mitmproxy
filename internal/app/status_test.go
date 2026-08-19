@@ -31,7 +31,7 @@ func TestStatusReadyUsesHealthFacts(t *testing.T) {
 func TestStatusReadyRequiresCAWhenIntercept(t *testing.T) {
 	svc, _ := mustBoot(t)
 	svc.SetHealth(func() observability.Facts {
-		return observability.Facts{ProxyBound: true, StoreUp: true, MgmtBound: true, CAReady: false}
+		return observability.Facts{ProxyBound: true, StoreUp: true, MgmtBound: true, CAReady: false, OrigDestOff: true}
 	})
 	// HealthFacts overwrites CAReady from the live snapshot (intercept off → true).
 	st, err := svc.Status(context.Background(), actor())

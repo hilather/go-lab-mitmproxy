@@ -13,6 +13,9 @@
 // parse and after upstream headers; capture-only tees, mutating actions
 // buffer to maxBodyBytes (D21).
 //
+// Optional Linux original-destination (REDIRECT + SO_ORIGINAL_DST) binds a
+// second listener and Dials dest IP:port only (D57).
+//
 // When Options.Snapshots is set, each request / CONNECT loads the atomic
 // snapshot once and pins spec, rules engine, and CA for the session.
 package proxy

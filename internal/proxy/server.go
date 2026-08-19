@@ -36,6 +36,10 @@ type Options struct {
 	Resolver Resolver
 	// DialContext, when set, replaces dialTCP (tests record outbound).
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	// OrigDestAddress overrides spec.listeners.originalDestination.address.
+	OrigDestAddress string
+	// OriginalDst, when set, replaces SO_ORIGINAL_DST (tests: mocked dest).
+	OriginalDst func(net.Conn) (net.IP, int, error)
 	// Authority is the lab CA. When nil and spec.tls.intercept is true
 	// and Snapshots is nil, New generates or loads one from spec.tls.ca
 	// (test fallback). Production compiles the CA in internal/compiler.
@@ -65,9 +69,12 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	rawLn  net.Listener
-	httpLn *chanListener
-	http   *http.Server
+	rawLn        net.Listener
+	origLn       net.Listener
+	httpLn       *chanListener
+	http         *http.Server
+	origDestBind string
+	origDestFn   func(net.Conn) (net.IP, int, error)
 
 	mu          sync.Mutex
 	hijacked    map[net.Conn]struct{}
@@ -96,18 +103,20 @@ func New(opts Options) (*Server, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
-		addr:        opts.Address,
-		sink:        sink,
-		inbox:       opts.Store,
-		resolver:    res,
-		dialFn:      opts.DialContext,
-		snaps:       opts.Snapshots,
-		gate:        newGate(),
-		metrics:     newMetrics(),
-		ctx:         ctx,
-		cancel:      cancel,
-		hijacked:    make(map[net.Conn]struct{}),
-		dispatching: make(map[net.Conn]struct{}),
+		addr:         opts.Address,
+		sink:         sink,
+		inbox:        opts.Store,
+		resolver:     res,
+		dialFn:       opts.DialContext,
+		origDestBind: opts.OrigDestAddress,
+		origDestFn:   opts.OriginalDst,
+		snaps:        opts.Snapshots,
+		gate:         newGate(),
+		metrics:      newMetrics(),
+		ctx:          ctx,
+		cancel:       cancel,
+		hijacked:     make(map[net.Conn]struct{}),
+		dispatching:  make(map[net.Conn]struct{}),
 	}
 	s.metrics.attach(opts.Metrics, opts.Logger)
 	if s.inbox == nil {
@@ -271,21 +280,47 @@ func (s *Server) dialPinnedTO(ctx context.Context, network, addr string, dialTO 
 // Start binds the listener and serves in the background.
 func (s *Server) Start() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.started {
+		s.mu.Unlock()
 		return errors.New("proxy: already started")
 	}
 	if s.stopped {
+		s.mu.Unlock()
 		return errors.New("proxy: start after shutdown")
 	}
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("proxy: listen: %w", err)
 	}
 	s.rawLn = ln
+	spec := s.specNow()
+	if spec.Listeners.OriginalDestination.Enabled {
+		if !origDestSupported {
+			_ = ln.Close()
+			s.rawLn = nil
+			s.mu.Unlock()
+			return fmt.Errorf("proxy: originalDestination requires linux (REDIRECT + SO_ORIGINAL_DST)")
+		}
+		odAddr := s.origDestBind
+		if odAddr == "" {
+			odAddr = spec.Listeners.OriginalDestination.Address
+		}
+		if odAddr == "" {
+			odAddr = "127.0.0.1:8890"
+		}
+		origLn, err := net.Listen("tcp", odAddr)
+		if err != nil {
+			_ = ln.Close()
+			s.rawLn = nil
+			s.mu.Unlock()
+			return fmt.Errorf("proxy: originalDestination listen: %w", err)
+		}
+		s.origLn = origLn
+	}
 	httpLn := newChanListener(ln.Addr())
 	s.httpLn = httpLn
-	ad := s.specNow().Proxy.Admission
+	ad := spec.Proxy.Admission
 	proto := http1Only()
 	s.http = &http.Server{
 		Handler:           s,
@@ -295,19 +330,27 @@ func (s *Server) Start() error {
 		Protocols:         proto,
 		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
 		ErrorLog:          log.New(io.Discard, "", 0),
+		ConnContext:       s.connContext,
 		BaseContext: func(net.Listener) context.Context {
 			return s.ctx
 		},
 	}
 	s.started = true
 	s.accepting.Store(true)
+	orig := s.origLn
+	hs := s.http
+	s.mu.Unlock()
 	s.acceptWG.Add(1)
-	go s.acceptLoop(ln, httpLn)
-	go func() { _ = s.http.Serve(httpLn) }()
+	go s.acceptLoop(ln, kindProxy)
+	if orig != nil {
+		s.acceptWG.Add(1)
+		go s.acceptLoop(orig, kindOrigDest)
+	}
+	go func() { _ = hs.Serve(httpLn) }()
 	return nil
 }
 
-func (s *Server) acceptLoop(rawLn net.Listener, httpLn *chanListener) {
+func (s *Server) acceptLoop(rawLn net.Listener, kind connKind) {
 	defer s.acceptWG.Done()
 	if rawLn == nil {
 		s.accepting.Store(false)
@@ -347,7 +390,7 @@ func (s *Server) acceptLoop(rawLn net.Listener, httpLn *chanListener) {
 		}
 		s.dispatchWG.Add(1)
 		s.trackDispatch(c)
-		go s.dispatchConn(c, httpLn)
+		go s.dispatchConn(c, kind)
 	}
 }
 
@@ -383,9 +426,27 @@ func (s *Server) Addr() net.Addr {
 	return s.rawLn.Addr()
 }
 
+// OrigDestAddr is the bound original-destination address, or nil.
+func (s *Server) OrigDestAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.origLn == nil {
+		return nil
+	}
+	return s.origLn.Addr()
+}
+
 // Accepting reports whether the listener is still taking new conns.
 func (s *Server) Accepting() bool {
 	return s.accepting.Load()
+}
+
+// OrigDestAccepting reports whether the orig-dest listener is accepting.
+func (s *Server) OrigDestAccepting() bool {
+	s.mu.Lock()
+	orig := s.origLn
+	s.mu.Unlock()
+	return orig != nil && s.accepting.Load()
 }
 
 // Metrics returns the in-process counters.
@@ -402,11 +463,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	s.stopped = true
 	raw := s.rawLn
+	orig := s.origLn
 	httpLn := s.httpLn
 	hs := s.http
 	s.mu.Unlock()
 	var first error
 	if err := closeQuiet(raw); err != nil && first == nil {
+		first = err
+	}
+	if err := closeQuiet(orig); err != nil && first == nil {
 		first = err
 	}
 	s.acceptWG.Wait()
@@ -550,6 +615,14 @@ func (s *Server) capture(f *model.Flow, sess *ruleSession) {
 	stampSession(f, sess)
 	if s.sink == nil || f == nil {
 		return
+	}
+	if sess != nil {
+		if sess.via != "" && f.Via == "" {
+			f.Via = sess.via
+		}
+		if sess.originalDest != "" && f.OriginalDest == "" {
+			f.OriginalDest = sess.originalDest
+		}
 	}
 	s.metrics.flow(f)
 	if ss, ok := s.sink.(*storeSink); ok {

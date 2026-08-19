@@ -111,7 +111,40 @@ func startProxy(t *testing.T, opts Options) *Server {
 	if s.Addr() == nil {
 		t.Fatal("proxy did not bind")
 	}
+	if opts.Spec.Listeners.OriginalDestination.Enabled {
+		for s.OrigDestAddr() == nil && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if s.OrigDestAddr() == nil {
+			t.Fatal("orig-dest did not bind")
+		}
+	}
 	return s
+}
+
+func requireOrigDest(t *testing.T) {
+	t.Helper()
+	if !origDestSupported {
+		t.Skip("originalDestination is linux-only")
+	}
+}
+
+func startOrigDestProxy(t *testing.T, dest net.IP, destPort int, opts Options) *Server {
+	t.Helper()
+	requireOrigDest(t)
+	if opts.Spec.Listeners.Proxy.Address == "" && opts.Spec.Listeners.OriginalDestination.Address == "" {
+		opts.Spec = loadSpec(t)
+	}
+	opts.Spec.Listeners.OriginalDestination.Enabled = true
+	if opts.Spec.Listeners.OriginalDestination.Address == "" && opts.OrigDestAddress == "" {
+		opts.Spec.Listeners.OriginalDestination.Address = "127.0.0.1:0"
+	}
+	if opts.OriginalDst == nil {
+		opts.OriginalDst = func(net.Conn) (net.IP, int, error) {
+			return dest, destPort, nil
+		}
+	}
+	return startProxy(t, opts)
 }
 
 func startOrigin(t *testing.T, h http.Handler) (addr, urlstr string) {

@@ -1,0 +1,82 @@
+# Original-destination (Linux REDIRECT) overlay.
+#
+# Publishing host port 8890 is NOT transparent intercept (D50). Docker
+# published-port DNAT does not preserve the pre-DNAT destination on the
+# in-container socket; SO_ORIGINAL_DST then sees :8890 (direct-connect close
+# or hairpin). Do not `ports: ["8890:8890"]` and call it transparent mode.
+#
+# Supported topologies only:
+#   1. SUT shares netns with labmitm (`network_mode: service:labmitm`) plus a
+#      privileged sidecar that installs iptables/nft REDIRECT.
+#   2. `network_mode: host` + host iptables REDIRECT to 127.0.0.1:8890.
+#
+# labmitm stays UID 65532, cap_drop ALL. iptables is sidecar/host only.
+# The default image does not get NET_ADMIN. `make test-container` is unchanged.
+#
+# Enable in bootstrap YAML (Reset-only):
+#   spec.listeners.originalDestination.enabled: true
+#   empty address → 127.0.0.1:8890
+#
+# Do NOT redirect management/proxy/metrics/orig-dest ports (8088, 8888, 8890, 9090).
+
+services:
+  labmitm:
+    image: ghcr.io/hilather/labmitm:local
+    build:
+      context: ..
+    command: ["serve", "--config=/etc/labmitm/config.yaml", "--management-listen=:8088"]
+    # Do not publish 8890. Publishing is not transparent (D50).
+    ports:
+      - "8888:8888/tcp"
+      - "8088:8088/tcp"
+    volumes:
+      - ../testdata/config/valid/original-destination.yaml:/etc/labmitm/config.yaml:ro
+      - ../testdata/container/token:/etc/labmitm/token:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "65532:65532"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/labmitm", "healthcheck", "--url=http://127.0.0.1:8088/v1/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  netsetup:
+    image: alpine:3.21
+    network_mode: service:labmitm
+    cap_add:
+      - NET_ADMIN
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache iptables >/dev/null
+        iptables -t nat -N LABMITM_OD || true
+        iptables -t nat -F LABMITM_OD
+        iptables -t nat -A LABMITM_OD -p tcp --dport 8088 -j RETURN
+        iptables -t nat -A LABMITM_OD -p tcp --dport 8888 -j RETURN
+        iptables -t nat -A LABMITM_OD -p tcp --dport 8890 -j RETURN
+        iptables -t nat -A LABMITM_OD -p tcp --dport 9090 -j RETURN
+        iptables -t nat -A LABMITM_OD -p tcp --dport 80  -j REDIRECT --to-ports 8890
+        iptables -t nat -A LABMITM_OD -p tcp --dport 443 -j REDIRECT --to-ports 8890
+        iptables -t nat -C OUTPUT -p tcp -j LABMITM_OD 2>/dev/null || iptables -t nat -A OUTPUT -p tcp -j LABMITM_OD
+        iptables -t nat -C PREROUTING -p tcp -j LABMITM_OD 2>/dev/null || iptables -t nat -A PREROUTING -p tcp -j LABMITM_OD
+        sleep infinity
+
+  sut:
+    image: alpine:3.21
+    network_mode: service:labmitm
+    depends_on:
+      - labmitm
+      - netsetup
+    command: ["sleep", "infinity"]

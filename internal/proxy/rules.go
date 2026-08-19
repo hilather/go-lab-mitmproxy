@@ -33,6 +33,7 @@ type ruleSession struct {
 	respTrailers []model.Header
 	via          string
 	socks        *model.SOCKSInfo
+	originalDest string
 }
 
 // beginSession loads the atomic snapshot (or falls back to Options.Spec).

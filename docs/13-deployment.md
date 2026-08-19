@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-08-18 (DEP-001 + UI-001 + SWAP-001 + GA-001)
-Related ADRs: 0001, 0003
+Last reviewed: 2026-08-19 (orig-dest D30/D50)
+Related ADRs: 0001, 0003, 0010
 
 DEP-001 shipped the hardened image, `examples/compose.smoke.yaml`, and `scripts/test-container.sh`. Ports and image posture stay frozen here. A `v*` tag is refused unless [`.github/workflows/release.yml`](https://github.com/hilather/go-lab-mitmproxy/blob/main/.github/workflows/release.yml) `tag-gate` sees required CI green on that SHA. Current notes: [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md). The lab overlay YAML is [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) (SWAP-001; published binds, `allowLegacyClients: true`). Do not mount that overlay as the smoke config without a 0o644 `labmitm-token`.
 
@@ -101,7 +101,22 @@ services:
       retries: 3
 ```
 
-`make test-container` (`scripts/test-container.sh`) builds the image, asserts UID `65532`, `CapEff=0`, Apache-2.0 label, exec-form HTTP ready healthcheck, no `/bin/sh` or busybox, read-only root, **`/etc/ssl/certs/ca-certificates.crt` present and `x509.SystemCertPool` non-empty**, then `curl --proxy` a local origin with `Authorization: Bearer` against `/v1/flows`, plus an HTTPS intercept fixture. It parses `examples/compose.smoke.yaml` with `docker compose config` when the plugin is present. Docker is required; the script fails closed if the daemon is missing.
+`make test-container` (`scripts/test-container.sh`) builds the image, asserts UID `65532`, `CapEff=0`, Apache-2.0 label, exec-form HTTP ready healthcheck, no `/bin/sh` or busybox, read-only root, **`/etc/ssl/certs/ca-certificates.crt` present and `x509.SystemCertPool` non-empty**, then `curl --proxy` a local origin with `Authorization: Bearer` against `/v1/flows`, plus an HTTPS intercept fixture. It parses `examples/compose.smoke.yaml` with `docker compose config` when the plugin is present. Docker is required; the script fails closed if the daemon is missing. Container tests never require `NET_ADMIN`.
+
+## Original-destination (Linux REDIRECT)
+
+Opt-in `spec.listeners.originalDestination.enabled` binds `127.0.0.1:8890` by default (D38). **TPROXY is rejected.** The default image stays `USER 65532:65532` and `cap_drop: ALL`.
+
+**Publishing `8890` is not transparent (D50).** Docker `-p 8890:8890` / host DNAT to the published port does not preserve the pre-DNAT dest on the in-container socket.
+
+Supported topologies only:
+
+1. Shared netns: SUT uses `network_mode: service:labmitm`. A sidecar (not the appliance) has `CAP_NET_ADMIN` and installs REDIRECT. labmitm stays unprivileged.
+2. Host network: labmitm `--network host` (still UID 65532) + **host** iptables REDIRECT to `127.0.0.1:8890`.
+
+Copyable overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml). Do not redirect 8088, 8888, 8890, or 9090.
+
+Ready is `OrigDestBound || OrigDestOff` (D56). When the spec leaves orig-dest disabled, `OrigDestOff` is true so 1.0 processes stay ready.
 
 ## Compatibility promise
 

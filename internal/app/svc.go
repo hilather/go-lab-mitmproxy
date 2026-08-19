@@ -180,7 +180,7 @@ func (s *App) HealthFacts() observability.Facts {
 		f.CAReady = caReady
 		return f
 	}
-	return observability.Facts{StoreUp: storeUp, ProxyBound: storeUp, MgmtBound: storeUp, CAReady: caReady}
+	return observability.Facts{StoreUp: storeUp, ProxyBound: storeUp, MgmtBound: storeUp, CAReady: caReady, OrigDestOff: true}
 }
 
 func (s *App) requireCtx(ctx context.Context) error {

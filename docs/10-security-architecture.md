@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-08-19 (1.1 http2x codec + snapshot NextProtos)
-Related ADRs: 0002, 0003, 0005, 0007, 0009
+Last reviewed: 2026-08-19 (http2x + orig-dest D30/D50/D57)
+Related ADRs: 0002, 0003, 0005, 0007, 0009, 0010
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).
 
@@ -17,6 +17,9 @@ LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not 
 | Body exfil via `mitm.read` token leak | **High** | File-ref tokens ≥256 bits; redaction in logs/export/audit (no `Authorization` / `Cookie` / `Set-Cookie` values in slog); audit records id/host/status/size, not bodies |
 | XSS via captured HTML in the operator browser | **High** | No `innerHTML`; default text/escaped view; optional preview iframe `sandbox` without scripts/same-origin; CSP on UI assets |
 | SSRF to cloud metadata / link-local | **High** | Resolve-then-guard every A/AAAA; Dial pinned IP; no second lookup (D16). Residual: Alibaba `100.100.100.200`, RFC1918 default-allow |
+| Orig-dest spoof / Docker DNAT to `:8890` | **High** | Direct-connect (dest port + local IP); `isHairpin` on both live binds; topologies limited to shared netns + sidecar iptables or host network (D50). Publishing `8890` is not transparent |
+| SSRF via Host / CONNECT / absolute-form on orig-dest | **High** | D57: tagged `ServeHTTP` never `serveCONNECT`/`serveAbsolute`; Dial dest IP only; dest IP is CIDR-guarded; never Dial Host/SNI |
+| `CAP_NET_ADMIN` on the appliance | **High if granted** | Default image UID 65532, `cap_drop: ALL`; iptables is sidecar/host only (D30) |
 | HTTP request smuggling | **Medium** | HTTP/1.1 only; stdlib server parses client hop; we rebuild origin-form rather than blindly copying request-target; fuzz header parser |
 | Store memory DoS | **Medium** | Stacked caps + stream-vs-mutate + 64 KiB × maxInFlight slack |
 | DNS rebinding on management | **Medium** | Present non-loopback Origin default-deny |
@@ -75,4 +78,4 @@ Default 1.0 view is escaped text. Optional preview iframe (off by default): `san
 
 ## Container
 
-Non-root UID 65532, read-only root, no caps, no-new-privileges, no shell, no Docker socket, no writable volume except tmpfs `/tmp` (optional spill `/tmp/labmitm-spill`). Image does **not** contain a lab MITM CA key. Image **must** copy `/etc/ssl/certs/ca-certificates.crt` from the build stage so `x509.SystemCertPool()` is non-empty and default upstream verify works.
+Non-root UID 65532, read-only root, no caps, no-new-privileges, no shell, no Docker socket, no writable volume except tmpfs `/tmp` (optional spill `/tmp/labmitm-spill`). Image does **not** contain a lab MITM CA key. Image **must** copy `/etc/ssl/certs/ca-certificates.crt` from the build stage so `x509.SystemCertPool()` is non-empty and default upstream verify works. Transparent orig-dest does **not** add `NET_ADMIN` or change `USER`. iptables REDIRECT lives in a privileged sidecar or on the host ([examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml)).

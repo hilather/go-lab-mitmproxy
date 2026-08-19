@@ -30,7 +30,7 @@ Bounded labels only.
 | Name | Kind | Labels |
 |---|---|---|
 | `labmitm_proxy_sessions_total` | counter | `result` (`ok`, `rejected`, `timeout`) |
-| `labmitm_proxy_rejected_total` | counter | `reason` (`admission`, `http2`, `socks`, `socks_auth`, `socks_command`, `target_denied`, `absolute_https`) |
+| `labmitm_proxy_rejected_total` | counter | `reason` (`admission`, `http2`, `socks`, `socks_auth`, `socks_command`, `target_denied`, `absolute_https`, `origdest`) |
 | `labmitm_socks_sessions_total` | counter | `result` (`ok`, `denied`, `auth`, `command`) |
 | `labmitm_flows_total` | counter | `scheme`, `intercepted`, `result` |
 | `labmitm_tls_intercepts_total` | counter | `result` (`ok`, `mint_fail`, `tls_handshake`, `upstream_tls`, `upstream_verify_fail`, `http2_inner`) |
@@ -52,7 +52,7 @@ Bounded labels only.
 | Probe | Meaning |
 |---|---|
 | `GET /v1/health/live` | Process up (listener goroutines not deadlocked) |
-| `GET /v1/health/ready` | Proxy bound **and** (management bound or explicitly off) **and** store initialized **and** CA compiled if `intercept: true` |
+| `GET /v1/health/ready` | Proxy bound **and** (management bound or explicitly off) **and** (orig-dest bound or `OrigDestOff`) **and** store initialized **and** CA compiled if `intercept: true` |
 
 Ready does **not** require MCP clients, a non-empty store, or successful upstreams.
 
