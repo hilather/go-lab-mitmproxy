@@ -4,13 +4,7 @@ import (
 	"io"
 	"net"
 	"time"
-
-	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
-
-type connKind int
-
-const kindProxy connKind = iota
 
 // peekedConn replays buf on Read, then the underlying Conn.
 type peekedConn struct {
@@ -64,13 +58,11 @@ func peekReplay(c net.Conn, n int) (net.Conn, []byte, error) {
 	return &peekedConn{Conn: c, buf: append([]byte(nil), b...)}, b, err
 }
 
-func (s *Server) dispatchConn(c net.Conn, kind connKind, httpLn *chanListener) {
+func (s *Server) dispatchConn(c net.Conn, httpLn *chanListener) {
 	defer s.dispatchWG.Done()
 	if c == nil {
 		return
 	}
-	s.trackDispatch(c)
-
 	spec := withSpecDefaults(s.liveSpec())
 	ht := spec.Proxy.Admission.HeaderTimeout
 	if ht <= 0 {
@@ -84,30 +76,15 @@ func (s *Server) dispatchConn(c net.Conn, kind connKind, httpLn *chanListener) {
 		_ = c.Close()
 		return
 	}
-	if kind != kindProxy {
+	if b[0] == 0x04 || b[0] == 0x05 {
+		s.closeSOCKS(pc)
+		return
+	}
+	if httpLn == nil {
 		_ = c.Close()
 		return
 	}
-	s.dispatchProxy(pc, b[0], spec, httpLn)
-}
-
-func (s *Server) dispatchProxy(c net.Conn, first byte, spec model.Spec, httpLn *chanListener) {
-	flags := spec.Listeners.Proxy
-	switch {
-	case first == 0x05 && flags.AcceptSOCKS5:
-		// SOCKS handshake is not implemented here.
-		s.closeSOCKS(c)
-	case first == 0x04 && flags.AcceptSOCKS4:
-		s.closeSOCKS(c)
-	case first == 0x04 || first == 0x05:
-		s.closeSOCKS(c)
-	default:
-		if httpLn == nil {
-			_ = c.Close()
-			return
-		}
-		httpLn.Push(c)
-	}
+	httpLn.Push(pc)
 }
 
 func (s *Server) closeSOCKS(c net.Conn) {

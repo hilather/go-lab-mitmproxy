@@ -5,11 +5,39 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/proxytest"
 )
+
+type tempNetErr struct{}
+
+func (tempNetErr) Error() string   { return "temporary" }
+func (tempNetErr) Timeout() bool   { return false }
+func (tempNetErr) Temporary() bool { return true }
+
+type stubListener struct {
+	addr   net.Addr
+	accept func() (net.Conn, error)
+}
+
+func (l *stubListener) Accept() (net.Conn, error) {
+	if l == nil || l.accept == nil {
+		return nil, net.ErrClosed
+	}
+	return l.accept()
+}
+
+func (l *stubListener) Close() error { return nil }
+
+func (l *stubListener) Addr() net.Addr {
+	if l == nil {
+		return nil
+	}
+	return l.addr
+}
 
 func TestSOCKS5PeekCloses(t *testing.T) {
 	px := startProxy(t, Options{})
@@ -236,7 +264,6 @@ func TestShutdownUnblocksSilentPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = silent.Close() }()
-	time.Sleep(20 * time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
@@ -248,6 +275,45 @@ func TestShutdownUnblocksSilentPeer(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("shutdown blocked on silent peer")
+	}
+}
+
+func TestAcceptLoopRetriesTemporaryThenStops(t *testing.T) {
+	s, err := New(Options{Address: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	})
+	var n atomic.Int32
+	retried := make(chan struct{})
+	ln := &stubListener{
+		addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		accept: func() (net.Conn, error) {
+			i := n.Add(1)
+			if i == 1 {
+				return nil, tempNetErr{}
+			}
+			if i == 2 {
+				close(retried)
+			}
+			return nil, net.ErrClosed
+		},
+	}
+	s.accepting.Store(true)
+	s.acceptWG.Add(1)
+	go s.acceptLoop(ln, nil)
+	select {
+	case <-retried:
+	case <-time.After(time.Second):
+		t.Fatal("Accept did not retry after temporary error")
+	}
+	s.acceptWG.Wait()
+	if s.Accepting() {
+		t.Fatal("Accepting still true after fatal Accept")
 	}
 }
 

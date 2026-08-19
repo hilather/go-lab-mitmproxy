@@ -321,14 +321,22 @@ func TestInterceptTwoInnerGETs(t *testing.T) {
 	if hits["/a"] != 1 || hits["/b"] != 1 {
 		t.Fatalf("hits %#v", hits)
 	}
+	deadline := time.Now().Add(time.Second)
 	var inner int
-	for _, f := range sink.Last() {
-		if f.Intercepted && f.Protocol == model.FlowProtocolHTTP11 {
-			inner++
+	for {
+		inner = 0
+		for _, f := range sink.Last() {
+			if f.Intercepted && f.Protocol == model.FlowProtocolHTTP11 {
+				inner++
+			}
 		}
-	}
-	if inner < 2 {
-		t.Fatalf("want 2 inner flows, got %+v", sink.Last())
+		if inner >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("want 2 inner flows, got %+v", sink.Last())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

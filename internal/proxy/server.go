@@ -310,19 +310,66 @@ func (s *Server) Start() error {
 func (s *Server) acceptLoop(rawLn net.Listener, httpLn *chanListener) {
 	defer s.acceptWG.Done()
 	if rawLn == nil {
+		s.accepting.Store(false)
 		return
 	}
+	var tempDelay time.Duration
 	for {
 		c, err := rawLn.Accept()
 		if err != nil {
+			if !s.accepting.Load() || shutdownClosed(err) {
+				s.accepting.Store(false)
+				return
+			}
+			if acceptTemporary(err) {
+				if tempDelay == 0 {
+					tempDelay = 5 * time.Millisecond
+				} else {
+					tempDelay *= 2
+				}
+				if tempDelay > time.Second {
+					tempDelay = time.Second
+				}
+				if !s.sleepAcceptBackoff(tempDelay) {
+					s.accepting.Store(false)
+					return
+				}
+				continue
+			}
+			s.accepting.Store(false)
 			return
 		}
+		tempDelay = 0
 		if !s.accepting.Load() {
 			_ = c.Close()
+			s.accepting.Store(false)
 			return
 		}
 		s.dispatchWG.Add(1)
-		go s.dispatchConn(c, kindProxy, httpLn)
+		s.trackDispatch(c)
+		go s.dispatchConn(c, httpLn)
+	}
+}
+
+func acceptTemporary(err error) bool {
+	if err == nil {
+		return false
+	}
+	t, ok := err.(interface{ Temporary() bool })
+	return ok && t.Temporary()
+}
+
+func (s *Server) sleepAcceptBackoff(d time.Duration) bool {
+	if d <= 0 {
+		return s.ctx.Err() == nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-s.ctx.Done():
+		return false
 	}
 }
 
@@ -346,8 +393,9 @@ func (s *Server) Metrics() *Metrics {
 	return s.metrics
 }
 
-// Shutdown stops accept, closes the HTTP handoff, drains http.Server,
-// then hijacked tunnels (D42).
+// Shutdown: accepting=false → close rawLn → wait acceptLoop →
+// close in-peek dispatch conns → wait dispatch goroutines →
+// chanListener.Close → http.Server.Shutdown → hijack drain (D42).
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.accepting.Store(false)
 	s.cancel()
@@ -363,7 +411,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	s.acceptWG.Wait()
 	s.closeDispatching()
-	s.dispatchWG.Wait()
+	if err := waitWG(ctx, &s.dispatchWG, s.closeDispatching); err != nil && first == nil {
+		first = err
+	}
 	if err := closeQuiet(httpLn); err != nil && first == nil {
 		first = err
 	}
@@ -372,19 +422,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			first = err
 		}
 	}
-	done := make(chan struct{})
-	go func() {
-		s.hijackWG.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		s.closeHijacked()
-		<-done
-		if first == nil {
-			first = ctx.Err()
-		}
+	if err := waitWG(ctx, &s.hijackWG, s.closeHijacked); err != nil && first == nil {
+		first = err
 	}
 	s.mu.Lock()
 	if s.tr != nil {
@@ -392,6 +431,24 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 	return first
+}
+
+func waitWG(ctx context.Context, wg *sync.WaitGroup, abort func()) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		if abort != nil {
+			abort()
+		}
+		<-done
+		return ctx.Err()
+	}
 }
 
 func closeQuiet(c io.Closer) error {

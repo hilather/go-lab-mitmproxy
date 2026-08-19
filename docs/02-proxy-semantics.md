@@ -38,7 +38,7 @@ srv := &http.Server{
 
 SOCKS detection is **not** possible in the Handler and **must not** run on the Accept goroutine (a silent peer would stall the next client until `HeaderTimeout`). Peeked bytes are the subsequent Read source. HTTP/2 preface **is** handled in the Handler (`Method == "PRI"`). `chanListener.Close` unblocks Accept with `net.ErrClosed` and closes queued conns.
 
-Shutdown order (D42): stop acceptLoop (close `rawLn`) → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
+Shutdown order (D42): `accepting=false` → close `rawLn` → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
 
 ## Request classification
 
@@ -189,7 +189,7 @@ Reject → `403 Forbidden` (or CONNECT 403 after Hijack if the 200 has not been 
 
 Over admission → `429` (HTTP) or CONNECT `429` (unusual; use `503` for CONNECT if the response has not started). Metric `labmitm_proxy_rejected_total{reason="admission"}`. Admission `maxInFlight` includes paused breakpoint sessions.
 
-`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `headerTimeout` also bounds the per-conn first-byte peek. `Shutdown` (D42): close `rawLn` → `chanListener.Close` → `http.Server.Shutdown` → wait for hijacked sessions up to `--shutdown-timeout`, then force-close them.
+`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `headerTimeout` also bounds the per-conn first-byte peek. `Shutdown` (D42): `accepting=false` → close `rawLn` → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines (ctx-bounded; force-close remaining peeks) → `chanListener.Close` → `http.Server.Shutdown` → wait for hijacked sessions up to `--shutdown-timeout`, then force-close them.
 
 ## Related documents
 
