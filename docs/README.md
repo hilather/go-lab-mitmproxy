@@ -1,0 +1,64 @@
+# Documentation
+
+Operator front door: [README.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/README.md). Onboarding: [START-HERE.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/START-HERE.md). Agent rules: [AGENTS.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/AGENTS.md).
+
+This page is the catalog. Normative design documents win over task summaries. After FND-001 the numbered pack is the source of truth.
+
+## Root
+
+| Path | Role |
+|---|---|
+| [README.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/README.md) | Product page |
+| [START-HERE.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/START-HERE.md) | Onboarding and definition of done |
+| [AGENTS.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/AGENTS.md) | Mandatory contributor / agent instructions |
+| [CHANGELOG.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/CHANGELOG.md) | Curated history |
+| [LICENSE](https://github.com/hilather/go-lab-mitmproxy/blob/main/LICENSE) | Apache-2.0 |
+
+## Architecture
+
+| Path | Topic |
+|---|---|
+| [01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md) | Process and package model |
+| [02-proxy-semantics.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/02-proxy-semantics.md) | Absolute-form, CONNECT, admission, target guards |
+| [03-tls-interception.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/03-tls-interception.md) | Lab CA, leaves, ALPN, upstream verify |
+| [04-flow-store.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/04-flow-store.md) | Caps, wait, wipe, spill |
+| [05-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/05-rules.md) | Deterministic rules, breakpoint, replay |
+| [06-state-and-configuration.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/06-state-and-configuration.md) | YAML, revisions, reset |
+| [07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md) | Shared capability registry |
+
+## Interfaces
+
+| Path | Topic |
+|---|---|
+| [08-rest-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/08-rest-api.md) | REST `/v1` |
+| [09-mcp-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/09-mcp-api.md) | MCP tools and protocol pin |
+| [11-observability.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/11-observability.md) | Metrics, logs, health |
+
+## Security, operations, release
+
+| Path | Topic |
+|---|---|
+| [10-security-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/10-security-architecture.md) | Authn/z, CA, Dial isolation |
+| [12-testing-strategy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/12-testing-strategy.md) | Test layers |
+| [13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md) | Container and process |
+| [14-integration-lab.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/14-integration-lab.md) | Overlay BOM for mcp-integration-lab |
+| [known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) | 1.0 residuals |
+
+## Architecture decisions
+
+| ADR | Decision |
+|---|---|
+| [0001](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0001-use-go.md) | Use Go |
+| [0002](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md) | In-tree HTTP/1.1 forward proxy (D7, D8, D16, D19–D21) |
+| [0003](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md) | Ephemeral flows and GitOps (D3) |
+| [0004](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md) | Shared capability registry (D4) |
+| [0005](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0005-lab-static-bearer.md) | Lab static bearer (D6) |
+| [0006](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0006-pin-mcp-protocol-versions.md) | Pin MCP protocol versions (D14, D15) |
+| [0007](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0007-no-mitmproxy-compat-surface.md) | No mitmproxy compat surface (D5) |
+
+## Task lists
+
+| Path | Package |
+|---|---|
+| [00-program-board.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/tasks/00-program-board.md) | PRs 1–14 and milestones |
+| [README.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/tasks/README.md) | Task working rules |

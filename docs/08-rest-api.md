@@ -1,0 +1,123 @@
+# REST API
+
+Status: Proposed normative behavior
+Owners: REST, Application
+Last reviewed: 2026-08-18 (FND-001)
+Related ADRs: 0004, 0005, 0007
+
+Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
+
+## Problem details
+
+```json
+{
+  "type": "urn:labmitm:error:not-found",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "flow not found",
+  "code": "not_found",
+  "instance": "urn:labmitm:request:01J…"
+}
+```
+
+`type` is `urn:labmitm:error:` plus the domain code with underscores turned to hyphens. `code` **is** the table token.
+
+| Code | HTTP | Notes |
+|---|---|---|
+| `validation_failed` | 400 | |
+| `unauthenticated` | 401 | |
+| `forbidden` | 403 | |
+| `target_denied` | 403 | data-plane + management |
+| `not_found` | 404 | |
+| `method_not_allowed` | 405 | |
+| `revision_conflict` | 409 | |
+| `idempotency_conflict` | 409 | |
+| `store_full` | 409 | management insert APIs; proxy still forwards |
+| `store_over_new_cap` | 400 | |
+| `cursor_stale` | 400 | |
+| `breakpoint_inactive` | 409 | resume/drop on a non-paused flow |
+| `rate_limited` | 429 | |
+| `timeout` | 504 | |
+| `internal_error` | 500 | |
+
+## Auth and origin
+
+- `Authorization: Bearer <token>`. Health live/ready skip auth.
+- `X-Forwarded-For` is not trusted.
+- No CORS headers. OPTIONS is not a success path.
+- Origin: present non-loopback Origin is rejected unless on `originAllowlist`. **Missing Origin is allowed** (official SDK, curl, MCPJungle). Loopback Origins (`localhost`, `127.0.0.1`, `::1`) are allowed. Published LAN UI must list the origin.
+- Session cookie `labmitm_session`: `HttpOnly`, `SameSite=Lax`, `Secure` iff management TLS. CSRF header required on cookie-authenticated mutations even over HTTP. Session JSON `Cache-Control: no-store`. TTL 12h, idle 4h. **Max concurrent sessions: 64**. Cookie is REST-only.
+- No `.well-known/oauth-protected-resource`.
+- No HTTP Basic.
+
+## Flow list
+
+`GET /v1/flows?host=&method=&status=&scheme=&intercepted=&ruleId=&cursor=&limit=`
+
+Default `limit=50`, max `200`. Sort: `StartedAt` descending, then id desc.
+
+Cursor: opaque `base64url(id || uint64 storeGeneration || HMAC-SHA256)`. MAC key is 32 random bytes at process start, never persisted. Reset/restart kills cursors. Generation mismatch → `400` `cursor_stale`.
+
+List items omit bodies (`requestBytes`, `responseBytes`, `truncated` flags only).
+
+`POST /v1/flows:wait` filter `{host, method, pathPrefix, status, after, intercepted}` + `timeout` (default 10s, cap `store.maxWait`).
+
+## Session (REST_ONLY)
+
+```
+POST   /v1/session     Authorization: Bearer
+                       Set-Cookie: labmitm_session=<opaque>; HttpOnly; SameSite=Lax; Path=/
+                                   Secure iff management TLS
+                       Body: { "csrf": "<32-byte hex>", "expiresAt": "…" }
+GET    /v1/session     cookie or bearer → { "id", "role", "scopes", "expiresAt" }
+DELETE /v1/session     clears cookie
+```
+
+Cookie mutations (any non-GET with `Cookie: labmitm_session=…` and no `Authorization`) require header `X-LabMITM-CSRF: <csrf>`. Mismatch → `403` `forbidden`.
+
+## Events SSE (PARITY_DIFFERENT_BINDING)
+
+`GET /v1/events/stream` (`Accept: text/event-stream`, scope `mitm.read`):
+
+```
+event: flow.inserted
+data: {"id":"01J…","host":"app.lab","storeGeneration":19}
+
+event: flow.paused
+data: {"id":"01J…","storeGeneration":20}
+
+event: store.wiped
+data: {"storeGeneration":21}
+```
+
+Heartbeat comment every 15s. MCP `subscriptions/listen` on `labmitm://flows` notifies **URI only**; clients pull bodies with `mitm_flows_list`.
+
+## CA
+
+`GET /v1/ca` returns `application/x-pem-file` (cert only, never key). Scope `mitm.read`. Not served on the unauthenticated data plane.
+
+`GET /v1/status` includes `ca.mode`, `ca.spkiSha256`, `ca.subject`, `ca.notAfter`.
+
+## Config plan/apply
+
+See [docs/06-state-and-configuration.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/06-state-and-configuration.md). `:plan` is dry-run. `:apply` requires `expectedRevision`.
+
+## Embedded operator UI
+
+Required for GA / 1.0 (D13). Talks REST only.
+
+| Item | Choice |
+|---|---|
+| Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
+| Embed | `internal/web` `go:embed` of `web/dist` |
+| Auth | Login page: paste bearer. `POST /v1/session`. Cookie + CSRF. No Basic form. |
+| Pages | Flow list, flow detail, CA download, status, audit (if scoped), gated reset |
+| Live update | `EventSource` `GET /v1/events/stream`. Fallback: 3s poll of `GET /v1/flows` |
+| Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
+| Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle |
+
+`spec.ui.enabled: false` serves 404 for `/` but keeps REST/MCP.
+
+## Compatibility promise
+
+`/v1/*` is versioned; breaking change requires `/v2` or a documented flag day.
