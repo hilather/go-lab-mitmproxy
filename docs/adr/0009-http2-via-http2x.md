@@ -16,7 +16,7 @@ This ADR supersedes ADR 0002 **D8 scope only**. **D7, D16, D19, D20, and D21 sta
 
 **D27 — D19 preserved.** One CONNECT / SOCKS CONNECT / orig-dest TCP = one upstream TCP (and at most one upstream TLS). One captured flow per request stream.
 
-**D28 — `golang.org/x/net/http2` behind `internal/http2x` later.** Codec, not a proxy library. No Dial idents. A `DialTLS` field stays nil. Not added to `go.mod` until the codec PR.
+**D28 — `golang.org/x/net/http2` behind `internal/http2x`.** Codec, not a proxy library. No Dial idents. A `DialTLS` field stays nil. Added as a direct module in the codec PR (BSD-3, Apache-2.0 compatible).
 
 **D32 — ALPN preference + transcode, not lockstep.** Client handshake first. Origin may pick the other proto. Handshake failure still does not blind-tunnel (D20).
 
@@ -32,12 +32,12 @@ This ADR supersedes ADR 0002 **D8 scope only**. **D7, D16, D19, D20, and D21 sta
 
 **D53 — `roundTripInnerH2` must not write HTTP/1.1 to the client TLS conn** and must not close the CONNECT on a per-stream origin error.
 
-`protocols.http2.enabled` defaults false. Runtime remains unread until the HTTP/2 workstream.
+`protocols.http2.enabled` defaults false. Handshake NextProtos are taken from the session snapshot (D46). Inner HTTP/2 capture is not wired in the codec PR; inner `PRI` still records `http2_inner`.
 
 ## Consequences
 
 - 1.0 transcripts stay green while the flag is off.
-- `AGENTS.md` may note a future codec dep; the module is not added in the foundation PR.
+- `golang.org/x/net/http2` is a codec behind `internal/http2x` only.
 - D7 is **not** superseded.
 
 ## Alternatives considered

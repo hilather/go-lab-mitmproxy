@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-19 (accept mux D42 stall + SOCKS-close)
-Related ADRs: 0002, 0004
+Last reviewed: 2026-08-19 (accept mux D42 + http2x codec)
+Related ADRs: 0002, 0004, 0009
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
 
@@ -13,7 +13,8 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 |---|---|---|
 | Unit | config decode/unknown/reserved/byte sizes; store caps/wipe/wait/race; rules first-match; auth scopes; domainerr; OpenMetrics | `internal/*` |
 | Proxy protocol | absolute-form GET/POST, hop-by-hop strip, CONNECT Hijack + two GETs, HTTP/2 preface close, SOCKS peek-close (flags off), silent-peer stall (second HTTP before HeaderTimeout), resolve-then-guard (name→IMDS, name→link-local), `https://` 400, CONNECT without port, WebSocket 101, Expect strip, HTTP_PROXY ignored | `internal/proxy` + `internal/proxytest`; transcripts in `testdata/proxy` |
-| TLS intercept | generate CA, files CA, leaf SAN=SNI, client trusting lab CA succeeds, untrusted client fails, upstream verify on/off, ALPN http/1.1 only, non-443 CONNECT tunnels, handshake fail → `tls_handshake` (no blind fallback) | `internal/tlsmitm` + fixture origin in `proxytest` |
+| TLS intercept | generate CA, files CA, leaf SAN=SNI, client trusting lab CA succeeds, untrusted client fails, upstream verify on/off, ALPN http/1.1 only (flag off), snapshot NextProtos, non-443 CONNECT tunnels, handshake fail → `tls_handshake` (no blind fallback), inner `PRI` → `http2_inner` | `internal/tlsmitm` + fixture origin in `proxytest` |
+| HTTP/2 codec | `http2x` StreamID + pseudos, no Dial idents, `DialTLS == nil`, pool refuses redial | `internal/http2x` |
 | Store | insert/delete/wait/wipe epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate bodies, stacked caps, spill | `internal/store` |
 | REST contract | OpenAPI, auth 401, list/get/delete/wait/resume, problem+json | `internal/control/rest` |
 | MCP | 2026-07-28 initialize, tools/list, tool call, origin, bearer | `internal/control/mcp` |

@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-08-19 (DEP-001 + UI-001)
-Related ADRs: 0002, 0003, 0005, 0007
+Last reviewed: 2026-08-19 (1.1 http2x codec + snapshot NextProtos)
+Related ADRs: 0002, 0003, 0005, 0007, 0009
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).
 
@@ -31,8 +31,9 @@ LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not 
 ## Dial isolation
 
 ```
-internal/proxy      may import model, store, rules, tlsmitm, observability, httputilx
+internal/proxy      may import model, store, rules, tlsmitm, observability, httputilx, http2x
 internal/tlsmitm    may import model, observability — handshake only; NO Dial
+internal/http2x     codec only (`golang.org/x/net/http2`); NO Dial; DialTLS stays nil
 internal/store      may import model, observability
 internal/rules      may import model
 internal/compiler   may import model, tlsmitm (CA generate/load)
@@ -42,7 +43,7 @@ internal/control/*  may import app, capabilities, auth, observability — NOT pr
 internal/observability  leaf telemetry only — no domain, snapshot, or control-plane imports
 ```
 
-Static check (`internal/proxy/import_test.go` plus a repo-wide walk): `Dial`, `DialTimeout`, `Dialer.Dial`, `DialContext` idents are **forbidden by default** in every production `internal/*/*.go` except `internal/proxy`. Explicitly forbidden in `internal/tlsmitm`. Allowed only in `internal/proxy` and `*_test.go` / `internal/proxytest`.
+Static check (`internal/proxy/import_test.go` plus a repo-wide walk): `Dial`, `DialTimeout`, `Dialer.Dial`, `DialContext` idents are **forbidden by default** in every production `internal/*/*.go` except `internal/proxy`. Explicitly forbidden in `internal/tlsmitm` and `internal/http2x`. Allowed only in `internal/proxy` and `*_test.go` / `internal/proxytest`. A `DialTLS` **field** on `http2.Transport` is allowed only if it stays nil.
 
 ## CA private key handling
 

@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: TLS, Proxy, Security
-Last reviewed: 2026-08-18 (STA-001)
-Related ADRs: 0002
+Last reviewed: 2026-08-19 (1.1 http2x codec + snapshot NextProtos)
+Related ADRs: 0002, 0009
 
 Package `internal/tlsmitm`. Only this package and `internal/proxy` touch `crypto/tls` on the data plane. Management TLS (optional) lives in `internal/control/rest` like LabMail. `internal/tlsmitm` must **not** Dial.
 
@@ -51,9 +51,11 @@ Leaf `NotAfter: now+24h` is long enough for a lab session. LRU eviction of a liv
 1. Read `ClientHelloInfo.ServerName` (fallback: CONNECT host).
 2. Reject empty SNI **and** empty CONNECT host.
 3. Mint or LRU-get leaf.
-4. Return `tls.Config{Certificates, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12}`.
+4. Return `tls.Config{Certificates, NextProtos: <session snapshot>, MinVersion: tls.VersionTLS12}`.
 
-Upstream: `tls.Client(rawConn, &tls.Config{ServerName: sni, RootCAs: pool, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12, InsecureSkipVerify: spec.tls.upstream.insecureSkipVerify})`.
+Handshake NextProtos come from the session snapshot, not Authority compile (D46). Empty `nextProtos` (and flag-off `protocols.http2`) materialize `[]string{"http/1.1"}`. When `protocols.http2.enabled` is true the **client-facing leaf** advertises `["h2","http/1.1"]`; origin ALPN stays `http/1.1` until h2 transcode (inner HTTP is still HTTP/1.1). `compileCA` may still reuse the CA when the TLS spec is unchanged.
+
+Upstream: `tls.Client(rawConn, &tls.Config{ServerName: sni, RootCAs: pool, NextProtos: <session snapshot>, MinVersion: tls.VersionTLS12, InsecureSkipVerify: spec.tls.upstream.insecureSkipVerify})`.
 
 `RootCAs`: system pool (`x509.SystemCertPool`) plus `spec.tls.upstream.extraCAFiles`. If `insecureSkipVerify: true`, still record `TLSInfo.UpstreamVerified=false` and audit `tls.upstream_insecure` once per host per process hour (rate-limited), never per request.
 
@@ -80,7 +82,7 @@ Changing intercept/CA/ports requires compile (apply `replaceTLS` or reset). In-f
 
 Operators download `GET /v1/ca` (`application/x-pem-file`, scope `mitm.read` — **not** on the unauthenticated data plane) or use the UI “Download lab CA” button and install it in the system / browser / language trust store. Document `curl --proxy http://127.0.0.1:8888 --cacert labmitm-ca.pem https://app.lab/`. There is no “click through” bypass in the appliance itself. Health/UI copy must say the CA is not served on `:8888`.
 
-If the inner client ignores ALPN and sends an HTTP/2 preface: close both sides; store flow `Error=http2_inner`.
+If the inner client ignores ALPN and sends an HTTP/2 preface: close both sides; store flow `Error=http2_inner`. The `internal/http2x` codec exists but inner HTTP/2 capture is not wired yet; even with `protocols.http2.enabled` the inner `PRI` path still records `http2_inner`.
 
 Inner `Upgrade: websocket` that the origin answers with `101` is a bidirectional copy on the already-handshaked TLS conns (same 1.0 WebSocket contract as cleartext). Inner `RoundTrip` failure writes `502` and closes both sides.
 

@@ -22,7 +22,7 @@ func TestHandshakeTrustAndReject(t *testing.T) {
 	})
 	errc := make(chan error, 1)
 	go func() {
-		sc, err := a.HandshakeServer(context.Background(), serverRaw, "app.lab")
+		sc, err := a.HandshakeServer(context.Background(), serverRaw, "app.lab", nil)
 		if err != nil {
 			errc <- err
 			return
@@ -95,7 +95,7 @@ func TestHandshakeUntrustedClientFails(t *testing.T) {
 		_ = serverRaw.Close()
 	})
 	go func() {
-		_, _ = a.HandshakeServer(context.Background(), serverRaw, "app.lab")
+		_, _ = a.HandshakeServer(context.Background(), serverRaw, "app.lab", nil)
 	}()
 	cc := tls.Client(clientRaw, &tls.Config{
 		ServerName: "app.lab",
@@ -117,5 +117,64 @@ func TestHandshakeEmptyNameRejected(t *testing.T) {
 	_, err = cfg.GetConfigForClient(&tls.ClientHelloInfo{})
 	if err != ErrEmptyName {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestHandshakeNextProtosFromArg(t *testing.T) {
+	a, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientRaw, serverRaw := net.Pipe()
+	t.Cleanup(func() {
+		_ = clientRaw.Close()
+		_ = serverRaw.Close()
+	})
+	type result struct {
+		alpn string
+		err  error
+	}
+	donec := make(chan result, 1)
+	go func() {
+		sc, err := a.HandshakeServer(context.Background(), serverRaw, "app.lab", []string{"h2", ALPN})
+		if err != nil {
+			donec <- result{err: err}
+			return
+		}
+		donec <- result{alpn: sc.ConnectionState().NegotiatedProtocol}
+	}()
+	cc := tls.Client(clientRaw, &tls.Config{
+		ServerName: "app.lab",
+		RootCAs:    a.CertPool(),
+		NextProtos: []string{"h2", ALPN},
+		MinVersion: tls.VersionTLS12,
+	})
+	if err := cc.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	if cc.ConnectionState().NegotiatedProtocol != "h2" {
+		t.Fatalf("client ALPN=%q", cc.ConnectionState().NegotiatedProtocol)
+	}
+	got := <-donec
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if got.alpn != "h2" {
+		t.Fatalf("server ALPN=%q", got.alpn)
+	}
+}
+
+func TestHandshakeEmptyNextProtosDefaultsHTTP11(t *testing.T) {
+	a, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := a.serverConfig("app.lab", nil)
+	if len(cfg.NextProtos) != 1 || cfg.NextProtos[0] != ALPN {
+		t.Fatalf("NextProtos=%v", cfg.NextProtos)
+	}
+	up := a.upstreamConfig("app.lab", []string{})
+	if len(up.NextProtos) != 1 || up.NextProtos[0] != ALPN {
+		t.Fatalf("upstream NextProtos=%v", up.NextProtos)
 	}
 }

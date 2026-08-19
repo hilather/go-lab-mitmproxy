@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-19 (1.1 foundation + accept mux D42)
+Last reviewed: 2026-08-19 (accept mux D42 + http2x codec)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011
 
 ## Problem statement
@@ -86,7 +86,7 @@ Family container-internal binds that must not collide:
 
 ## 1.1 opt-in (types; flags default off)
 
-Additive `labmitm.dev/v1alpha1` fields exist so later workstreams can enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off.** The proxy accept mux peeks in a per-conn goroutine (D42) and still SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. CONNECT already calls the extracted `serveInterceptConn` helper (behavior-identical HTTP 200 then intercept).
+Additive `labmitm.dev/v1alpha1` fields exist so later workstreams can enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off.** The proxy accept mux peeks in a per-conn goroutine (D42) and still SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. CONNECT already calls the extracted `serveInterceptConn` helper. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); the inner session still closes on `PRI` (`http2_inner`) until the capture workstream. Orig-dest / compat stay unread.
 
 - [ADR 0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md): additive schema; reserved keys stay; flags are bootstrap + **Reset only** (D51).
 - [ADR 0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md): supersedes ADR 0002 **D8 scope only**. **D7 stands.**
@@ -249,7 +249,9 @@ Required for GA / 1.0 (D13, PR 13). The UI talks REST only. XSS/CSP: [docs/08-re
 | `github.com/modelcontextprotocol/go-sdk v1.7.0` | Family MCP |
 | `github.com/oklog/ulid/v2` | Crockford ULID flow ids (MIT; LabMail pin) |
 
-No Prometheus client (`github.com/prometheus/*` forbidden). Metrics are hand-rolled OpenMetrics in `internal/observability`. No `golang.org/x/net/http2` in 1.0. No proxy/MITM frameworks. Prefer `net/http`, `log/slog`, `crypto/tls`, `crypto/x509`, `crypto/ecdsa`. New deps need a PR justification and Apache-2.0-compatible license check.
+1.1 codec (ADR 0009 / D28): `golang.org/x/net/http2` behind `internal/http2x` only (BSD-3, Apache-2.0 compatible). Not a proxy/MITM library. Dial idents forbidden; `DialTLS` stays nil.
+
+No Prometheus client (`github.com/prometheus/*` forbidden). Metrics are hand-rolled OpenMetrics in `internal/observability`. No proxy/MITM frameworks. Prefer `net/http`, `log/slog`, `crypto/tls`, `crypto/x509`, `crypto/ecdsa`. New deps need a PR justification and Apache-2.0-compatible license check.
 
 ## Canonical data model
 
