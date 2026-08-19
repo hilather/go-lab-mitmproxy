@@ -290,10 +290,11 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	w = sw
 	reqID := requestID(r)
 	w.Header().Set(headerRequestID, reqID)
+	r.Header.Set(headerRequestID, reqID)
 	instance := requestURNPrefix + reqID
 	capID := ""
 	defer func() {
-		s.observeHTTP(capID, sw.status(), start)
+		s.observeHTTP(capID, sw.status(), start, reqID)
 	}()
 
 	if err := checkOrigin(r.Header.Get("Origin"), s.cfg.AllowedOrigins); err != nil {
@@ -471,7 +472,7 @@ func (w *statusWriter) status() int {
 	return w.code
 }
 
-func (s *Server) observeHTTP(capability string, status int, start time.Time) {
+func (s *Server) observeHTTP(capability string, status int, start time.Time, reqID string) {
 	if s == nil {
 		return
 	}
@@ -492,6 +493,7 @@ func (s *Server) observeHTTP(capability string, status int, start time.Time) {
 		s.logger.Log(observability.Record{
 			Event:      observability.EventHTTPRequest,
 			Component:  "rest",
+			RequestID:  reqID,
 			Capability: capability,
 			Result:     cls,
 			DurationMS: float64(time.Since(start).Milliseconds()),

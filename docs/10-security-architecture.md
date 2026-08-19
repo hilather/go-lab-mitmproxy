@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-08-18 (STA-001)
+Last reviewed: 2026-08-18 (OBS-001)
 Related ADRs: 0002, 0003, 0005, 0007
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).
@@ -33,12 +33,13 @@ LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not 
 ```
 internal/proxy      may import model, store, rules, tlsmitm, observability, httputilx
 internal/tlsmitm    may import model, observability — handshake only; NO Dial
-internal/store      may import model
+internal/store      may import model, observability
 internal/rules      may import model
 internal/compiler   may import model, tlsmitm (CA generate/load)
 internal/snapshot   may import model
-internal/app        may import model, store, snapshot, audit, config, compiler, proxy.Replay
-internal/control/*  may import app, capabilities, auth — NOT proxy internals except via app
+internal/app        may import model, store, snapshot, audit, config, compiler, proxy.Replay, observability
+internal/control/*  may import app, capabilities, auth, observability — NOT proxy internals except via app
+internal/observability  leaf telemetry only — no domain, snapshot, or control-plane imports
 ```
 
 Static check (`internal/proxy/import_test.go` plus a repo-wide walk): `Dial`, `DialTimeout`, `Dialer.Dial`, `DialContext` idents are **forbidden by default** in every production `internal/*/*.go` except `internal/proxy`. Explicitly forbidden in `internal/tlsmitm`. Allowed only in `internal/proxy` and `*_test.go` / `internal/proxytest`.

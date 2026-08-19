@@ -48,6 +48,14 @@ func (s *Server) authenticate(r *http.Request, skip bool) (app.Actor, error) {
 		s.observeAuthFailure("invalid")
 		return app.Actor{}, err
 	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:     observability.EventAuthSuccess,
+			Component: "rest",
+			RequestID: r.Header.Get(headerRequestID),
+			Result:    "ok",
+		})
+	}
 	return actorOf(p, "rest"), nil
 }
 

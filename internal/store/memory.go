@@ -235,11 +235,12 @@ func (m *Memory) Insert(ctx context.Context, epoch uint64, f *model.Flow) (model
 		}
 	}()
 
-	var recLog observability.Record
+	var recLog, pausedLog observability.Record
 	m.mu.Lock()
 	defer func() {
 		m.mu.Unlock()
 		m.logStore(recLog)
+		m.logStore(pausedLog)
 	}()
 	if epoch != m.epoch {
 		return model.InsertResult{}, ErrStaleEpoch
@@ -279,6 +280,16 @@ func (m *Memory) Insert(ctx context.Context, epoch uint64, f *model.Flow) (model
 		Host:            prepared.Host,
 		Result:          "ok",
 		StoreGeneration: m.generation,
+	}
+	if prepared.State == model.FlowStatePaused {
+		pausedLog = observability.Record{
+			Event:           observability.EventFlowPaused,
+			Component:       "store",
+			FlowID:          id,
+			Host:            prepared.Host,
+			Result:          "paused",
+			StoreGeneration: m.generation,
+		}
 	}
 	committed = true
 	return model.InsertResult{ID: id, Generation: m.generation}, nil

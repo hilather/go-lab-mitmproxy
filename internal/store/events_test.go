@@ -1,10 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 )
 
 func TestSubscribeInsertDeleteWipe(t *testing.T) {
@@ -71,5 +74,23 @@ func TestSubscribePausedInsert(t *testing.T) {
 	got := <-ch
 	if got.Kind != EventPaused || got.ID != res.ID {
 		t.Fatalf("paused insert event %+v", got)
+	}
+}
+
+func TestPausedInsertLogsFlowPaused(t *testing.T) {
+	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyReject})
+	var buf bytes.Buffer
+	s.SetTelemetry(nil, observability.NewLogger(&buf, observability.LevelInfo).WithSync())
+	f := sampleFlow("GET", "http://app.lab/", 0, nil)
+	f.State = model.FlowStatePaused
+	if _, err := s.Insert(context.Background(), s.Epoch(), f); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, observability.EventStoreInserted) {
+		t.Fatalf("missing store.inserted: %s", out)
+	}
+	if !strings.Contains(out, observability.EventFlowPaused) {
+		t.Fatalf("paused insert must also emit flow.paused: %s", out)
 	}
 }

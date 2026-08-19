@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"bytes"
 	"net/http"
 	"strings"
 	"testing"
@@ -101,5 +102,38 @@ func TestAuthFailureMetric(t *testing.T) {
 	v, ok := reg.Get(observability.MetricAuthFailuresTotal, map[string]string{"reason": "invalid"})
 	if !ok || v < 1 {
 		t.Fatalf("auth failures=%v ok=%v", v, ok)
+	}
+}
+
+func TestHTTPRequestLogIncludesRequestIDAndAuthSuccess(t *testing.T) {
+	svc := bootTestApp(t)
+	var buf bytes.Buffer
+	log := observability.NewLogger(&buf, observability.LevelInfo).WithSync()
+	s, err := New(Config{
+		Service:    svc,
+		RatePerSec: -1,
+		Logger:     log,
+		Auth:       auth.Static(testToken, "admin", model.RoleAdministrator),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantID = "req-obs-001-correlate"
+	req := httptestReq(http.MethodGet, "/v1/status", "")
+	req.Header.Set(headerRequestID, wantID)
+	got := doRaw(s.Handler(), req)
+	requireStatus(t, got, http.StatusOK)
+	if got.Header().Get(headerRequestID) != wantID {
+		t.Fatalf("response X-Request-ID=%q", got.Header().Get(headerRequestID))
+	}
+	out := buf.String()
+	if !strings.Contains(out, observability.EventAuthSuccess) {
+		t.Fatalf("missing auth.success: %s", out)
+	}
+	if !strings.Contains(out, observability.EventHTTPRequest) {
+		t.Fatalf("missing http.request: %s", out)
+	}
+	if !strings.Contains(out, wantID) {
+		t.Fatalf("http.request must carry request_id: %s", out)
 	}
 }
