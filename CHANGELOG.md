@@ -34,6 +34,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- SOCKS error replies (`admission`, IMDS/hairpin deny, dial fail) check the write result so golangci-lint `errcheck` stays clean.
 - Orig-dest compose overlay skips UID 65532 on OUTPUT REDIRECT (dest-IP Dial must not hairpin to `:8890`) and mounts a bearer bootstrap (`testdata/container/originaldest.yaml`) so `--management-listen=:8088` can bind. Ready `OrigDestOff` is re-read from the live snapshot so Reset-to-enable-without-bind is unready.
 - Intercepted CONNECT treats inner `Upgrade: websocket` + `101` as a bidirectional copy (same 1.0 contract as cleartext). Inner `RoundTrip` failure writes `502` and closes both TLS sides instead of leaving the client waiting.
 - Replay hairpin reject covers unspecified proxy binds (`:8888`, `0.0.0.0`, `::`) so a lab-overlay replay cannot Dial the unauthenticated data plane on the listen port.
