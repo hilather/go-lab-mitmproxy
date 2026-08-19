@@ -223,7 +223,7 @@ func (s *Server) serveSOCKSConnect(c net.Conn, br *bufio.Reader, dest socksDest)
 	if err := s.gate.acquire(ip, sess.spec.Proxy.Admission); err != nil {
 		s.metrics.reject("admission")
 		s.metrics.socks("denied")
-		replySOCKS(c, dest, socks5RepGeneral)
+		_ = replySOCKS(c, dest, socks5RepGeneral)
 		return
 	}
 	defer s.gate.release(ip)
@@ -241,20 +241,20 @@ func (s *Server) serveSOCKSConnect(c net.Conn, br *bufio.Reader, dest socksDest)
 		if isDNS(err) {
 			s.capture(socksFlow(dest, info, "dns", started), sess)
 			s.metrics.socks("denied")
-			replySOCKS(c, dest, socks5RepHostUnreach)
+			_ = replySOCKS(c, dest, socks5RepHostUnreach)
 			return
 		}
 		s.metrics.reject("target_denied")
 		s.capture(socksFlow(dest, info, string(domainerr.CodeTargetDenied), started), sess)
 		s.metrics.socks("denied")
-		replySOCKS(c, dest, socks5RepNotAllowed)
+		_ = replySOCKS(c, dest, socks5RepNotAllowed)
 		return
 	}
 	if s.isHairpin(res, sess.spec) {
 		s.metrics.reject("target_denied")
 		s.capture(socksFlow(dest, info, string(domainerr.CodeTargetDenied), started), sess)
 		s.metrics.socks("denied")
-		replySOCKS(c, dest, socks5RepNotAllowed)
+		_ = replySOCKS(c, dest, socks5RepNotAllowed)
 		return
 	}
 
@@ -262,7 +262,7 @@ func (s *Server) serveSOCKSConnect(c net.Conn, br *bufio.Reader, dest socksDest)
 	if err != nil {
 		s.capture(socksFlow(dest, info, "dial", started), sess)
 		s.metrics.socks("denied")
-		replySOCKS(c, dest, socks5RepRefused)
+		_ = replySOCKS(c, dest, socks5RepRefused)
 		return
 	}
 	s.track(up)
