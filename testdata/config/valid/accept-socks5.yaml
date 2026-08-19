@@ -1,0 +1,8 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: accept-socks5
+spec:
+  listeners:
+    proxy:
+      acceptSOCKS5: true

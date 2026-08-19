@@ -13,7 +13,10 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
 
-var ruleIDPattern = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+var (
+	ruleIDPattern           = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+	compatPathPrefixPattern = regexp.MustCompile(`^/[-a-z0-9]+(/[-a-z0-9]+)*$`)
+)
 
 // Validate checks a (preferably normalized) state. It does not mutate st.
 func Validate(st *model.State) error {
@@ -24,6 +27,7 @@ func Validate(st *model.State) error {
 	var vs []domainerr.FieldViolation
 	validateDocument(st, &vs)
 	validateListeners(&st.Spec.Listeners, &vs)
+	validateCompat(&st.Spec, &vs)
 	validateProxy(&st.Spec.Proxy, &vs)
 	validateTLS(&st.Spec.TLS, &vs)
 	validateRules(&st.Spec.Rules, &vs)
@@ -82,6 +86,59 @@ func validateListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation) {
 		})
 	}
 	validateFilePair("spec.listeners.management.tls", l.Management.TLS.Enabled, l.Management.TLS.CertFile, l.Management.TLS.KeyFile, vs)
+	if l.OriginalDestination.Enabled {
+		validateTCPAddr("spec.listeners.originalDestination.address", l.OriginalDestination.Address, vs)
+	}
+}
+
+func validateCompat(sp *model.Spec, vs *[]domainerr.FieldViolation) {
+	prefix := strings.TrimSpace(sp.Compat.FlowREST.PathPrefix)
+	if prefix == "" && !sp.Compat.FlowREST.Enabled {
+		return
+	}
+	if prefix == "" {
+		prefix = DefaultCompatPathPrefix
+	}
+	if !compatPathPrefixPattern.MatchString(prefix) {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.compat.flowREST.pathPrefix",
+			Code:    violationInvalidValue,
+			Message: "pathPrefix must match /^/[-a-z0-9]+(/[-a-z0-9]+)*$/",
+		})
+		return
+	}
+	restPath := strings.TrimSpace(sp.Listeners.Management.RESTPath)
+	if restPath == "" {
+		restPath = DefaultRESTPath
+	}
+	mcpPath := strings.TrimSpace(sp.Listeners.Management.MCPPath)
+	if mcpPath == "" {
+		mcpPath = DefaultMCPPath
+	}
+	for _, blocked := range []string{"/", "/healthz", "/config", "/.well-known", restPath, mcpPath} {
+		if pathsCollide(prefix, blocked) {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    "spec.compat.flowREST.pathPrefix",
+				Code:    violationInvalidValue,
+				Message: "pathPrefix must not collide with restPath, mcpPath, or reserved management paths",
+			})
+			return
+		}
+	}
+}
+
+func pathsCollide(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	// "/" prefixes every path; only an exact match (above) is a collision.
+	if a == "/" || b == "/" {
+		return false
+	}
+	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
 }
 
 func validateTCPAddr(path, addr string, vs *[]domainerr.FieldViolation) {
@@ -174,6 +231,9 @@ func validateAdmission(a *model.AdmissionSpec, vs *[]domainerr.FieldViolation) {
 	}
 	if a.UpstreamTimeout <= 0 {
 		*vs = append(*vs, domainerr.FieldViolation{Path: "spec.proxy.admission.upstreamTimeout", Code: violationInvalidValue, Message: "upstreamTimeout must be > 0"})
+	}
+	if a.MaxConcurrentStreams <= 0 {
+		*vs = append(*vs, domainerr.FieldViolation{Path: "spec.proxy.admission.maxConcurrentStreams", Code: violationInvalidValue, Message: "maxConcurrentStreams must be > 0"})
 	}
 }
 
@@ -290,6 +350,13 @@ func validateRules(r *model.RulesSpec, vs *[]domainerr.FieldViolation) {
 				Path:    path + ".action.body.replace",
 				Code:    violationInvalidValue,
 				Message: "action.body.replace must be ≤ 64KiB",
+			})
+		}
+		if proto := strings.TrimSpace(item.Match.Protocol); proto != "" && !model.KnownRuleProtocol(proto) {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".match.protocol",
+				Code:    violationInvalidValue,
+				Message: "match.protocol must be http/1.1, h2, websocket, connect, socks5, or socks4",
 			})
 		}
 		if item.Action.Type == model.ActionBreakpoint {

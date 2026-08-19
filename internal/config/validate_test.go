@@ -172,6 +172,24 @@ func TestValidateTokenScopesMaterializeEmpty(t *testing.T) {
 	}
 }
 
+func TestValidateCompatPathPrefixCollidesWithRESTPath(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    management:\n      restPath: /custom\n  compat:\n    flowREST:\n      enabled: true\n      pathPrefix: /custom\n"
+	_, err := Load([]byte(doc))
+	_ = requireValidation(t, err, violationInvalidValue)
+}
+
+func TestValidateCompatPathPrefixCollidesWithConfiguredMCP(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    management:\n      mcpPath: /agents\n  compat:\n    flowREST:\n      enabled: true\n      pathPrefix: /agents\n"
+	_, err := Load([]byte(doc))
+	_ = requireValidation(t, err, violationInvalidValue)
+}
+
+func TestValidateUnknownRuleProtocol(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  rules:\n    items:\n      - id: proto\n        phase: request\n        match:\n          protocol: http2\n        action:\n          type: drop\n"
+	_, err := Load([]byte(doc))
+	_ = requireValidation(t, err, violationInvalidValue)
+}
+
 func TestValidateUpstreamVerifyFixture(t *testing.T) {
 	_, err := Load([]byte(mustLoad(t, "invalid", "upstream-verify.yaml")))
 	de := requireValidation(t, err, violationUnknownField)

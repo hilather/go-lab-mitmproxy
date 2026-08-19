@@ -56,6 +56,10 @@ This page is the catalog. Normative design documents win over task summaries. Af
 | [0005](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0005-lab-static-bearer.md) | Lab static bearer (D6) |
 | [0006](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0006-pin-mcp-protocol-versions.md) | Pin MCP protocol versions (D14, D15) |
 | [0007](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0007-no-mitmproxy-compat-surface.md) | No mitmproxy compat surface (D5) |
+| [0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md) | Additive v1alpha1 1.1 fields (D22, D25, D41, D51) |
+| [0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md) | HTTP/2 via http2x; D8 scope only (D7 stands) |
+| [0010](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md) | SOCKS5 multiplex + orig-dest REDIRECT; TPROXY stays rejected |
+| [0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md) | Optional compat flow REST; `/v1`+MCP primacy stands |
 
 ## Task lists
 

@@ -77,7 +77,14 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request, sess *ru
 	}
 
 	if shouldIntercept(sess.spec.TLS, host, port) {
-		s.serveIntercept(client, bufrw, up, req, host, port, res, started, sess)
+		s.serveInterceptConn(client, bufrw, up, interceptMeta{
+			ConnectHost: host,
+			Port:        port,
+			Res:         res,
+			Started:     started,
+			ClientReq:   req,
+			Via:         "http-proxy",
+		}, sess)
 		return
 	}
 

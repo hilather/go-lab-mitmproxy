@@ -48,6 +48,15 @@ func materializeDefaults(sp *model.Spec) {
 	if strings.TrimSpace(sp.Listeners.Management.MCPPath) == "" {
 		sp.Listeners.Management.MCPPath = DefaultMCPPath
 	}
+	if sp.Listeners.OriginalDestination.Enabled && strings.TrimSpace(sp.Listeners.OriginalDestination.Address) == "" {
+		sp.Listeners.OriginalDestination.Address = DefaultOrigDestAddress
+	}
+	if sp.Compat.FlowREST.Enabled && strings.TrimSpace(sp.Compat.FlowREST.PathPrefix) == "" {
+		sp.Compat.FlowREST.PathPrefix = DefaultCompatPathPrefix
+	}
+	if sp.Proxy.Admission.MaxConcurrentStreams == 0 {
+		sp.Proxy.Admission.MaxConcurrentStreams = DefaultMaxConcurrentStreams
+	}
 	if strings.TrimSpace(sp.Proxy.Hostname) == "" {
 		sp.Proxy.Hostname = DefaultProxyHostname
 	}

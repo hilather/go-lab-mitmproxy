@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP
-Last reviewed: 2026-08-18 (UI-001)
-Related ADRs: 0004, 0005, 0006, 0007
+Last reviewed: 2026-08-19 (1.1 CompatBindings side table)
+Related ADRs: 0004, 0005, 0006, 0007, 0011
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
 
@@ -20,14 +20,14 @@ internal/auth             bearer → Principal
 internal/audit            ring
 ```
 
-There is **no** `internal/control/compat`.
+There is **no** `internal/control/compat` yet. `capabilities.CompatBindings()` is a **side table** of `REST_ONLY_PROTOCOL` extra spellings of existing `flows.*` IDs under default prefix `/compat`. `catalog()` / `All()` / `compileRoutes` / `RenderOpenAPI` do **not** include those paths. `TableRowCount` stays 30. Native REST paths stay `/v1` only. A later PR matches the side table **after** authenticate/authorize (not `dispatchMount`).
 
 ## Dispositions
 
 | Disposition | Examples |
 |---|---|
 | `PARITY_REQUIRED` | flows list/get/delete/clear/wait/resume/drop/replay, state get/validate/export/reset, status, schema, audit, changes plan/apply, ca get |
-| `REST_ONLY_PROTOCOL` | live/ready, OpenAPI, UI assets, session/CSRF, `/v1/metrics`, raw body download `Content-Type` streams |
+| `REST_ONLY_PROTOCOL` | live/ready, OpenAPI, UI assets, session/CSRF, `/v1/metrics`, raw body download `Content-Type` streams; **1.1 extra spellings** of the same `flows.*` IDs under `/compat` (side table only; not on `catalog()`) |
 | `MCP_ONLY_PROTOCOL` | `tools/list`, `resources/list`, protocol negotiate |
 | `PARITY_DIFFERENT_BINDING` | `events.stream`: REST SSE vs MCP `subscriptions/listen` URI-only notify + `mitm_flows_list` |
 | `EXEMPT_BY_ADR` | no OAuth PRM (ADR 0005) |
@@ -57,7 +57,7 @@ mitm.audit.read    audit ring
 | `health.ready` | `GET /v1/health/ready` | — | none | REST_ONLY |
 | `version.get` | `GET /v1/version` | `mitm_version_get` | `mitm.read` | |
 | `capabilities.get` | `GET /v1/capabilities` | `mitm_capabilities_get`, `labmitm://capabilities` | `mitm.read` | |
-| `status.get` | `GET /v1/status` | `mitm_status_get`, `labmitm://status` | `mitm.read` | listeners, store stats, revisions, intercept on/off, `ca.{mode,spkiSha256,subject,notAfter}` (never key) |
+| `status.get` | `GET /v1/status` | `mitm_status_get`, `labmitm://status` | `mitm.read` | listeners, store stats, revisions, intercept on/off, `features.{http2,socks5,socks4,originalDestination,compatFlowREST}` (spec flags; default false), `ca.{mode,spkiSha256,subject,notAfter}` (never key) |
 | `schema.get` | `GET /v1/schema/config` | `mitm_schema_get`, `labmitm://schema/config` | `mitm.read` | |
 | `state.get` | `GET /v1/state` | `mitm_state_get`, `labmitm://state` | `mitm.read` | redacted spec + revisions |
 | `state.validate` | `POST /v1/state:validate` | `mitm_state_validate` | `mitm.admin` | |

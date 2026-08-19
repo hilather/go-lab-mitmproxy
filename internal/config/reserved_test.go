@@ -68,4 +68,16 @@ func TestReservedDoesNotMatchLegitFields(t *testing.T) {
 	if why := reservedReason(normalizeKey("intercept")); why != "" {
 		t.Fatalf("intercept reserved: %s", why)
 	}
+	if why := reservedReason(normalizeKey("acceptSOCKS5")); why != "" {
+		t.Fatalf("acceptSOCKS5 reserved: %s", why)
+	}
+	if why := reservedReason(normalizeKey("originalDestination")); why != "" {
+		t.Fatalf("originalDestination reserved: %s", why)
+	}
+	if why := reservedReason(normalizeKey("flowREST")); why != "" {
+		t.Fatalf("flowREST reserved: %s", why)
+	}
+	if why := reservedReason(normalizeKey("mitmproxyREST")); why == "" {
+		t.Fatal("mitmproxyREST must stay reserved")
+	}
 }

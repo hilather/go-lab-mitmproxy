@@ -44,7 +44,9 @@
         "store": { "$ref": "#/$defs/store" },
         "ui": { "$ref": "#/$defs/ui" },
         "management": { "$ref": "#/$defs/management" },
-        "observability": { "$ref": "#/$defs/observability" }
+        "observability": { "$ref": "#/$defs/observability" },
+        "protocols": { "$ref": "#/$defs/protocols" },
+        "compat": { "$ref": "#/$defs/compat" }
       }
     },
     "listeners": {
@@ -52,14 +54,54 @@
       "additionalProperties": false,
       "properties": {
         "proxy": { "$ref": "#/$defs/proxyListener" },
-        "management": { "$ref": "#/$defs/mgmtListener" }
+        "management": { "$ref": "#/$defs/mgmtListener" },
+        "originalDestination": { "$ref": "#/$defs/originalDest" }
       }
     },
     "proxyListener": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "address": { "type": "string", "description": "host:port; default 127.0.0.1:8888; empty materializes that default, not :8888" }
+        "address": { "type": "string", "description": "host:port; default 127.0.0.1:8888; empty materializes that default, not :8888" },
+        "acceptSOCKS5": { "type": "boolean", "description": "default false; Reset-only. Legal key is camelCase acceptSOCKS5" },
+        "acceptSOCKS4": { "type": "boolean", "description": "default false; Reset-only" }
+      }
+    },
+    "originalDest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "default false; Reset-only Linux REDIRECT listener" },
+        "address": { "type": "string", "description": "host:port; empty + enabled materializes 127.0.0.1:8890, not :8890" }
+      }
+    },
+    "protocols": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "http2": { "$ref": "#/$defs/http2" }
+      }
+    },
+    "http2": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "default false; Reset-only; unread until the HTTP/2 workstream" }
+      }
+    },
+    "compat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "flowREST": { "$ref": "#/$defs/flowRESTCompat" }
+      }
+    },
+    "flowRESTCompat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "default false; Reset-only. mitmproxyREST is reserved" },
+        "pathPrefix": { "type": "string", "description": "empty + enabled materializes /compat; must not collide with configured restPath/mcpPath" }
       }
     },
     "mgmtListener": {
@@ -102,7 +144,8 @@
         "idleTimeout": { "$ref": "#/$defs/duration", "description": "default 120s" },
         "headerTimeout": { "$ref": "#/$defs/duration", "description": "default 10s" },
         "dialTimeout": { "$ref": "#/$defs/duration", "description": "default 10s" },
-        "upstreamTimeout": { "$ref": "#/$defs/duration", "description": "default 60s" }
+        "upstreamTimeout": { "$ref": "#/$defs/duration", "description": "default 60s" },
+        "maxConcurrentStreams": { "type": "integer", "minimum": 1, "description": "default 100; 0 materializes 100; live via replaceAdmission" }
       }
     },
     "targets": {
@@ -173,7 +216,8 @@
         "pathExact": { "type": "string" },
         "method": { "type": "string" },
         "headerName": { "type": "string" },
-        "headerContains": { "type": "string" }
+        "headerContains": { "type": "string" },
+        "protocol": { "type": "string", "enum": ["", "http/1.1", "h2", "websocket", "connect", "socks5", "socks4"], "description": "optional; empty matches any protocol" }
       }
     },
     "ruleAction": {

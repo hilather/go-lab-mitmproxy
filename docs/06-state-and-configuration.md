@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-18 (SEC-001)
-Related ADRs: 0003
+Last reviewed: 2026-08-19 (1.1 additive schema)
+Related ADRs: 0003, 0008
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
 
@@ -27,7 +27,7 @@ publicca, trustedroot, mitmproxyaddon, addon, pythonaddon, exploit,
 payloadgen, attack, sslstrip, hstsstrip
 ```
 
-Plus any key that would imply wrapping the Python binary (`mitmproxy`, `mitmdump`, `mitmweb` as config sections).
+Plus any key that would imply wrapping the Python binary (`mitmproxy`, `mitmdump`, `mitmweb` as config sections). Reserved keys are **not a LabMITM surface** (D41). Legal 1.1 names are camelCase only (`acceptSOCKS5` is legal; `accept-socks5` fails KnownFields; `spec.socks` / `spec.compat.mitmproxyREST` stay reserved).
 
 ## Bootstrap schema (normative 1.0)
 
@@ -40,6 +40,11 @@ spec:
   listeners:
     proxy:
       address: "127.0.0.1:8888"
+      acceptSOCKS5: false          # 1.1; Reset-only
+      acceptSOCKS4: false
+    originalDestination:           # 1.1; Reset-only; unread until orig-dest PR
+      enabled: false
+      address: ""                  # empty + enabled → 127.0.0.1:8890
     management:
       address: "127.0.0.1:8088"
       restPath: /v1
@@ -61,6 +66,7 @@ spec:
       headerTimeout: 10s
       dialTimeout: 10s
       upstreamTimeout: 60s
+      maxConcurrentStreams: 100    # 1.1; 0 → 100; live via replaceAdmission
     targets:
       denyCloudMetadata: true
       denyLinkLocal: true
@@ -119,6 +125,15 @@ spec:
       publicPath: false
     audit:
       ring: 128
+
+  protocols:                       # 1.1; Reset-only
+    http2:
+      enabled: false
+
+  compat:                          # 1.1; Reset-only; no /compat on catalog()
+    flowREST:
+      enabled: false
+      pathPrefix: /compat          # validated against configured restPath/mcpPath
 ```
 
 Empty `spec: {}` is valid and materializes the standalone loopback defaults (`127.0.0.1:8888` / `127.0.0.1:8088`). `labmitm validate --config` and `labmitm canonicalize --config [--format yaml|json]` implement this loader. `labmitm serve` (PROXY-001) binds the proxy after a successful load; invalid bootstrap binds nothing.
@@ -198,6 +213,19 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `replaceTargets` | `targets` object | Live on next request |
 
 `:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset.
+
+### 1.1 flags (Reset only, D51)
+
+| Field | How to change |
+|---|---|
+| `acceptSOCKS5` / `acceptSOCKS4` | Bootstrap YAML + **Reset** (wipes flows) |
+| `listeners.originalDestination` | Reset-only (bind) |
+| `protocols.http2` | Reset-only |
+| `compat.flowREST` | Reset-only |
+| `proxy.admission.maxConcurrentStreams` | **`replaceAdmission`**. New TCP sessions only |
+| Listener **addresses** | Reset-only (unchanged) |
+
+Turning on SOCKS, HTTP/2, orig-dest, or compat requires a Reset (or process restart). Runtime does not read these flags yet except schema/normalize/validate.
 
 Idempotency LRU default 256; reset clears it.
 

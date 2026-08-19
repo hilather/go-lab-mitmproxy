@@ -220,6 +220,11 @@ func applyDecodeDefaults(v any) {
 	listeners := ensureMap(spec, "listeners")
 	proxyL := ensureMap(listeners, "proxy")
 	setDefaultAddress(proxyL, DefaultProxyAddress)
+	setDefault(proxyL, "acceptSOCKS5", false)
+	setDefault(proxyL, "acceptSOCKS4", false)
+	origDest := ensureMap(listeners, "originalDestination")
+	setDefault(origDest, "enabled", false)
+	setDefault(origDest, "address", "")
 	mgmtL := ensureMap(listeners, "management")
 	setDefaultAddress(mgmtL, DefaultMgmtAddress)
 	setDefault(mgmtL, "restPath", DefaultRESTPath)
@@ -241,6 +246,7 @@ func applyDecodeDefaults(v any) {
 	setDefault(adm, "headerTimeout", "10s")
 	setDefault(adm, "dialTimeout", "10s")
 	setDefault(adm, "upstreamTimeout", "60s")
+	setDefault(adm, "maxConcurrentStreams", DefaultMaxConcurrentStreams)
 	targets := ensureMap(proxy, "targets")
 	setDefault(targets, "denyCloudMetadata", true)
 	setDefault(targets, "denyLinkLocal", true)
@@ -294,6 +300,15 @@ func applyDecodeDefaults(v any) {
 	setDefault(mgmt, "requestsPerSecond", DefaultRequestsPerSecond)
 	setDefault(mgmt, "burst", DefaultBurst)
 	setDefault(mgmt, "maxConcurrent", DefaultMaxConcurrent)
+
+	protocols := ensureMap(spec, "protocols")
+	http2 := ensureMap(protocols, "http2")
+	setDefault(http2, "enabled", false)
+
+	compat := ensureMap(spec, "compat")
+	flowREST := ensureMap(compat, "flowREST")
+	setDefault(flowREST, "enabled", false)
+	setDefault(flowREST, "pathPrefix", "")
 
 	obs := ensureMap(spec, "observability")
 	setDefault(obs, "logLevel", model.LogLevelInfo)
@@ -406,7 +421,7 @@ func inspectYAMLNode(n *yaml.Node, path string) []domainerr.FieldViolation {
 					vs = append(vs, domainerr.FieldViolation{
 						Path:    joinPath(path, name),
 						Code:    violationReservedName,
-						Message: fmt.Sprintf("reserved key %q %s — not a 1.0 LabMITM surface", name, why),
+						Message: fmt.Sprintf("reserved key %q %s — not a LabMITM surface", name, why),
 					})
 				}
 			}

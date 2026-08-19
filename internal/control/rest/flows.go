@@ -69,6 +69,8 @@ func listQueryFromRequest(r *http.Request) (model.ListQuery, error) {
 			Scheme:     qs.Get("scheme"),
 			RuleID:     qs.Get("ruleId"),
 			PathPrefix: qs.Get("pathPrefix"),
+			Protocol:   qs.Get("protocol"),
+			Via:        qs.Get("via"),
 		},
 		Cursor: qs.Get("cursor"),
 	}
@@ -220,6 +222,8 @@ func (s *Server) handleWait(w http.ResponseWriter, r *http.Request, instance str
 		Method:      in.Filter.Method,
 		PathPrefix:  in.Filter.PathPrefix,
 		Intercepted: in.Filter.Intercepted,
+		Protocol:    in.Filter.Protocol,
+		Via:         in.Filter.Via,
 	}
 	if in.Filter.Status != nil {
 		filter.Status = *in.Filter.Status

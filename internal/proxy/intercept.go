@@ -20,7 +20,26 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
-func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net.Conn, req *http.Request, host, port string, res resolved, started time.Time, sess *ruleSession) {
+// interceptMeta is shared intercept input. HTTP CONNECT writes 200 then
+// calls serveInterceptConn. SOCKS/orig-dest call it without an HTTP reply.
+type interceptMeta struct {
+	ConnectHost  string
+	Port         string
+	Res          resolved
+	Started      time.Time
+	ClientReq    *http.Request
+	Via          string
+	OriginalDest string
+	SOCKS        *model.SOCKSInfo
+}
+
+func (s *Server) serveInterceptConn(client net.Conn, bufrw *bufio.ReadWriter, up net.Conn, meta interceptMeta, sess *ruleSession) {
+	_, _, _ = meta.Via, meta.OriginalDest, meta.SOCKS
+	req := meta.ClientReq
+	host := meta.ConnectHost
+	port := meta.Port
+	res := meta.Res
+	started := meta.Started
 	if sess == nil {
 		sess = s.beginSession()
 	}

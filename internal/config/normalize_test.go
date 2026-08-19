@@ -47,6 +47,70 @@ func TestNormalizeMaterializesDefaults(t *testing.T) {
 	if st.Spec.Management.Auth.Tokens == nil {
 		t.Fatal("tokens must be empty slice, not nil")
 	}
+	if st.Spec.Listeners.Proxy.AcceptSOCKS5 || st.Spec.Listeners.Proxy.AcceptSOCKS4 {
+		t.Fatal("SOCKS accept flags default off")
+	}
+	if st.Spec.Listeners.OriginalDestination.Enabled {
+		t.Fatal("originalDestination.enabled default off")
+	}
+	if st.Spec.Protocols.HTTP2.Enabled {
+		t.Fatal("protocols.http2.enabled default off")
+	}
+	if st.Spec.Compat.FlowREST.Enabled {
+		t.Fatal("compat.flowREST.enabled default off")
+	}
+	if st.Spec.Proxy.Admission.MaxConcurrentStreams != DefaultMaxConcurrentStreams {
+		t.Fatalf("maxConcurrentStreams=%d", st.Spec.Proxy.Admission.MaxConcurrentStreams)
+	}
+}
+
+func TestNormalizeEnabledOrigDestEmptyAddress(t *testing.T) {
+	st, err := LoadFile(testdata(t, "valid", "original-destination.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Listeners.OriginalDestination.Enabled {
+		t.Fatal("enabled")
+	}
+	if st.Spec.Listeners.OriginalDestination.Address != DefaultOrigDestAddress {
+		t.Fatalf("addr=%q", st.Spec.Listeners.OriginalDestination.Address)
+	}
+}
+
+func TestNormalizeEnabledCompatEmptyPrefix(t *testing.T) {
+	st, err := LoadFile(testdata(t, "valid", "compat-flow-rest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Compat.FlowREST.Enabled {
+		t.Fatal("enabled")
+	}
+	if st.Spec.Compat.FlowREST.PathPrefix != DefaultCompatPathPrefix {
+		t.Fatalf("prefix=%q", st.Spec.Compat.FlowREST.PathPrefix)
+	}
+}
+
+func TestNormalizeAcceptSOCKS5CamelCase(t *testing.T) {
+	st, err := LoadFile(testdata(t, "valid", "accept-socks5.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Listeners.Proxy.AcceptSOCKS5 {
+		t.Fatal("acceptSOCKS5")
+	}
+	if st.Spec.Listeners.Proxy.AcceptSOCKS4 {
+		t.Fatal("acceptSOCKS4 stayed off")
+	}
+}
+
+func TestNormalizeHTTP2Flag(t *testing.T) {
+	st, err := LoadFile(testdata(t, "valid", "protocols-http2.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Protocols.HTTP2.Enabled {
+		t.Fatal("http2")
+	}
 }
 
 func TestNormalizeDoesNotMutateInput(t *testing.T) {

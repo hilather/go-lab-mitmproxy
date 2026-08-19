@@ -42,3 +42,11 @@ Unlike LabMail (receive-only forbids Dial), a forward proxy **must** Dial. Isola
 ## Review triggers
 
 Review this decision when PR 3–4 interop is still red at rc, HTTP/2 intercept is accepted as 1.1 work, or a second Dial site is proposed outside `internal/proxy`.
+
+## Notes (1.1)
+
+[ADR 0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md) supersedes **D8 scope only**: HTTP/2 may be enabled on the intercepted inner hop and origin hop via `protocols.http2` (default off). Client-facing proxy hops stay HTTP/1.1; `PRI * HTTP/2.0` remains a hard close.
+
+[ADR 0010](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md) supersedes the sentence “Reverse-proxy, TPROXY, and SOCKS are 1.1+” insofar as SOCKS5 CONNECT and Linux original-destination REDIRECT become 1.1 opt-in. **TPROXY stays rejected.** Reverse-proxy stays rejected.
+
+**D7 stands.** The proxy remains in-tree. Third-party MITM/proxy libraries stay forbidden. CONNECT still Hijacks (D19). D16, D20, and D21 stand.

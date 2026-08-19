@@ -12,21 +12,22 @@ import (
 
 // expectedInvalid is the fail-closed code each negative fixture must produce.
 var expectedInvalid = map[string]string{
-	"unknown-field.yaml":        violationUnknownField,
-	"unknown-field-nested.yaml": violationUnknownField,
-	"missing-apiversion.yaml":   violationRequired,
-	"missing-kind.yaml":         violationRequired,
-	"bare-duration.yaml":        violationInvalidValue,
-	"bare-duration-zero.yaml":   violationInvalidValue,
-	"bare-bytes.yaml":           violationInvalidValue,
-	"reserved-socks.yaml":       violationReservedName,
-	"reserved-tproxy.yaml":      violationReservedName,
-	"reserved-publicca.yaml":    violationReservedName,
-	"reserved-mitmproxy.yaml":   violationReservedName,
-	"upstream-verify.yaml":      violationUnknownField,
-	"multi-doc.yaml":            violationInvalidValue,
-	"yaml-alias.yaml":           violationInvalidValue,
-	"duplicate-key.yaml":        violationDuplicateKey,
+	"unknown-field.yaml":           violationUnknownField,
+	"unknown-field-nested.yaml":    violationUnknownField,
+	"missing-apiversion.yaml":      violationRequired,
+	"missing-kind.yaml":            violationRequired,
+	"bare-duration.yaml":           violationInvalidValue,
+	"bare-duration-zero.yaml":      violationInvalidValue,
+	"bare-bytes.yaml":              violationInvalidValue,
+	"reserved-socks.yaml":          violationReservedName,
+	"reserved-tproxy.yaml":         violationReservedName,
+	"reserved-publicca.yaml":       violationReservedName,
+	"reserved-mitmproxy.yaml":      violationReservedName,
+	"reserved-mitmproxy-rest.yaml": violationReservedName,
+	"upstream-verify.yaml":         violationUnknownField,
+	"multi-doc.yaml":               violationInvalidValue,
+	"yaml-alias.yaml":              violationInvalidValue,
+	"duplicate-key.yaml":           violationDuplicateKey,
 }
 
 // TestConfigCompat is the positive+negative fixture matrix for make test-config-compat.

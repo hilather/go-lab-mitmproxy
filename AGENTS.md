@@ -32,13 +32,14 @@ The numbered pack is the source of truth after FND-001. Do not invent paths, typ
 - The service must not write to the bootstrap configuration file.
 - Do not add a database, flow-directory, hidden volume, or other persistence mechanism without an approved ADR.
 - Do not import third-party proxy/MITM libraries (`elazarl/goproxy`, `google/martian`, …). Do not wrap, vendor, or exec Python mitmproxy (ADR 0002, ADR 0007).
-- HTTP/1.1 only on every hop in 1.0. No HTTP/2 or HTTP/3. `PRI * HTTP/2.0` is a hard close.
+- HTTP/1.1 only on every hop in 1.0. No HTTP/2 or HTTP/3. `PRI * HTTP/2.0` is a hard close. 1.1 may enable HTTP/2 on the **inner + origin** hops via `protocols.http2` (default off, Reset-only). Client-facing proxy hops stay HTTP/1.1.
 - On `CONNECT`, `Hijack` before any body and never return that conn to `http.Server` (D19).
 - `intercept: true` does not silently tunnel on handshake failure (D20).
 - `Transport.RoundTrip` only; never `http.Client` / `Client.Do` (D21). Replay Dials the origin, ignores `HTTP_PROXY`, never hairpins `listeners.proxy.address`.
 - Do not add a random/probabilistic chaos / fault-injection engine in 1.0 (D12). Deterministic, default-off `spec.rules` is the allowed QA knob.
 - The embedded flow-inspector UI is required for GA / 1.0 (PR 13). Do not ship 1.0 without it.
-- No mitmproxy REST, mitmweb, or Python addon surface in 1.0 (ADR 0007).
+- No mitmproxy REST, mitmweb, or Python addon surface in 1.0 (ADR 0007). 1.1 optional compat flow REST is a first-party adapter (ADR 0011), default-off, Reset-only. Do **not** put `/compat` on `catalog()` / `compileRoutes` until the compat workstream. `CompatBindings()` is a side table.
+- 1.1 flags (`acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `protocols.http2`, `compat.flowREST`) are bootstrap + Reset only (D51). New spec fields default off and must stay unread by the proxy until their workstream. **D7 stands.**
 - No HTTP Basic on management in 1.0 (no compat consumer). Auth is lab static bearer.
 - Default binds are loopback `127.0.0.1:8888` / `127.0.0.1:8088` (D10). Empty address materializes those defaults, not `:8888`.
 - Hide third-party MCP and YAML library types behind internal adapters.
@@ -111,7 +112,7 @@ The numbered pack is the source of truth after FND-001. Do not invent paths, typ
 - Pin direct dependencies and review transitive changes.
 - Allowed 1.0 direct deps: `gopkg.in/yaml.v3`, `github.com/modelcontextprotocol/go-sdk v1.7.0`, `github.com/oklog/ulid/v2`.
 - No Prometheus client (`github.com/prometheus/*` forbidden). Metrics are hand-rolled OpenMetrics.
-- No `golang.org/x/net/http2` in 1.0. No proxy/MITM frameworks. New deps need a PR justification and license check (Apache-2.0 compatible).
+- No `golang.org/x/net/http2` in 1.0. 1.1 may add it later as a **codec** behind `internal/http2x` only (ADR 0009 / D28); the module is not added yet. Still forbidden as a proxy/MITM framework. New deps need a PR justification and license check (Apache-2.0 compatible).
 
 ## Required completion commands
 

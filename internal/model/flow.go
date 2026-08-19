@@ -14,40 +14,61 @@ const (
 	FlowStateError     = "error"
 
 	FlowProtocolHTTP11    = "http/1.1"
+	FlowProtocolHTTP2     = "h2"
 	FlowProtocolWebSocket = "websocket"
 	FlowProtocolConnect   = "connect"
+	FlowProtocolSOCKS5    = "socks5"
+	FlowProtocolSOCKS4    = "socks4"
 )
 
 // Flow is one captured HTTP exchange (or CONNECT metadata).
 type Flow struct {
-	ID          string
-	StartedAt   time.Time
-	CompletedAt time.Time
-	State       string
-	PausedPhase string
-	ClientAddr  string
-	Method      string
-	URL         string
-	Host        string
-	Scheme      string
-	Protocol    string
-	Status      int
-	Error       string
-	Intercepted bool
-	Request     HTTPMessage
-	Response    HTTPMessage
-	TLS         *TLSInfo
-	Timings     Timings
-	RuleIDs     []string
-	Truncated   bool
+	ID           string
+	StartedAt    time.Time
+	CompletedAt  time.Time
+	State        string
+	PausedPhase  string
+	ClientAddr   string
+	Method       string
+	URL          string
+	Host         string
+	Scheme       string
+	Protocol     string
+	Status       int
+	Error        string
+	Intercepted  bool
+	Request      HTTPMessage
+	Response     HTTPMessage
+	TLS          *TLSInfo
+	HTTP2        *HTTP2Info
+	SOCKS        *SOCKSInfo
+	Via          string
+	OriginalDest string
+	Timings      Timings
+	RuleIDs      []string
+	Truncated    bool
 }
 
 // HTTPMessage is one side of a captured exchange.
 type HTTPMessage struct {
 	Headers   []Header
+	Trailers  []Header
 	Body      []byte
 	Size      int
 	Truncated bool
+}
+
+// HTTP2Info is captured HTTP/2 stream metadata.
+type HTTP2Info struct {
+	StreamID uint32
+}
+
+// SOCKSInfo is captured SOCKS CONNECT metadata.
+type SOCKSInfo struct {
+	Version int
+	ATYP    string
+	Dest    string
+	Command string
 }
 
 // Header is an ordered, case-preserving HTTP header.
@@ -99,6 +120,8 @@ type FlowFilter struct {
 	Intercepted *bool
 	Scheme      string
 	RuleID      string
+	Protocol    string
+	Via         string
 }
 
 // ListQuery is a filtered, cursor-paginated flow read.
@@ -172,6 +195,9 @@ func messageResident(m HTTPMessage) int64 {
 	}
 	for i := range m.Headers {
 		n += int64(len(m.Headers[i].Name) + len(m.Headers[i].Value) + 4)
+	}
+	for i := range m.Trailers {
+		n += int64(len(m.Trailers[i].Name) + len(m.Trailers[i].Value) + 4)
 	}
 	return n
 }

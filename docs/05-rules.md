@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-18 (STA-001)
+Last reviewed: 2026-08-19 (match.protocol)
 Related ADRs: 0002
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
@@ -34,6 +34,7 @@ rules:
         method: POST           # empty = any
         headerName: ""
         headerContains: ""
+        protocol: ""           # optional; http/1.1 | h2 | websocket | connect | socks5 | socks4
       action:
         type: delay            # breakpoint | drop | delay | status | header | body
         delay: 2s              # 0–30s

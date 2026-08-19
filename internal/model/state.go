@@ -32,4 +32,6 @@ type Spec struct {
 	UI            UISpec            `json:"ui"`
 	Management    ManagementSpec    `json:"management"`
 	Observability ObservabilitySpec `json:"observability"`
+	Protocols     ProtocolsSpec     `json:"protocols"`
+	Compat        CompatSpec        `json:"compat"`
 }
