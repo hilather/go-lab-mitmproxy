@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	// ALPN is the only advertised protocol on minted leaves and upstream.
+	// ALPN is the default advertised protocol when Handshake nextProtos is empty.
 	ALPN = "http/1.1"
 
 	leafCacheCap   = 256
@@ -59,8 +59,6 @@ var (
 	// ErrKeyType is returned when the CA key is not RSA≥2048 or P-256/P-384.
 	ErrKeyType = errors.New("tlsmitm: CA key must be RSA ≥2048 or ECDSA P-256/P-384")
 )
-
-var nextProtos = []string{ALPN}
 
 // Options construct an Authority (generate-in-memory or load PEM files).
 type Options struct {

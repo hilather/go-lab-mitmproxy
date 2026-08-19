@@ -340,6 +340,144 @@ func TestInterceptTwoInnerGETs(t *testing.T) {
 	}
 }
 
+func TestHandshakeNextProtosFromSpec(t *testing.T) {
+	spec := model.Spec{}
+	got := handshakeClientNextProtos(spec)
+	if len(got) != 1 || got[0] != tlsmitm.ALPN {
+		t.Fatalf("flag off client %v", got)
+	}
+	if orig := handshakeOriginNextProtos(spec, "h2"); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
+		t.Fatalf("flag off origin %v", orig)
+	}
+	spec.Protocols.HTTP2.Enabled = true
+	got = handshakeClientNextProtos(spec)
+	if len(got) != 2 || got[0] != "h2" || got[1] != tlsmitm.ALPN {
+		t.Fatalf("flag on client %v", got)
+	}
+	orig := handshakeOriginNextProtos(spec, "h2")
+	if len(orig) != 2 || orig[0] != "h2" || orig[1] != tlsmitm.ALPN {
+		t.Fatalf("origin prefer h2 %v", orig)
+	}
+	orig = handshakeOriginNextProtos(spec, tlsmitm.ALPN)
+	if len(orig) != 2 || orig[0] != tlsmitm.ALPN || orig[1] != "h2" {
+		t.Fatalf("origin prefer h1 %v", orig)
+	}
+}
+
+func TestInterceptInnerHTTP2Preface(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("origin should not be reached")
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptSpec(t, port, testdataTLS(t, "origin-ca.pem"))
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	target := net.JoinHostPort("app.lab", strconv.Itoa(port))
+	if err := c.WriteRequest("CONNECT "+target+" HTTP/1.1", "Host: "+target); err != nil {
+		t.Fatal(err)
+	}
+	st, err := c.ReadLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != "HTTP/1.1 200 Connection Established" {
+		t.Fatalf("status %q", st)
+	}
+	if blank, err := c.ReadLine(); err != nil || blank != "" {
+		t.Fatalf("blank %q", blank)
+	}
+	tlsConn := tls.Client(c.Conn, &tls.Config{
+		ServerName: "app.lab",
+		RootCAs:    px.Authority().CertPool(),
+		NextProtos: []string{tlsmitm.ALPN},
+		MinVersion: tls.VersionTLS12,
+	})
+	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tlsConn.Write([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if px.Metrics().TLSIntercepts(tlsmitm.ResultHTTP2Inner) >= 1 {
+			return
+		}
+		for _, f := range sink.Last() {
+			if f.Error == tlsmitm.ResultHTTP2Inner {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("want http2_inner, got metrics=%d flows=%+v", px.Metrics().TLSIntercepts(tlsmitm.ResultHTTP2Inner), sink.Last())
+}
+
+func TestInterceptHTTP2EnabledStillInnerPRI(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("origin should not be reached")
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptSpec(t, port, testdataTLS(t, "origin-ca.pem"))
+	spec.Protocols.HTTP2.Enabled = true
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	target := net.JoinHostPort("app.lab", strconv.Itoa(port))
+	if err := c.WriteRequest("CONNECT "+target+" HTTP/1.1", "Host: "+target); err != nil {
+		t.Fatal(err)
+	}
+	st, err := c.ReadLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != "HTTP/1.1 200 Connection Established" {
+		t.Fatalf("status %q", st)
+	}
+	if blank, err := c.ReadLine(); err != nil || blank != "" {
+		t.Fatalf("blank %q", blank)
+	}
+	tlsConn := tls.Client(c.Conn, &tls.Config{
+		ServerName: "app.lab",
+		RootCAs:    px.Authority().CertPool(),
+		NextProtos: []string{"h2", tlsmitm.ALPN},
+		MinVersion: tls.VersionTLS12,
+	})
+	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	if tlsConn.ConnectionState().NegotiatedProtocol != "h2" {
+		t.Fatalf("ALPN=%q (want h2 from snapshot)", tlsConn.ConnectionState().NegotiatedProtocol)
+	}
+	if _, err := tlsConn.Write([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if px.Metrics().TLSIntercepts(tlsmitm.ResultHTTP2Inner) >= 1 {
+			return
+		}
+		for _, f := range sink.Last() {
+			if f.Error == tlsmitm.ResultHTTP2Inner {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("want http2_inner with flag on, got metrics=%d flows=%+v", px.Metrics().TLSIntercepts(tlsmitm.ResultHTTP2Inner), sink.Last())
+}
+
 func TestInterceptALPNHTTP11(t *testing.T) {
 	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok")

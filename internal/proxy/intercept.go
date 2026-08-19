@@ -60,7 +60,7 @@ func (s *Server) serveInterceptConn(client net.Conn, bufrw *bufio.ReadWriter, up
 	defer cancel()
 	_ = client.SetDeadline(time.Now().Add(hsTO))
 
-	clientTLS, err := auth.HandshakeServer(hsCtx, rawClient, host)
+	clientTLS, err := auth.HandshakeServer(hsCtx, rawClient, host, handshakeClientNextProtos(sess.spec))
 	if err != nil {
 		s.failIntercept(req, host, started, tlsmitm.ResultTLSHandshake, sess)
 		return
@@ -78,7 +78,7 @@ func (s *Server) serveInterceptConn(client net.Conn, bufrw *bufio.ReadWriter, up
 	}
 
 	_ = up.SetDeadline(time.Now().Add(hsTO))
-	upTLS, err := auth.HandshakeClient(hsCtx, up, upName)
+	upTLS, err := auth.HandshakeClient(hsCtx, up, upName, handshakeOriginNextProtos(sess.spec, clientTLS.ConnectionState().NegotiatedProtocol))
 	if err != nil {
 		result := tlsmitm.ResultUpstreamTLS
 		if tlsmitm.IsVerifyError(err) {
@@ -279,6 +279,30 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 
 	s.finishConnResponse(s.ctx, clientTLS, inner, resp, host, port, "https", started, sess, info)
 	return false
+}
+
+// handshakeClientNextProtos is ALPN advertised to the inner client (D46).
+// Flag off stays http/1.1 so 1.0 goldens are unchanged.
+func handshakeClientNextProtos(spec model.Spec) []string {
+	if spec.Protocols.HTTP2.Enabled {
+		return []string{"h2", tlsmitm.ALPN}
+	}
+	return []string{tlsmitm.ALPN}
+}
+
+// handshakeOriginNextProtos prefers the client-negotiated proto, then the other (D32).
+func handshakeOriginNextProtos(spec model.Spec, negotiated string) []string {
+	if !spec.Protocols.HTTP2.Enabled {
+		return []string{tlsmitm.ALPN}
+	}
+	switch negotiated {
+	case "h2":
+		return []string{"h2", tlsmitm.ALPN}
+	case tlsmitm.ALPN:
+		return []string{tlsmitm.ALPN, "h2"}
+	default:
+		return []string{"h2", tlsmitm.ALPN}
+	}
 }
 
 func drainBody(req *http.Request) {

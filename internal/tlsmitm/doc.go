@@ -7,5 +7,6 @@
 // The CA handle is compiled into the immutable snapshot (internal/compiler).
 // The proxy pins that handle at CONNECT accept and passes it into
 // HandshakeServer / HandshakeClient so a later replaceTLS cannot rotate
-// an in-flight session onto a new CA.
+// an in-flight session onto a new CA. Handshake NextProtos come from the
+// session snapshot (D46), not from Authority compile.
 package tlsmitm

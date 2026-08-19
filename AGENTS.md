@@ -39,7 +39,7 @@ The numbered pack is the source of truth after FND-001. Do not invent paths, typ
 - Do not add a random/probabilistic chaos / fault-injection engine in 1.0 (D12). Deterministic, default-off `spec.rules` is the allowed QA knob.
 - The embedded flow-inspector UI is required for GA / 1.0 (PR 13). Do not ship 1.0 without it.
 - No mitmproxy REST, mitmweb, or Python addon surface in 1.0 (ADR 0007). 1.1 optional compat flow REST is a first-party adapter (ADR 0011), default-off, Reset-only. Do **not** put `/compat` on `catalog()` / `compileRoutes` until the compat workstream. `CompatBindings()` is a side table.
-- 1.1 flags (`acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `protocols.http2`, `compat.flowREST`) are bootstrap + Reset only (D51). New spec fields default off. The accept mux reads `acceptSOCKS5`/`acceptSOCKS4` only to SOCKS-close (1.0) until the SOCKS workstream; other flags stay unread until their workstream. **D7 stands.**
+- 1.1 flags (`acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `protocols.http2`, `compat.flowREST`) are bootstrap + Reset only (D51). The accept mux reads `acceptSOCKS5`/`acceptSOCKS4` only to SOCKS-close (1.0) until the SOCKS workstream. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); inner HTTP/2 capture is not enabled yet (inner `PRI` still `http2_inner`). Other new fields stay unread until their workstream. **D7 stands.**
 - No HTTP Basic on management in 1.0 (no compat consumer). Auth is lab static bearer.
 - Default binds are loopback `127.0.0.1:8888` / `127.0.0.1:8088` (D10). Empty address materializes those defaults, not `:8888`.
 - Hide third-party MCP and YAML library types behind internal adapters.
@@ -110,9 +110,9 @@ The numbered pack is the source of truth after FND-001. Do not invent paths, typ
 
 - Prefer the Go standard library and small, well-maintained libraries.
 - Pin direct dependencies and review transitive changes.
-- Allowed 1.0 direct deps: `gopkg.in/yaml.v3`, `github.com/modelcontextprotocol/go-sdk v1.7.0`, `github.com/oklog/ulid/v2`.
+- Allowed 1.0 direct deps: `gopkg.in/yaml.v3`, `github.com/modelcontextprotocol/go-sdk v1.7.0`, `github.com/oklog/ulid/v2`. 1.1 codec: `golang.org/x/net/http2` behind `internal/http2x` only.
 - No Prometheus client (`github.com/prometheus/*` forbidden). Metrics are hand-rolled OpenMetrics.
-- No `golang.org/x/net/http2` in 1.0. 1.1 may add it later as a **codec** behind `internal/http2x` only (ADR 0009 / D28); the module is not added yet. Still forbidden as a proxy/MITM framework. New deps need a PR justification and license check (Apache-2.0 compatible).
+- 1.1 allows `golang.org/x/net/http2` as a **codec** behind `internal/http2x` only (ADR 0009 / D28; Apache-2.0 compatible BSD-3). Still forbidden as a proxy/MITM framework. Production Dial idents stay forbidden in `internal/http2x`. `http2.Transport.DialTLS` must stay nil. New deps need a PR justification and license check (Apache-2.0 compatible).
 
 ## Required completion commands
 
