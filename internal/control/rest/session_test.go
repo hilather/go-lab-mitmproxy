@@ -10,6 +10,7 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/app"
 	"github.com/hilather/go-lab-mitmproxy/internal/auth"
+	"github.com/hilather/go-lab-mitmproxy/internal/control/mcp"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
 
@@ -39,6 +40,52 @@ func newAuthServer(t *testing.T) (*Server, *app.App, *auth.Verifier) {
 		t.Fatal(err)
 	}
 	return s, svc, v
+}
+
+// newServeOrderAuthServer matches cmd startManagement: MCP hooks register
+// before REST so OnApply/OnReset FIFO would let MCP Replace first.
+func newServeOrderAuthServer(t *testing.T, yaml string) (*Server, *app.App) {
+	t.Helper()
+	svc, err := app.Boot(t.Context(), app.Options{BootstrapPath: yaml})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	v, err := auth.FromSpec(svc.Active().Canonical.Spec.Management.Auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpSrv, err := mcp.New(mcp.Config{Service: svc, Auth: v, RatePerSec: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mcpSrv.Close)
+	s, err := New(Config{Service: svc, Auth: v, RatePerSec: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, svc
+}
+
+func writeBearerYAML(t *testing.T, dir, tok string) string {
+	t.Helper()
+	cfg := filepath.Join(dir, "labmitm.yaml")
+	body := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: t\nspec:\n  management:\n    auth:\n      mode: bearer\n      tokens:\n        - id: admin\n          secretFile: " + tok + "\n          role: administrator\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func sessionCookie(t *testing.T, rec *http.Response) string {
+	t.Helper()
+	for _, c := range rec.Cookies() {
+		if c.Name == auth.CookieName {
+			return c.Value
+		}
+	}
+	t.Fatal("missing labmitm_session")
+	return ""
 }
 
 func TestUnauthenticatedFlows401(t *testing.T) {
@@ -234,39 +281,14 @@ func TestApplyRoleDemotionClearsSessions(t *testing.T) {
 	if err := os.WriteFile(tok, []byte(testToken+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := filepath.Join(dir, "labmitm.yaml")
-	body := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: t\nspec:\n  management:\n    auth:\n      mode: bearer\n      tokens:\n        - id: admin\n          secretFile: " + tok + "\n          role: administrator\n"
-	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	svc, err := app.Boot(t.Context(), app.Options{BootstrapPath: cfg})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(svc.Close)
-	v, err := auth.FromSpec(svc.Active().Canonical.Spec.Management.Auth)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := New(Config{Service: svc, Auth: v, RatePerSec: -1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	s, svc := newServeOrderAuthServer(t, writeBearerYAML(t, dir, tok))
 
 	req := httptestReq(http.MethodPost, "/v1/session", "")
 	rec := doRaw(s.Handler(), req)
 	requireStatus(t, rec, http.StatusOK)
-	var cookie string
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == auth.CookieName {
-			cookie = c.Value
-		}
-	}
-	if cookie == "" {
-		t.Fatal("missing session cookie")
-	}
+	cookie := sessionCookie(t, rec.Result())
 
-	// Demote the live spec, then Apply so OnApply (not reloadAuth directly) rebuilds.
+	// Demote the live spec, then Apply so OnApply (MCP then REST) rebuilds.
 	snap := svc.Active()
 	if len(snap.Canonical.Spec.Management.Auth.Tokens) != 1 {
 		t.Fatal("expected one token")
@@ -302,6 +324,44 @@ func TestApplyRoleDemotionClearsSessions(t *testing.T) {
 	requireStatus(t, brec, http.StatusOK)
 	if decodeJSON(t, brec)["role"] != model.RoleViewer {
 		t.Fatalf("bearer after demotion=%s", brec.Body.String())
+	}
+}
+
+func TestResetTokenRotationClearsSessions(t *testing.T) {
+	const rotated = "fedcba9876543210fedcba9876543210"
+	dir := t.TempDir()
+	tok := filepath.Join(dir, "token")
+	if err := os.WriteFile(tok, []byte(testToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := newServeOrderAuthServer(t, writeBearerYAML(t, dir, tok))
+
+	req := httptestReq(http.MethodPost, "/v1/session", "")
+	rec := doRaw(s.Handler(), req)
+	requireStatus(t, rec, http.StatusOK)
+	cookie := sessionCookie(t, rec.Result())
+
+	if err := os.WriteFile(tok, []byte(rotated+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reset := httptestReq(http.MethodPost, "/v1/state:reset", `{"reason":"rotate-token"}`)
+	rrec := doRaw(s.Handler(), reset)
+	requireStatus(t, rrec, http.StatusOK)
+
+	stale := httptestReq(http.MethodGet, "/v1/session", "")
+	stale.Header.Del("Authorization")
+	stale.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
+	requireProblem(t, doRaw(s.Handler(), stale), http.StatusUnauthorized, "unauthenticated")
+
+	old := httptestReq(http.MethodGet, "/v1/session", "")
+	requireProblem(t, doRaw(s.Handler(), old), http.StatusUnauthorized, "unauthenticated")
+
+	neu := httptestReq(http.MethodGet, "/v1/session", "")
+	neu.Header.Set("Authorization", "Bearer "+rotated)
+	nrec := doRaw(s.Handler(), neu)
+	requireStatus(t, nrec, http.StatusOK)
+	if decodeJSON(t, nrec)["id"] != "admin" {
+		t.Fatalf("rotated bearer=%s", nrec.Body.String())
 	}
 }
 

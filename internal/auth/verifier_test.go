@@ -94,6 +94,48 @@ func TestStaticVerifier(t *testing.T) {
 	}
 }
 
+func TestReplaceNotifiesIdentityChange(t *testing.T) {
+	dir := t.TempDir()
+	tok := writeSecret(t, dir, "token", testToken)
+	a, err := FromSpec(model.MgmtAuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{{
+			ID: "admin", SecretFile: tok, Role: model.RoleAdministrator,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := FromSpec(model.MgmtAuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{{
+			ID: "admin", SecretFile: tok, Role: model.RoleAdministrator,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	a.OnIdentityChange(func() { n++ })
+	a.Replace(same)
+	if n != 0 {
+		t.Fatalf("equivalent replace notified n=%d", n)
+	}
+	demoted, err := FromSpec(model.MgmtAuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{{
+			ID: "admin", SecretFile: tok, Role: model.RoleViewer,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Replace(demoted)
+	if n != 1 {
+		t.Fatalf("demotion replace notified n=%d", n)
+	}
+}
+
 func TestEquivalentRoleChange(t *testing.T) {
 	dir := t.TempDir()
 	tok := writeSecret(t, dir, "token", testToken)

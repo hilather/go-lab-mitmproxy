@@ -154,6 +154,14 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Sessions == nil {
 		cfg.Sessions = auth.NewStore(auth.DefaultSessionConfig())
 	}
+	if cfg.Auth != nil {
+		sessions := cfg.Sessions
+		cfg.Auth.OnIdentityChange(func() {
+			if sessions != nil {
+				sessions.Clear()
+			}
+		})
+	}
 	s := &Server{
 		cfg:          cfg,
 		svc:          cfg.Service,
