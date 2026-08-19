@@ -38,6 +38,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return serveCmd(ctx, args[2:], stdout, stderr)
 	case "healthcheck":
 		return healthcheckCmd(args[2:], stdout, stderr)
+	case "debug-status":
+		return debugStatusCmd(args[2:], stdout, stderr)
 	case "mcp-stdio":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

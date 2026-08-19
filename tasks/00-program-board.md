@@ -1,7 +1,7 @@
 # Program Board
 
-Status: in-progress (DEP-001 + UI-001 next)
-Last reviewed: 2026-08-19 (SEC-001 + OBS-001)
+Status: in-progress (UI-001 next)
+Last reviewed: 2026-08-18 (DEP-001)
 
 Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs/` is the source of truth.
 
@@ -21,7 +21,7 @@ Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs
 | 9 | MCP Streamable HTTP and parity | MCP-001 | API-001 | `mitm_*` tools, `labmitm://` resources, `make test-parity` | done |
 | 10 | Auth, session, audit identity | SEC-001 | API-001, MCP-001 | Bearer, CSRF session, 401 contract | done |
 | 11 | Observability | OBS-001 | PROXY-001, API-001 | slog events, hand-rolled OpenMetrics, ready semantics | done |
-| 12 | CLI completion, image, compose smoke | DEP-001 | PROXY-001, TLS-001, API-001, SEC-001, OBS-001 | Hardened image, compose contract, healthcheck | not-started |
+| 12 | CLI completion, image, compose smoke | DEP-001 | PROXY-001, TLS-001, API-001, SEC-001, OBS-001 | Hardened image, compose contract, healthcheck | done |
 | 13 | Embedded flow-inspector UI | UI-001 | API-001, SEC-001 | React SPA; **required for GA / 1.0** | not-started |
 | 14 | GA hardening + lab overlays | GA-001 + SWAP-001 | PRs 1–13 | Fuzz, soak, tag-gate, SWAP overlay BOM | not-started |
 

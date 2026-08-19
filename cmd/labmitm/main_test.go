@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hilather/go-lab-mitmproxy/internal/config"
 )
 
 func repoRoot(t *testing.T) string {
@@ -174,5 +176,105 @@ func TestServeNoTokenFileFlag(t *testing.T) {
 	code := run([]string{"labmitm", "serve", "--config", testdataConfig(t, "valid", "defaults.yaml"), "--token-file", "x"}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("exit %d, want 2 (serve must not accept --token-file)", code)
+	}
+}
+
+func TestDebugStatus(t *testing.T) {
+	if _, err := os.Stat("/proc/self/status"); err != nil {
+		t.Skip("/proc/self/status not available")
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labmitm", "debug-status"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Uid:") {
+		t.Fatalf("stdout=%q missing Uid", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "CapEff:") {
+		t.Fatalf("stdout=%q missing CapEff", stdout.String())
+	}
+}
+
+func TestDebugStatusSystemCerts(t *testing.T) {
+	if _, err := os.Stat("/etc/ssl/certs/ca-certificates.crt"); err != nil {
+		t.Skip("system CA bundle not available")
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labmitm", "debug-status", "--check-system-certs"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "SystemCertPool: non-empty") {
+		t.Fatalf("stdout=%q missing SystemCertPool", stdout.String())
+	}
+}
+
+func TestDockerfileHardening(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"FROM scratch",
+		"USER 65532:65532",
+		"Apache-2.0",
+		"ghcr.io/hilather/labmitm",
+		`ENTRYPOINT ["/labmitm"]`,
+		`CMD ["serve", "--config=/etc/labmitm/config.yaml", "--management-listen=:8088"]`,
+		`CMD ["/labmitm", "healthcheck", "--url=http://127.0.0.1:8088/v1/health/ready"]`,
+		"EXPOSE 8888/tcp 8088/tcp",
+		"/etc/ssl/certs/ca-certificates.crt",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("Dockerfile missing %q", want)
+		}
+	}
+	if strings.Contains(text, "FROM node") || strings.Contains(text, "node:") {
+		t.Error("Dockerfile must not have a Node stage")
+	}
+	if strings.Contains(text, "node -e") || strings.Contains(text, `CMD ["node"`) {
+		t.Error("Dockerfile healthcheck must not exec node")
+	}
+}
+
+func TestComposeSmokeContract(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), "examples", "compose.smoke.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		`test: ["CMD", "/labmitm", "healthcheck", "--url=http://127.0.0.1:8088/v1/health/ready"]`,
+		`user: "65532:65532"`,
+		"read_only: true",
+		"cap_drop:",
+		"- ALL",
+		"tmpfs:",
+		"- /tmp",
+		"no-new-privileges:true",
+		"testdata/container/token",
+		"--management-listen=:8088",
+		"8888:8888/tcp",
+		"8088:8088/tcp",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("compose.smoke.yaml missing %q", want)
+		}
+	}
+	if strings.Contains(text, "node -e") || strings.Contains(text, `"node"`) {
+		t.Error("compose smoke healthcheck must not exec node")
+	}
+	if strings.Contains(text, "serve") && strings.Contains(text, "--token-file") {
+		t.Error("compose smoke must not pass serve --token-file")
+	}
+}
+
+func TestExampleAndContainerYAML(t *testing.T) {
+	root := repoRoot(t)
+	path := filepath.Join(root, "testdata", "container", "config.yaml")
+	if _, err := config.LoadFile(path); err != nil {
+		t.Fatalf("load testdata/container/config.yaml: %v", err)
 	}
 }

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-18 (SEC-001)
+Last reviewed: 2026-08-18 (DEP-001)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007
 
 ## Problem statement

@@ -31,7 +31,7 @@ help:
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
 		'  web-test            unimplemented until UI-001 (PR 13); fail-closed' \
 		'  web-build           unimplemented until UI-001 (PR 13); fail-closed' \
-		'  test-container      unimplemented until DEP-001 (PR 12); fail-closed' \
+		'  test-container      build ghcr.io/hilather/labmitm and check non-root/read-only/no-caps' \
 		'  test-changelog      unimplemented until GA-001 (PR 14); fail-closed'
 
 fmt: format
@@ -83,7 +83,7 @@ web-build:
 	@echo 'web-build: unimplemented until UI-001 (PR 13)' >&2; exit 1
 
 test-container:
-	@echo 'test-container: unimplemented until DEP-001 (PR 12)' >&2; exit 1
+	bash scripts/test-container.sh
 
 test-changelog:
 	@echo 'test-changelog: unimplemented until a checkchangelog script lands' >&2; exit 1
