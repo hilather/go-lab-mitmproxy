@@ -22,7 +22,6 @@ func TestImportDAG(t *testing.T) {
 		"github.com/hilather/go-lab-mitmproxy/internal/proxy",
 		"github.com/hilather/go-lab-mitmproxy/internal/store",
 		"github.com/hilather/go-lab-mitmproxy/internal/web",
-		"net/http",
 		"net/smtp",
 	}
 	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {

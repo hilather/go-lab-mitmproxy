@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP
-Last reviewed: 2026-08-18 (MCP-001)
+Last reviewed: 2026-08-18 (SEC-001)
 Related ADRs: 0004, 0005, 0006, 0007
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
 
-STA-001 lands `internal/app.Service` (plan/apply/reset/export, flow list/get/delete/wait/resume/drop, audit, CA PEM). API-001 lands REST (`internal/control/rest`) over that service: problem+json, HMAC cursors, wait/resume/drop/replay, `GET /v1/ca` cert-only. MCP-001 lands `internal/control/mcp` (official SDK v1.7.0, protocol `2026-07-28`, `POST /mcp` Streamable HTTP, `mitm_*` tools, `labmitm://` resources, URI-only listen, `labmitm mcp-stdio --token-file`). Session cookie/CSRF is SEC-001. Management bind requires a bearer verifier with ≥1 usable token (or `--management-listen=off`).
+STA-001 lands `internal/app.Service` (plan/apply/reset/export, flow list/get/delete/wait/resume/drop, audit, CA PEM). API-001 lands REST (`internal/control/rest`) over that service: problem+json, HMAC cursors, wait/resume/drop/replay, `GET /v1/ca` cert-only. MCP-001 lands `internal/control/mcp` (official SDK v1.7.0, protocol `2026-07-28`, `POST /mcp` Streamable HTTP, `mitm_*` tools, `labmitm://` resources, URI-only listen, `labmitm mcp-stdio --token-file`). SEC-001 lands lab static bearer (no Basic), REST cookie `labmitm_session` + `X-LabMITM-CSRF`, origin allowlist, and audit `actorId`. Unauthenticated `GET /v1/flows` is 401. Management bind requires a bearer verifier with ≥1 usable token (or `--management-listen=off`).
 
 ## Package layout
 

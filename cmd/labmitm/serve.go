@@ -190,6 +190,7 @@ func startManagement(svc *app.App, addr string, spec model.Spec, reg *observabil
 	if err := verifier.RequireListen(); err != nil {
 		return nil, nil, err
 	}
+	sessions := auth.NewStore(auth.DefaultSessionConfig())
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, nil, err
@@ -228,6 +229,7 @@ func startManagement(svc *app.App, addr string, spec model.Spec, reg *observabil
 		Logger:         log,
 		Ready:          ready,
 		Auth:           verifier,
+		Sessions:       sessions,
 		CookieSecure:   spec.Listeners.Management.TLS.Enabled,
 		UI:             web.NewHandler(nil),
 		UIEnabled: func() bool {

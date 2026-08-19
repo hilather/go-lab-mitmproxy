@@ -86,7 +86,9 @@ type Config struct {
 	SSEHeartbeat time.Duration
 	// Auth is the shared verifier. Nil is deny-all (not allow-all).
 	Auth *auth.Verifier
-	// CookieSecure forces the Secure flag (management TLS). Cookie sessions are SEC-001.
+	// Sessions is the REST-only UI session table. Nil becomes an empty store.
+	Sessions *auth.Store
+	// CookieSecure forces the Secure flag (management TLS).
 	CookieSecure bool
 	// UI serves the embedded stub/SPA when a request is not a native /v1 or MCP path.
 	// rest must not import internal/web; cmd wires this.
@@ -148,6 +150,9 @@ func New(cfg Config) (*Server, error) {
 	hb := cfg.SSEHeartbeat
 	if hb <= 0 {
 		hb = sseHeartbeat
+	}
+	if cfg.Sessions == nil {
+		cfg.Sessions = auth.NewStore(auth.DefaultSessionConfig())
 	}
 	s := &Server{
 		cfg:          cfg,
@@ -384,13 +389,18 @@ func (s *Server) reloadAuth() {
 	}
 	next, err := auth.FromSpec(snap.Canonical.Spec.Management.Auth)
 	if err != nil {
+		// Keep the previous verifier and live UI sessions.
 		return
 	}
 	// Do not swap in an allow-all / empty-bearer index; keep the live verifier.
 	if err := next.RequireListen(); err != nil {
 		return
 	}
+	changed := !s.cfg.Auth.Equivalent(next)
 	s.cfg.Auth.Replace(next)
+	if changed && s.cfg.Sessions != nil {
+		s.cfg.Sessions.Clear()
+	}
 }
 
 func isHealthCap(cap capabilities.Capability) bool {

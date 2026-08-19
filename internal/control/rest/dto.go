@@ -93,10 +93,17 @@ type resetRequest struct {
 	Reason string `json:"reason"`
 }
 
+type sessionCreateJSON struct {
+	CSRF      string `json:"csrf"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
 type sessionViewJSON struct {
-	ID     string   `json:"id"`
-	Role   string   `json:"role"`
-	Scopes []string `json:"scopes"`
+	ID        string   `json:"id"`
+	Role      string   `json:"role"`
+	Scopes    []string `json:"scopes"`
+	CSRF      string   `json:"csrf,omitempty"`
+	ExpiresAt string   `json:"expiresAt,omitempty"`
 }
 
 type deleteRequest struct {

@@ -121,7 +121,9 @@ func (v *Verifier) Replace(next *Verifier) {
 	v.tokens = next.tokens
 }
 
-// Equivalent reports whether the compiled identity matches.
+// Equivalent reports whether the compiled identity matches: mode, token
+// id+digest+role+scopes. Session rows snapshot role/scopes at Create, so a
+// demotion must count as a change.
 func (v *Verifier) Equivalent(other *Verifier) bool {
 	if v == nil || other == nil {
 		return v == other

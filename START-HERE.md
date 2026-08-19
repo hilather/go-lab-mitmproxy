@@ -1,6 +1,6 @@
 # Start here
 
-LabMITM is a laboratory HTTP(S) intercepting proxy in the LabDNS / LabMail / TacLab family. Systems under test send HTTP/1.1 absolute-form requests and CONNECT tunnels to it. LabMITM captures, optionally intercepts TLS with a lab CA, and exposes flows over native REST `/v1` (MCP and the production UI follow). It never wraps Python mitmproxy.
+LabMITM is a laboratory HTTP(S) intercepting proxy in the LabDNS / LabMail / TacLab family. Systems under test send HTTP/1.1 absolute-form requests and CONNECT tunnels to it. LabMITM captures, optionally intercepts TLS with a lab CA, and exposes flows over native REST `/v1` and MCP `POST /mcp` (the production UI follows). Management is lab static bearer; unauthenticated `GET /v1/flows` is 401. It never wraps Python mitmproxy.
 
 If you want to run what exists today, stay on this page, then follow the [README](README.md). If you want to change it, read [AGENTS.md](AGENTS.md) before touching code.
 

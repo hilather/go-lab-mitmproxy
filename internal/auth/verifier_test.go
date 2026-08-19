@@ -94,6 +94,40 @@ func TestStaticVerifier(t *testing.T) {
 	}
 }
 
+func TestEquivalentRoleChange(t *testing.T) {
+	dir := t.TempDir()
+	tok := writeSecret(t, dir, "token", testToken)
+	spec := model.MgmtAuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{{
+			ID: "admin", SecretFile: tok, Role: model.RoleAdministrator,
+		}},
+	}
+	a, err := FromSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := FromSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.Equivalent(b) {
+		t.Fatal("identical specs must be equivalent")
+	}
+	spec.Tokens[0].Role = model.RoleViewer
+	spec.Tokens[0].Scopes = nil
+	c, err := FromSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Equivalent(c) {
+		t.Fatal("role demotion must not be equivalent")
+	}
+	if got := WWWAuthenticate(); len(got) != 1 || got[0] != `Bearer realm="labmitm"` {
+		t.Fatalf("www-authenticate=%v", got)
+	}
+}
+
 func TestDevLoopbackUnauth(t *testing.T) {
 	v, err := FromSpec(model.MgmtAuthSpec{Mode: model.MgmtAuthDevLoopbackUnauth})
 	if err != nil {

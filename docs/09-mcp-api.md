@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: MCP, Application
-Last reviewed: 2026-08-18 (MCP-001)
+Last reviewed: 2026-08-18 (SEC-001)
 Related ADRs: 0004, 0006
 
 Native management API is `/v1` + `POST /mcp`. Capability IDs and tool names are frozen in [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md). Protocol pin: [docs/adr/0006-pin-mcp-protocol-versions.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0006-pin-mcp-protocol-versions.md).
@@ -73,7 +73,7 @@ Health live/ready, OpenAPI, UI assets, session/CSRF, and `/v1/metrics` are **not
 
 ## Auth
 
-MCP is bearer-only. Tokens are the same lab static bearer set as REST (`spec.management.auth.tokens`). No OAuth Protected Resource Metadata. No HTTP Basic.
+MCP is bearer-only. Tokens are the same lab static bearer set as REST (`spec.management.auth.tokens`); the verifier is reread on reset/apply. Failed Bearer is JSON-RPC unauthenticated with `WWW-Authenticate: Bearer realm="labmitm"`. No OAuth Protected Resource Metadata. No HTTP Basic. Session cookies are REST-only.
 
 ## Compatibility promise
 

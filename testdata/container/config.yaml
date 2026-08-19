@@ -1,0 +1,30 @@
+# Minimal local-only bootstrap for container contract tests (DEP-001).
+# Health live/ready stay unauthenticated. Flow reads use the smoke token.
+# This fixture is bearer — not dev-loopback-unauth.
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: container-smoke
+spec:
+  listeners:
+    proxy:
+      address: "127.0.0.1:8888"
+    management:
+      address: "127.0.0.1:8088"
+      restPath: /v1
+      mcpPath: /mcp
+  ui:
+    enabled: false
+  management:
+    auth:
+      mode: bearer
+      tokens:
+        - id: smoke
+          secretFile: /etc/labmitm/token
+          role: administrator
+          scopes: [mitm.read, mitm.write, mitm.admin, mitm.audit.read]
+  observability:
+    logLevel: info
+    metrics:
+      listen: ""
+      publicPath: false
