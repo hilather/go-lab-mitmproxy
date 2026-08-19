@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-19 (accept mux D42 + http2x + compat flow REST)
-Related ADRs: 0002, 0004, 0009, 0011
+Last reviewed: 2026-08-19 (h2 + SOCKS5 CONNECT + compat)
+Related ADRs: 0002, 0004, 0009, 0010, 0011
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
 
@@ -12,7 +12,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Layer | What | Where |
 |---|---|---|
 | Unit | config decode/unknown/reserved/byte sizes; store caps/wipe/wait/race; rules first-match; auth scopes; domainerr; OpenMetrics | `internal/*` |
-| Proxy protocol | absolute-form GET/POST, hop-by-hop strip, CONNECT Hijack + two GETs, HTTP/2 preface close, SOCKS peek-close (flags off), silent-peer stall (second HTTP before HeaderTimeout), resolve-then-guard (name→IMDS, name→link-local), `https://` 400, CONNECT without port, WebSocket 101, Expect strip, HTTP_PROXY ignored | `internal/proxy` + `internal/proxytest`; transcripts in `testdata/proxy` |
+| Proxy protocol | absolute-form GET/POST, hop-by-hop strip, CONNECT Hijack + two GETs, HTTP/2 preface close, SOCKS peek-close (flags off), SOCKS5/4 CONNECT when flags on (IMDS deny, IPv6 BND `::`, intercept without HTTP 200), silent-peer stall (second HTTP before HeaderTimeout), resolve-then-guard (name→IMDS, name→link-local), `https://` 400, CONNECT without port, WebSocket 101, Expect strip, HTTP_PROXY ignored | `internal/proxy` + `internal/proxytest`; transcripts in `testdata/proxy` |
 | TLS intercept | generate CA, files CA, leaf SAN=SNI, client trusting lab CA succeeds, untrusted client fails, upstream verify on/off, ALPN http/1.1 only (flag off), snapshot NextProtos, non-443 CONNECT tunnels, handshake fail → `tls_handshake` (no blind fallback), inner `PRI` → `http2_inner` | `internal/tlsmitm` + fixture origin in `proxytest` |
 | HTTP/2 codec | `http2x` StreamID + pseudos, no Dial idents, `DialTLS == nil`, pool refuses redial | `internal/http2x` |
 | Store | insert/delete/wait/wipe epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate bodies, stacked caps, spill | `internal/store` |
@@ -52,7 +52,7 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 
 ## Frozen fixtures
 
-- PROXY-001: `testdata/proxy/absolute-https.txt`, `connect-no-port.txt`, `connect-two-gets.txt`, `connect-hijack.txt`, `upgrade-websocket.txt`, `name-imds.txt`, `name-link-local.txt`.
+- PROXY-001: `testdata/proxy/absolute-https.txt`, `connect-no-port.txt`, `connect-two-gets.txt`, `connect-hijack.txt`, `upgrade-websocket.txt`, `name-imds.txt`, `name-link-local.txt`, `socks5-connect.txt`, `socks5-imds.txt`, `socks4-off.txt`.
 - TLS fixture (TLS-001): `testdata/tls/**` test-only PEMs; generate-mode client that trusts `CertPEM()` succeeds against a fixture origin; untrusted client fails; `CONNECT :80` with intercept on tunnels; `CONNECT :443` to plaintext stores `Error=tls_handshake` with no blind tunnel.
 - API-001: REST contract tests (`internal/control/rest`) for auth 401, problem+json, list/get/delete/wait/resume/drop/replay, HMAC cursor stale, `GET /v1/ca` cert-only; `proxy.Replay` HTTP/HTTPS, `HTTP_PROXY` ignored, hairpin rejected.
 - MCP-001: `testdata/mcp/goldens/{tools,resources,mutating-tools}.txt`; `internal/control/mcp` initialize/tools/list/tool call/origin/bearer; URI-only `subscriptions/listen` on `labmitm://flows`; `api/mcp/v1.json`.

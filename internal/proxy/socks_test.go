@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/store"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
@@ -386,6 +387,117 @@ func TestSOCKS5Intercept(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no intercepted socks flow: %+v", sink.Last())
+	}
+}
+
+func TestSOCKS5InterceptRequestBreakpointStampsVia(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "after")
+	}))
+	_, port := hostPort(t, origin)
+	spec := interceptSpec(t, port, testdataTLS(t, "origin-ca.pem"))
+	spec.Listeners.Proxy.AcceptSOCKS5 = true
+	spec.Rules = model.RulesSpec{
+		Enabled: true,
+		Items: []model.RuleSpec{{
+			ID:      "brk",
+			Enabled: true,
+			Phase:   model.RulePhaseRequest,
+			Match:   model.RuleMatchSpec{PathPrefix: "/hello"},
+			Action:  model.RuleActionSpec{Type: model.ActionBreakpoint, Breakpoint: model.RuleBreakpointSpec{Timeout: 5 * time.Second}},
+		}},
+	}
+	inbox := newProxyStore(t, store.Options{MaxFlows: 10, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyReject, MaxWait: time.Minute})
+	px := startProxy(t, Options{Spec: spec, Sink: AdaptStore(inbox), Store: inbox, Resolver: appLabResolver()})
+	auth := px.Authority()
+	if auth == nil {
+		t.Fatal("missing lab CA")
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		c, err := net.DialTimeout("tcp", px.Addr().String(), 2*time.Second)
+		if err != nil {
+			done <- err
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_ = c.SetDeadline(time.Now().Add(8 * time.Second))
+		if _, err := c.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+			done <- err
+			return
+		}
+		greet := make([]byte, 2)
+		if _, err := io.ReadFull(c, greet); err != nil {
+			done <- err
+			return
+		}
+		if greet[0] != 0x05 || greet[1] != 0x00 {
+			done <- fmt.Errorf("greeting %x", greet)
+			return
+		}
+		host := "app.lab"
+		req := []byte{0x05, 0x01, 0x00, 0x03, byte(len(host))}
+		req = append(req, host...)
+		req = append(req, bePort(port)...)
+		if _, err := c.Write(req); err != nil {
+			done <- err
+			return
+		}
+		rep := make([]byte, 10)
+		if _, err := io.ReadFull(c, rep); err != nil {
+			done <- err
+			return
+		}
+		if rep[1] != 0x00 {
+			done <- fmt.Errorf("CONNECT %x", rep)
+			return
+		}
+		tlsC := tls.Client(c, &tls.Config{
+			ServerName: "app.lab",
+			RootCAs:    auth.CertPool(),
+			NextProtos: []string{tlsmitm.ALPN},
+			MinVersion: tls.VersionTLS12,
+		})
+		if err := tlsC.Handshake(); err != nil {
+			done <- err
+			return
+		}
+		if _, err := io.WriteString(tlsC, "GET /hello HTTP/1.1\r\nHost: app.lab\r\n\r\n"); err != nil {
+			done <- err
+			return
+		}
+		resp, err := http.ReadResponse(bufio.NewReader(tlsC), nil)
+		if err != nil {
+			done <- err
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK || string(body) != "after" {
+			done <- fmt.Errorf("status %d body %q", resp.StatusCode, body)
+			return
+		}
+		done <- nil
+	}()
+
+	paused := waitFlow(t, inbox, model.FlowFilter{PathPrefix: "/hello"})
+	if paused.State != model.FlowStatePaused {
+		t.Fatalf("state %q", paused.State)
+	}
+	if paused.Via != "socks5" || paused.SOCKS == nil || paused.SOCKS.Version != 5 {
+		t.Fatalf("paused Via/SOCKS %+v SOCKS=%+v", paused.Via, paused.SOCKS)
+	}
+	if err := inbox.Resume(paused.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("client hung")
 	}
 }
 
