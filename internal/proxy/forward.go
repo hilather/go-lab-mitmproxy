@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -17,44 +16,59 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/httputilx"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 )
 
-func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
+func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *ruleSession) {
 	started := time.Now()
 	host, port, err := splitAuthority(req.URL.Host, "80")
 	if err != nil {
 		writeProxyError(w, http.StatusBadRequest, domainerr.CodeValidationFailed, "invalid authority", "")
 		return
 	}
+	if sess == nil {
+		sess = s.beginSession()
+	}
 
-	ctx, cancel := context.WithTimeout(req.Context(), s.specNow().Proxy.Admission.UpstreamTimeout)
-	defer cancel()
-
-	res, err := resolveThenGuard(ctx, s.resolver, s.specNow().Proxy.Targets, host, port)
+	guardCtx, guardCancel := s.upstreamCtxSess(req.Context(), sess)
+	res, err := resolveThenGuard(guardCtx, s.resolver, sess.spec.Proxy.Targets, host, port)
+	guardCancel()
 	if err != nil {
-		s.rejectResolve(w, req, host, err)
+		s.rejectResolve(w, req, host, err, sess)
 		return
 	}
 
+	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, req, req.Header, true)
+
 	ws := httputilx.IsWebSocketUpgrade(req.Header)
-	hadExpect := headerHasExpect(req.Header)
-	out, reqCap := s.originRequest(ctx, req, res, host, port)
+	if headerHasExpect(req.Header) && !ws {
+		s.serveExpectAbsolute(w, req, res, host, port, started, sess)
+		return
+	}
+
+	if handled := s.runRequestRules(req.Context(), w, req, host, "http", started, sess); handled {
+		return
+	}
+
+	upCtx, upCancel := s.upstreamCtxSess(req.Context(), sess)
+	defer upCancel()
+	out, cap := s.originRequest(upCtx, req, res, host, port, sess.reqCap, sess)
+	if cap != nil {
+		sess.reqCap = cap
+	}
 
 	var (
 		resp   *http.Response
 		sticky net.Conn
 	)
-	if hadExpect && !ws {
-		s.forwardNo100(w, req, out, reqCap, host, started)
-		return
-	}
 	if ws {
-		resp, sticky, err = s.roundTripUpgrade(ctx, out, res)
+		resp, sticky, err = s.roundTripUpgrade(upCtx, out, res, sess)
 	} else {
 		resp, err = s.tr.RoundTrip(out)
 	}
 	if err != nil {
-		s.capture(s.flowFromReq(req, host, "http", 0, "upstream", started))
+		f := s.flowFromReq(req, host, "http", 0, "upstream", started)
+		s.captureRule(f, req, sess.reqCap, nil, nil, sess, sess.reqHit)
 		writeProxyError(w, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed", "")
 		return
 	}
@@ -64,34 +78,14 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request) {
 	httputilx.PrepareResponse(resp.Header, websocket)
 
 	if websocket {
-		s.hijackUpgrade(w, req, resp, sticky, reqCap, host, started)
+		if hit := s.matchHit(sess, model.RulePhaseResponse, host, req, resp.Header, false); hit != nil {
+			s.metrics.ruleHit(rules.ActionLateSkip)
+		}
+		s.hijackUpgrade(w, req, resp, sticky, sess.reqCap, host, started, sess)
 		return
 	}
 
-	respBody, respCap := teeBody(resp.Body, s.specNow().Store.MaxBodyBytes)
-	resp.Body = respBody
-	httputilx.CopyHeaders(w.Header(), resp.Header)
-	w.WriteHeader(resp.StatusCode)
-	drainCopy(w, resp.Body)
-
-	f := s.flowFromReq(req, host, "http", resp.StatusCode, "", started)
-	f.Protocol = model.FlowProtocolHTTP11
-	f.Request.Headers = headersFrom(req.Header)
-	if reqCap != nil {
-		f.Request.Body = reqCap.buf
-		f.Request.Size = len(reqCap.buf)
-		f.Request.Truncated = reqCap.truncated
-		f.Truncated = f.Truncated || reqCap.truncated
-	}
-	if respCap != nil {
-		f.Response.Headers = headersFrom(resp.Header)
-		f.Response.Body = respCap.buf
-		f.Response.Size = len(respCap.buf)
-		f.Response.Truncated = respCap.truncated
-		f.Truncated = f.Truncated || respCap.truncated
-	}
-	s.capture(f)
-	s.metrics.session("ok")
+	s.finishHTTPResponse(req.Context(), w, req, resp, host, "http", started, sess, nil)
 }
 
 func headerHasExpect(h http.Header) bool {
@@ -103,8 +97,9 @@ func headerHasExpect(h http.Header) bool {
 	return false
 }
 
-// forwardNo100 Hijacks before any body read so net/http cannot emit 100.
-func (s *Server) forwardNo100(w http.ResponseWriter, req *http.Request, out *http.Request, reqCap *cappedWriter, host string, started time.Time) {
+// serveExpectAbsolute Hijacks before any body read so net/http cannot emit 100,
+// then runs request/response rules on the hijacked conn.
+func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, res resolved, host, port string, started time.Time, sess *ruleSession) {
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		writeProxyError(w, http.StatusInternalServerError, domainerr.CodeInternalError, "hijack not supported", "")
@@ -120,57 +115,52 @@ func (s *Server) forwardNo100(w http.ResponseWriter, req *http.Request, out *htt
 	defer s.untrack(client)
 	defer func() { _ = client.Close() }()
 
-	max := s.specNow().Store.MaxBodyBytes
 	switch {
 	case req.ContentLength > 0:
-		teed, capw := teeBody(io.NopCloser(io.LimitReader(bufrw, req.ContentLength)), max)
-		out.Body = teed
-		out.ContentLength = req.ContentLength
-		reqCap = capw
+		req.Body = io.NopCloser(io.LimitReader(bufrw, req.ContentLength))
 	case requestHasChunkedBody(req):
-		slurp, _ := io.ReadAll(io.LimitReader(httputilx.NewChunkedReader(bufrw), max+1))
-		truncated := int64(len(slurp)) > max
-		if truncated {
-			slurp = slurp[:max]
-		}
-		out.Body = io.NopCloser(bytes.NewReader(slurp))
-		out.ContentLength = int64(len(slurp))
-		out.TransferEncoding = nil
-		reqCap = &cappedWriter{buf: append([]byte(nil), slurp...), max: int(max), truncated: truncated}
+		req.Body = io.NopCloser(httputilx.NewChunkedReader(bufrw))
 	default:
-		out.Body = http.NoBody
-		out.ContentLength = 0
+		req.Body = http.NoBody
+		req.ContentLength = 0
 	}
 
+	write := func(resp *http.Response) {
+		_ = writeConnResponse(client, resp)
+		if bufrw != nil {
+			_ = bufrw.Flush()
+		}
+	}
+	if handled := s.runRequestRulesWrite(req.Context(), req, host, "http", started, sess, write); handled {
+		return
+	}
+
+	upCtx, upCancel := s.upstreamCtxSess(req.Context(), sess)
+	defer upCancel()
+	out, cap := s.originRequest(upCtx, req, res, host, port, sess.reqCap, sess)
+	if cap != nil {
+		sess.reqCap = cap
+	}
 	resp, err := s.tr.RoundTrip(out)
 	if err != nil {
-		s.capture(s.flowFromReq(req, host, "http", 0, "upstream", started))
+		f := s.flowFromReq(req, host, "http", 0, "upstream", started)
+		s.captureRule(f, req, sess.reqCap, nil, nil, sess, sess.reqHit)
 		writeHijackedError(client, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed")
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	httputilx.PrepareResponse(resp.Header, false)
-	respBody, respCap := teeBody(resp.Body, s.specNow().Store.MaxBodyBytes)
-	resp.Body = respBody
-	if err := resp.Write(bufrw); err != nil {
-		return
-	}
-	_ = bufrw.Flush()
-
-	f := s.flowFromReq(req, host, "http", resp.StatusCode, "", started)
-	if reqCap != nil {
-		f.Request.Body = reqCap.buf
-		f.Request.Truncated = reqCap.truncated
-	}
-	if respCap != nil {
-		f.Response.Body = respCap.buf
-		f.Response.Truncated = respCap.truncated
-	}
-	s.capture(f)
-	s.metrics.session("ok")
+	s.finishResponseWrite(req.Context(), req, resp, host, "", "http", started, sess, nil, func(out *http.Response) error {
+		if err := writeConnResponse(client, out); err != nil {
+			return err
+		}
+		if bufrw != nil {
+			return bufrw.Flush()
+		}
+		return nil
+	})
 }
 
-func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string) (*http.Request, *cappedWriter) {
+func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter, sess *ruleSession) (*http.Request, *cappedWriter) {
 	out := req.Clone(ctx)
 	out.RequestURI = ""
 	out.URL = &url.URL{
@@ -185,7 +175,10 @@ func (s *Server) originRequest(ctx context.Context, req *http.Request, res resol
 	}
 	out.Host = originHost(host, port)
 	httputilx.PrepareRequest(out.Header)
-	max := s.specNow().Store.MaxBodyBytes
+	if preCap != nil {
+		return out, preCap
+	}
+	max := s.maxBodyOf(sess)
 	var capw *cappedWriter
 	if out.Body != nil {
 		var teed io.ReadCloser
@@ -207,17 +200,17 @@ func requestHasChunkedBody(req *http.Request) bool {
 	return req.ContentLength < 0
 }
 
-func (s *Server) rejectResolve(w http.ResponseWriter, req *http.Request, host string, err error) {
+func (s *Server) rejectResolve(w http.ResponseWriter, req *http.Request, host string, err error, sess *ruleSession) {
 	if err == nil {
 		return
 	}
 	if isDNS(err) {
-		s.capture(s.flowFromReq(req, host, "http", http.StatusBadGateway, "dns", time.Now()))
+		s.capture(s.flowFromReq(req, host, "http", http.StatusBadGateway, "dns", time.Now()), sess)
 		writeProxyError(w, http.StatusBadGateway, domainerr.CodeInternalError, "dns lookup failed", "")
 		return
 	}
 	s.metrics.reject("target_denied")
-	s.capture(s.flowFromReq(req, host, "http", http.StatusForbidden, string(domainerr.CodeTargetDenied), time.Now()))
+	s.capture(s.flowFromReq(req, host, "http", http.StatusForbidden, string(domainerr.CodeTargetDenied), time.Now()), sess)
 	writeProxyError(w, http.StatusForbidden, domainerr.CodeTargetDenied, "target denied", "")
 }
 
@@ -252,7 +245,7 @@ func (s *Server) flowFromReq(req *http.Request, host, scheme string, status int,
 	}
 }
 
-func (s *Server) roundTripUpgrade(ctx context.Context, out *http.Request, res resolved) (*http.Response, net.Conn, error) {
+func (s *Server) roundTripUpgrade(ctx context.Context, out *http.Request, res resolved, sess *ruleSession) (*http.Response, net.Conn, error) {
 	var sticky net.Conn
 	proto := http1Only()
 	tr := &http.Transport{
@@ -262,9 +255,9 @@ func (s *Server) roundTripUpgrade(ctx context.Context, out *http.Request, res re
 		ForceAttemptHTTP2:     false,
 		TLSNextProto:          map[string]func(string, *tls.Conn) http.RoundTripper{},
 		Protocols:             proto,
-		ResponseHeaderTimeout: s.specNow().Proxy.Admission.UpstreamTimeout,
+		ResponseHeaderTimeout: s.specOf(sess).Proxy.Admission.UpstreamTimeout,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			c, err := s.dialPinned(ctx, network, addr)
+			c, err := s.dialPinnedTO(ctx, network, addr, s.specOf(sess).Proxy.Admission.DialTimeout)
 			if err != nil {
 				return nil, err
 			}
@@ -278,7 +271,7 @@ func (s *Server) roundTripUpgrade(ctx context.Context, out *http.Request, res re
 	return resp, sticky, err
 }
 
-func (s *Server) hijackUpgrade(w http.ResponseWriter, req *http.Request, resp *http.Response, upstream net.Conn, reqCap *cappedWriter, host string, started time.Time) {
+func (s *Server) hijackUpgrade(w http.ResponseWriter, req *http.Request, resp *http.Response, upstream net.Conn, reqCap *cappedWriter, host string, started time.Time, sess *ruleSession) {
 	hj, ok := w.(http.Hijacker)
 	if !ok || upstream == nil {
 		writeProxyError(w, http.StatusInternalServerError, domainerr.CodeInternalError, "upgrade hijack failed", "")
@@ -307,13 +300,13 @@ func (s *Server) hijackUpgrade(w http.ResponseWriter, req *http.Request, resp *h
 		f.Request.Body = reqCap.buf
 		f.Request.Truncated = reqCap.truncated
 	}
-	s.capture(f)
+	s.capture(f, sess)
 	s.metrics.session("ok")
 	// Read leftover 101 payload from resp.Body (Transport buffered it).
-	s.tunnelUpgrade(client, bufrw, upstream, resp.Body)
+	s.tunnelUpgrade(client, bufrw, upstream, resp.Body, s.specOf(sess).Proxy.Admission)
 }
 
-func (s *Server) tunnelUpgrade(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn, fromUp io.Reader) {
+func (s *Server) tunnelUpgrade(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn, fromUp io.Reader, ad model.AdmissionSpec) {
 	if bufrw != nil && bufrw.Reader.Buffered() > 0 {
 		n := bufrw.Reader.Buffered()
 		b, _ := bufrw.Peek(n)
@@ -323,15 +316,15 @@ func (s *Server) tunnelUpgrade(client net.Conn, bufrw *bufio.ReadWriter, upstrea
 	if fromUp == nil {
 		fromUp = upstream
 	}
-	s.setSessionDeadline(client, upstream)
+	s.setSessionDeadline(ad, client, upstream)
 	done := make(chan struct{}, 2)
 	go func() {
-		s.deadlineCopy(upstream, client)
+		s.deadlineCopy(ad, upstream, client)
 		closeWrite(upstream)
 		done <- struct{}{}
 	}()
 	go func() {
-		s.deadlineCopy(client, fromUp)
+		s.deadlineCopy(ad, client, fromUp)
 		closeWrite(client)
 		done <- struct{}{}
 	}()
@@ -355,22 +348,22 @@ func writeSwitching(w io.Writer, resp *http.Response) error {
 	return nil
 }
 
-func (s *Server) tunnel(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn) {
+func (s *Server) tunnel(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn, ad model.AdmissionSpec) {
 	if bufrw != nil && bufrw.Reader.Buffered() > 0 {
 		n := bufrw.Reader.Buffered()
 		b, _ := bufrw.Peek(n)
 		_, _ = upstream.Write(b)
 		_, _ = bufrw.Discard(n)
 	}
-	s.setSessionDeadline(client, upstream)
+	s.setSessionDeadline(ad, client, upstream)
 	done := make(chan struct{}, 2)
 	go func() {
-		s.deadlineCopy(upstream, client)
+		s.deadlineCopy(ad, upstream, client)
 		closeWrite(upstream)
 		done <- struct{}{}
 	}()
 	go func() {
-		s.deadlineCopy(client, upstream)
+		s.deadlineCopy(ad, client, upstream)
 		closeWrite(client)
 		done <- struct{}{}
 	}()
@@ -378,8 +371,7 @@ func (s *Server) tunnel(client net.Conn, bufrw *bufio.ReadWriter, upstream net.C
 	<-done
 }
 
-func (s *Server) setSessionDeadline(conns ...net.Conn) {
-	ad := s.specNow().Proxy.Admission
+func (s *Server) setSessionDeadline(ad model.AdmissionSpec, conns ...net.Conn) {
 	if ad.SessionTimeout <= 0 {
 		return
 	}
@@ -391,8 +383,7 @@ func (s *Server) setSessionDeadline(conns ...net.Conn) {
 	}
 }
 
-func (s *Server) deadlineCopy(dst io.Writer, src io.Reader) {
-	ad := s.specNow().Proxy.Admission
+func (s *Server) deadlineCopy(ad model.AdmissionSpec, dst io.Writer, src io.Reader) {
 	sessionEnd := time.Time{}
 	if ad.SessionTimeout > 0 {
 		sessionEnd = time.Now().Add(ad.SessionTimeout)

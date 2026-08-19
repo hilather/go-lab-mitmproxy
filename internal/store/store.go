@@ -33,6 +33,9 @@ type Store interface {
 	Resume(id string, patch *ResumePatch) error
 	Drop(id string) error
 	WaitPaused(ctx context.Context, id string) (ResumePatch, error)
+	// ExpireBreakpoint marks a still-paused row completed so a late
+	// Resume is ErrBreakpointInactive (session-ctx timeout / stale epoch).
+	ExpireBreakpoint(id string) error
 	Subscribe(cap int) (<-chan Event, func())
 	Generation() uint64
 	Epoch() uint64

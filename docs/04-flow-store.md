@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Store, Proxy, Application
-Last reviewed: 2026-08-18 (STORE-001)
+Last reviewed: 2026-08-18 (STA-001)
 Related ADRs: 0003
 
 Package `internal/store`. Captured HTTP is runtime evidence, not desired state. Restart or reset wipes flows. Pattern is LabMail `docs/03-message-store.md`.
 
-STORE-001 implements `store.Memory` (ULID ids via `github.com/oklog/ulid/v2`, stacked caps, Wait, Wipe epoch, Pause/Resume/Drop/WaitPaused, optional spill). The proxy inserts completed flows through `proxy.AdaptStore` (epoch is the live store epoch at capture). A mismatch under the insert lock returns `store.ErrStaleEpoch` and the flow is not stored. `fullPolicy: reject` returns `store.ErrFull`; the proxy **still forwards** (capture is best-effort). A single flow whose resident size exceeds `maxBytes` returns `store.ErrTooLarge`. Bodies larger than `maxBodyBytes` are truncated and flagged. `store.Null` remains a discard Sink for tests. `labmitm serve` constructs Memory from `spec.store` and `Wipe`s on process shutdown. STA-001 will thread the accept-time epoch through in-flight sessions.
+STORE-001 implements `store.Memory` (ULID ids via `github.com/oklog/ulid/v2`, stacked caps, Wait, Wipe epoch, Pause/Resume/Drop/WaitPaused, optional spill). STA-001 pins the store epoch on the proxy session at accept (`beginSession`). Completed and paused inserts use that epoch; a mismatch under the insert lock returns `store.ErrStaleEpoch` and the flow is not stored, so reset leaves the inbox empty even if an in-flight hop still forwards. `fullPolicy: reject` returns `store.ErrFull`; the proxy **still forwards** (capture is best-effort). A single flow whose resident size exceeds `maxBytes` returns `store.ErrTooLarge`. Bodies larger than `maxBodyBytes` are truncated and flagged. `store.Null` remains a discard Sink for tests. `labmitm serve` constructs Memory from `spec.store` and `Wipe`s on process shutdown.
 
 ## Interface
 
@@ -34,6 +34,7 @@ type Store interface {
     Resume(id string, patch *ResumePatch) error
     Drop(id string) error
     WaitPaused(ctx context.Context, id string) (ResumePatch, error)
+    ExpireBreakpoint(id string) error // timeout/stale: completed, late Resume inactive
     Subscribe(cap int) (<-chan Event, func())
     Generation() uint64
     Epoch() uint64
@@ -48,11 +49,12 @@ type Store interface {
 
 ## Breakpoint contract
 
-Implementable in PR 6 **without HTTP**:
+RULES-001 wires the proxy session to these primitives **without REST**. The HTTP-free unit test remains the contract:
 
 - `Insert` of a paused flow **or** `Pause(id)` sets `State=paused` and emits `Event{Kind:"paused"}`.
 - The **proxy session** calls `WaitPaused(ctx, id)` with a context whose deadline is `min(rule.breakpoint.timeout, store.maxWait)`. Timeout lives in that ctx — **not** a store timer that outlives `Wipe`.
 - `Resume` / `Drop` wake `WaitPaused`. `Resume` on a non-paused id → `ErrBreakpointInactive`. `Drop` marks `State=dropped`.
+- After `WaitPaused` the session **re-looks up** the flow. If a Resume raced the ctx timeout, honor the applied patch. If the row is still paused (timeout / `ErrStaleEpoch`), `ExpireBreakpoint` marks it `completed` with `Error=breakpoint_timeout` so a late Resume is inactive; the hop continues unmodified without a second Insert.
 - **Lock order:** store mutex is never held across a proxy network read/write. Proxy session: (1) release any store lock, (2) `WaitPaused`, (3) re-lookup the flow.
 - `Wipe` / `ResetTo` / stale `epoch` on `Resume`/`Drop`/`WaitPaused` → `ErrStaleEpoch`; all waiters cancel.
 - `Subscribe` is the single event hook. REST SSE and MCP `subscriptions/listen` adapt it; they do not invent a second bus.

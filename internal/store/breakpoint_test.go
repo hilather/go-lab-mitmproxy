@@ -326,6 +326,33 @@ func TestResumeEmptyBodyClearsSpill(t *testing.T) {
 	}
 }
 
+func TestExpireBreakpointTimeout(t *testing.T) {
+	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyReject})
+	f := sampleFlow("GET", "http://h/", 0, []byte("ab"))
+	f.State = model.FlowStatePaused
+	res, err := s.Insert(context.Background(), s.Epoch(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ExpireBreakpoint(res.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != model.FlowStateCompleted || got.Error != "breakpoint_timeout" {
+		t.Fatalf("got %+v", got)
+	}
+	if err := s.Resume(res.ID, nil); !errors.Is(err, ErrBreakpointInactive) {
+		t.Fatalf("late Resume err=%v", err)
+	}
+	_, err = s.WaitPaused(context.Background(), res.ID)
+	if !errors.Is(err, ErrBreakpointTimeout) {
+		t.Fatalf("WaitPaused after expire: %v", err)
+	}
+}
+
 func TestResumePatchOverMaxBody(t *testing.T) {
 	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, MaxBodyBytes: 4, FullPolicy: model.FullPolicyReject})
 	f := sampleFlow("GET", "http://h/", 0, []byte("ab"))

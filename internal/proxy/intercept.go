@@ -16,17 +16,24 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/httputilx"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
 
-func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net.Conn, req *http.Request, host, port string, res resolved, started time.Time) {
-	auth := s.auth
+func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net.Conn, req *http.Request, host, port string, res resolved, started time.Time, sess *ruleSession) {
+	if sess == nil {
+		sess = s.beginSession()
+	}
+	auth := sess.auth
 	if auth == nil {
-		s.failIntercept(req, host, started, tlsmitm.ResultMintFail)
+		auth = s.auth
+	}
+	if auth == nil {
+		s.failIntercept(req, host, started, tlsmitm.ResultMintFail, sess)
 		return
 	}
 	rawClient := wrapHijacked(client, bufrw)
-	hsTO := s.specNow().Proxy.Admission.HeaderTimeout
+	hsTO := sess.spec.Proxy.Admission.HeaderTimeout
 	if hsTO <= 0 {
 		hsTO = defaultHeaderTimeout
 	}
@@ -36,14 +43,14 @@ func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net
 
 	clientTLS, err := auth.HandshakeServer(hsCtx, rawClient, host)
 	if err != nil {
-		s.failIntercept(req, host, started, tlsmitm.ResultTLSHandshake)
+		s.failIntercept(req, host, started, tlsmitm.ResultTLSHandshake, sess)
 		return
 	}
 
 	sni := clientTLS.ConnectionState().ServerName
-	if sni != "" && !strings.EqualFold(sni, host) && !hostNameAllowed(s.specNow().Proxy.Targets, sni) {
+	if sni != "" && !strings.EqualFold(sni, host) && !hostNameAllowed(sess.spec.Proxy.Targets, sni) {
 		s.metrics.reject("target_denied")
-		s.capture(connectErrFlow(req, host, model.FlowStateError, string(domainerr.CodeTargetDenied), started))
+		s.capture(connectErrFlow(req, host, model.FlowStateError, string(domainerr.CodeTargetDenied), started), sess)
 		return
 	}
 	upName := sni
@@ -58,20 +65,20 @@ func (s *Server) serveIntercept(client net.Conn, bufrw *bufio.ReadWriter, up net
 		if tlsmitm.IsVerifyError(err) {
 			result = tlsmitm.ResultUpstreamVerifyFail
 		}
-		s.failIntercept(req, host, started, result)
+		s.failIntercept(req, host, started, result, sess)
 		return
 	}
 	_ = client.SetDeadline(time.Time{})
 	_ = up.SetDeadline(time.Time{})
-	s.setSessionDeadline(clientTLS, upTLS)
+	s.setSessionDeadline(sess.spec.Proxy.Admission, clientTLS, upTLS)
 
 	s.metrics.tlsIntercept(tlsmitm.ResultOK)
-	s.innerHTTP(clientTLS, upTLS, req, host, port, res, started, auth, sni)
+	s.innerHTTP(clientTLS, upTLS, req, host, port, res, started, auth, sni, sess)
 }
 
-func (s *Server) failIntercept(req *http.Request, host string, started time.Time, result string) {
+func (s *Server) failIntercept(req *http.Request, host string, started time.Time, result string, sess *ruleSession) {
 	s.metrics.tlsIntercept(result)
-	s.capture(connectErrFlow(req, host, model.FlowStateError, result, started))
+	s.capture(connectErrFlow(req, host, model.FlowStateError, result, started), sess)
 }
 
 func connectErrFlow(req *http.Request, host, state, ferr string, started time.Time) *model.Flow {
@@ -111,14 +118,14 @@ func wrapHijacked(c net.Conn, bufrw *bufio.ReadWriter) net.Conn {
 	return &readerConn{Conn: c, r: bufrw}
 }
 
-func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host, port string, res resolved, started time.Time, auth *tlsmitm.Authority, sni string) {
+func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host, port string, res resolved, started time.Time, auth *tlsmitm.Authority, sni string, sess *ruleSession) {
 	info := s.tlsInfo(clientTLS, upTLS, auth, sni, host)
 	var (
 		mu    sync.Mutex
 		given bool
 	)
 	proto := http1Only()
-	ad := s.specNow().Proxy.Admission
+	ad := s.specOf(sess).Proxy.Admission
 	sessionEnd := time.Time{}
 	if ad.SessionTimeout > 0 {
 		sessionEnd = started.Add(ad.SessionTimeout)
@@ -162,10 +169,10 @@ func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host,
 		}
 		if inner.Method == "PRI" {
 			s.metrics.tlsIntercept(tlsmitm.ResultHTTP2Inner)
-			s.capture(connectErrFlow(creq, host, model.FlowStateError, tlsmitm.ResultHTTP2Inner, time.Now()))
+			s.capture(connectErrFlow(creq, host, model.FlowStateError, tlsmitm.ResultHTTP2Inner, time.Now()), sess)
 			return
 		}
-		if s.roundTripInner(tr, clientTLS, upTLS, br, inner, host, port, res, info) {
+		if s.roundTripInner(tr, clientTLS, upTLS, br, inner, host, port, res, info, sess) {
 			return
 		}
 	}
@@ -199,16 +206,27 @@ func (s *Server) tlsInfo(clientTLS, upTLS *tls.Conn, auth *tlsmitm.Authority, sn
 	}
 }
 
-func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, br *bufio.Reader, inner *http.Request, host, port string, res resolved, info *model.TLSInfo) (stop bool) {
+func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, br *bufio.Reader, inner *http.Request, host, port string, res resolved, info *model.TLSInfo, pinned *ruleSession) (stop bool) {
 	started := time.Now()
-	ctx, cancel := context.WithTimeout(s.ctx, s.specNow().Proxy.Admission.UpstreamTimeout)
-	defer cancel()
+	sess := pinned.fork()
+	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
+	if handled := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, sess, func(resp *http.Response) {
+		_ = writeConnResponse(clientTLS, resp)
+	}); handled {
+		return false
+	}
 
-	out, reqCap := s.innerOriginRequest(ctx, inner, res, host, port)
+	upCtx, upCancel := s.upstreamCtxSess(s.ctx, sess)
+	defer upCancel()
+	out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap, sess)
+	if cap != nil {
+		sess.reqCap = cap
+	}
 	resp, err := tr.RoundTrip(out)
 	if err != nil {
 		drainBody(inner)
-		s.capture(s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, reqCap, nil))
+		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, sess.reqCap, nil)
+		s.captureRule(f, inner, sess.reqCap, nil, nil, sess, sess.reqHit)
 		writeHijackedError(clientTLS, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed")
 		_ = clientTLS.Close()
 		_ = upTLS.Close()
@@ -219,6 +237,9 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 	ws := httputilx.IsWebSocketUpgrade(inner.Header) && resp.StatusCode == http.StatusSwitchingProtocols
 	httputilx.PrepareResponse(resp.Header, ws)
 	if ws {
+		if hit := s.matchHit(sess, model.RulePhaseResponse, host, inner, resp.Header, false); hit != nil {
+			s.metrics.ruleHit(rules.ActionLateSkip)
+		}
 		if br != nil && br.Buffered() > 0 {
 			n := br.Buffered()
 			b, _ := br.Peek(n)
@@ -226,25 +247,18 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 			_, _ = br.Discard(n)
 		}
 		if err := writeSwitching(clientTLS, resp); err != nil {
-			s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, reqCap, nil))
+			s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, sess.reqCap, nil), sess)
 			return true
 		}
-		f := s.innerFlow(inner, host, port, http.StatusSwitchingProtocols, "", started, info, reqCap, nil)
+		f := s.innerFlow(inner, host, port, http.StatusSwitchingProtocols, "", started, info, sess.reqCap, nil)
 		f.Protocol = model.FlowProtocolWebSocket
-		s.capture(f)
+		s.capture(f, sess)
 		s.metrics.session("ok")
-		s.tunnelUpgrade(clientTLS, nil, upTLS, resp.Body)
+		s.tunnelUpgrade(clientTLS, nil, upTLS, resp.Body, s.specOf(sess).Proxy.Admission)
 		return true
 	}
 
-	respBody, respCap := teeBody(resp.Body, s.specNow().Store.MaxBodyBytes)
-	resp.Body = respBody
-	if err := resp.Write(clientTLS); err != nil {
-		s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, reqCap, respCap))
-		return true
-	}
-	s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "", started, info, reqCap, respCap))
-	s.metrics.session("ok")
+	s.finishConnResponse(s.ctx, clientTLS, inner, resp, host, port, "https", started, sess, info)
 	return false
 }
 
@@ -256,7 +270,7 @@ func drainBody(req *http.Request) {
 	_ = req.Body.Close()
 }
 
-func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res resolved, host, port string) (*http.Request, *cappedWriter) {
+func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter, sess *ruleSession) (*http.Request, *cappedWriter) {
 	out := req.Clone(ctx)
 	out.RequestURI = ""
 	// Scheme http: the one-shot DialContext already returns a handshaked tls.Conn.
@@ -275,7 +289,10 @@ func (s *Server) innerOriginRequest(ctx context.Context, req *http.Request, res 
 		out.Host = req.Host
 	}
 	httputilx.PrepareRequest(out.Header)
-	max := s.specNow().Store.MaxBodyBytes
+	if preCap != nil {
+		return out, preCap
+	}
+	max := s.maxBodyOf(sess)
 	var capw *cappedWriter
 	if out.Body != nil {
 		var teed io.ReadCloser

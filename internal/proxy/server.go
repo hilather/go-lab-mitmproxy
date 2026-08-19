@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
@@ -26,13 +27,21 @@ type Options struct {
 	Address string
 	Spec    model.Spec
 	Sink    Sink
+	// Store is the breakpoint inbox (WaitPaused). When nil, AdaptStore's
+	// wrapped store is used if Sink is AdaptStore; otherwise breakpoint
+	// times out and the session continues unmodified.
+	Store store.Store
 	// Resolver overrides net.DefaultResolver (tests: name→IMDS).
 	Resolver Resolver
 	// DialContext, when set, replaces dialTCP (tests record outbound).
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
-	// Authority is the lab CA. When nil and spec.tls.intercept is true,
-	// New generates or loads one from spec.tls.ca.
+	// Authority is the lab CA. When nil and spec.tls.intercept is true
+	// and Snapshots is nil, New generates or loads one from spec.tls.ca
+	// (test fallback). Production compiles the CA in internal/compiler.
 	Authority *tlsmitm.Authority
+	// Snapshots is the atomic config pointer. ServeHTTP / CONNECT load
+	// once and pin the snapshot for the rest of the session.
+	Snapshots *snapshot.Store
 }
 
 // Server is the HTTP/1.1 forward-proxy listener.
@@ -40,9 +49,11 @@ type Server struct {
 	addr     string
 	spec     atomic.Pointer[model.Spec]
 	sink     Sink
+	inbox    store.Store
 	resolver Resolver
 	dialFn   func(ctx context.Context, network, addr string) (net.Conn, error)
 	auth     *tlsmitm.Authority
+	snaps    *snapshot.Store
 	gate     *gate
 	metrics  *Metrics
 	tr       *http.Transport
@@ -79,18 +90,27 @@ func New(opts Options) (*Server, error) {
 	s := &Server{
 		addr:     opts.Address,
 		sink:     sink,
+		inbox:    opts.Store,
 		resolver: res,
 		dialFn:   opts.DialContext,
+		snaps:    opts.Snapshots,
 		gate:     newGate(),
 		metrics:  newMetrics(),
 		ctx:      ctx,
 		cancel:   cancel,
 		hijacked: make(map[net.Conn]struct{}),
 	}
+	if s.inbox == nil {
+		if ss, ok := sink.(*storeSink); ok {
+			s.inbox = ss.s
+		}
+	}
 	s.spec.Store(&spec)
 	s.tr = s.newCleartextTransport()
 	auth := opts.Authority
-	if auth == nil && spec.TLS.Intercept {
+	// Compiler owns CA minting. Tests without a snapshot store still
+	// generate when intercept is on so existing TLS fixtures keep working.
+	if auth == nil && spec.TLS.Intercept && opts.Snapshots == nil {
 		var err error
 		auth, err = tlsmitm.New(tlsmitm.Options{
 			Mode:               spec.TLS.CA.Mode,
@@ -217,6 +237,11 @@ func http1Only() *http.Protocols {
 }
 
 func (s *Server) dialPinned(ctx context.Context, network, addr string) (net.Conn, error) {
+	// Process-wide cleartext Transport: Start-time spec (not live apply).
+	return s.dialPinnedTO(ctx, network, addr, s.specNow().Proxy.Admission.DialTimeout)
+}
+
+func (s *Server) dialPinnedTO(ctx context.Context, network, addr string, dialTO time.Duration) (net.Conn, error) {
 	if s.dialFn != nil {
 		host, _, err := net.SplitHostPort(addr)
 		if err != nil {
@@ -227,7 +252,10 @@ func (s *Server) dialPinned(ctx context.Context, network, addr string) (net.Conn
 		}
 		return s.dialFn(ctx, network, addr)
 	}
-	return dialTCP(ctx, network, addr, s.specNow().Proxy.Admission.DialTimeout)
+	if dialTO <= 0 {
+		dialTO = defaultDialTimeout
+	}
+	return dialTCP(ctx, network, addr, dialTO)
 }
 
 // Start binds the listener and serves in the background.
@@ -365,18 +393,19 @@ func (s *Server) closeHijacked() {
 	}
 }
 
-func (s *Server) capture(f *model.Flow) {
+func (s *Server) capture(f *model.Flow, sess *ruleSession) {
 	if s.sink == nil || f == nil {
 		return
 	}
 	if ss, ok := s.sink.(*storeSink); ok {
-		_, err := ss.s.Insert(s.ctx, ss.s.Epoch(), f)
+		_, err := ss.s.Insert(s.ctx, s.sessionEpoch(sess), f)
 		if err != nil && errors.Is(err, store.ErrFull) {
 			s.metrics.storeFullInc()
 			if ss.onFull != nil {
 				ss.onFull()
 			}
 		}
+		// ErrStaleEpoch: hop started before reset; capture is discarded.
 		return
 	}
 	s.sink.Insert(s.ctx, f)

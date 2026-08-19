@@ -19,8 +19,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	sess := s.beginSession()
 	ip := clientIP(req.RemoteAddr)
-	if err := s.gate.acquire(ip, s.specNow().Proxy.Admission); err != nil {
+	if err := s.gate.acquire(ip, sess.spec.Proxy.Admission); err != nil {
 		s.metrics.reject("admission")
 		if req.Method == http.MethodConnect {
 			writeProxyError(w, http.StatusServiceUnavailable, domainerr.CodeRateLimited, "too many sessions", "")
@@ -32,7 +33,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer s.gate.release(ip)
 
 	if req.Method == http.MethodConnect {
-		s.serveCONNECT(w, req)
+		s.serveCONNECT(w, req, sess)
 		return
 	}
 
@@ -48,7 +49,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			State:    model.FlowStateError,
 			Error:    string(domainerr.CodeValidationFailed),
 			Status:   http.StatusBadRequest,
-		})
+		}, sess)
 		writeProxyError(w, http.StatusBadRequest, domainerr.CodeValidationFailed,
 			"https absolute-form is not supported", "use CONNECT")
 		return
@@ -58,7 +59,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			"absolute-form or CONNECT required", "")
 		return
 	}
-	s.serveAbsolute(w, req)
+	s.serveAbsolute(w, req, sess)
 }
 
 func (s *Server) closeNow(w http.ResponseWriter) {

@@ -14,8 +14,11 @@ import (
 
 const established = "HTTP/1.1 200 Connection Established\r\n\r\n"
 
-func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
+func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request, sess *ruleSession) {
 	started := time.Now()
+	if sess == nil {
+		sess = s.beginSession()
+	}
 	// RFC 9110: CONNECT request-target is host:port (req.URL.Host).
 	authority := req.URL.Host
 	if authority == "" {
@@ -43,18 +46,18 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 	defer s.untrack(client)
 	defer func() { _ = client.Close() }()
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.specNow().Proxy.Admission.UpstreamTimeout)
+	ctx, cancel := context.WithTimeout(s.ctx, sess.spec.Proxy.Admission.UpstreamTimeout)
 	defer cancel()
 
-	res, err := resolveThenGuard(ctx, s.resolver, s.specNow().Proxy.Targets, host, port)
+	res, err := resolveThenGuard(ctx, s.resolver, sess.spec.Proxy.Targets, host, port)
 	if err != nil {
-		s.rejectCONNECT(client, req, host, err)
+		s.rejectCONNECT(client, req, host, err, sess)
 		return
 	}
 
-	up, err := s.dialPinned(ctx, "tcp", pinnedAddr(res.Selected, res.Port))
+	up, err := s.dialPinnedTO(ctx, "tcp", pinnedAddr(res.Selected, res.Port), sess.spec.Proxy.Admission.DialTimeout)
 	if err != nil {
-		s.capture(connectFlow(req, host, http.StatusBadGateway, "dial", started))
+		s.capture(connectFlow(req, host, http.StatusBadGateway, "dial", started), sess)
 		writeHijackedError(client, http.StatusBadGateway, domainerr.CodeInternalError, "dial failed")
 		return
 	}
@@ -73,24 +76,24 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if shouldIntercept(s.specNow().TLS, host, port) {
-		s.serveIntercept(client, bufrw, up, req, host, port, res, started)
+	if shouldIntercept(sess.spec.TLS, host, port) {
+		s.serveIntercept(client, bufrw, up, req, host, port, res, started, sess)
 		return
 	}
 
-	s.capture(connectFlow(req, host, http.StatusOK, "", started))
+	s.capture(connectFlow(req, host, http.StatusOK, "", started), sess)
 	s.metrics.session("ok")
-	s.tunnel(client, bufrw, up)
+	s.tunnel(client, bufrw, up, sess.spec.Proxy.Admission)
 }
 
-func (s *Server) rejectCONNECT(c net.Conn, req *http.Request, host string, err error) {
+func (s *Server) rejectCONNECT(c net.Conn, req *http.Request, host string, err error, sess *ruleSession) {
 	if isDNS(err) {
-		s.capture(connectFlow(req, host, http.StatusBadGateway, "dns", time.Now()))
+		s.capture(connectFlow(req, host, http.StatusBadGateway, "dns", time.Now()), sess)
 		writeHijackedError(c, http.StatusBadGateway, domainerr.CodeInternalError, "dns lookup failed")
 		return
 	}
 	s.metrics.reject("target_denied")
-	s.capture(connectFlow(req, host, http.StatusForbidden, string(domainerr.CodeTargetDenied), time.Now()))
+	s.capture(connectFlow(req, host, http.StatusForbidden, string(domainerr.CodeTargetDenied), time.Now()), sess)
 	writeHijackedError(c, http.StatusForbidden, domainerr.CodeTargetDenied, "target denied")
 }
 
