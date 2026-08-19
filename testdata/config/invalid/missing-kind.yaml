@@ -1,0 +1,4 @@
+apiVersion: labmitm.dev/v1alpha1
+metadata:
+  name: missing-kind
+spec: {}
