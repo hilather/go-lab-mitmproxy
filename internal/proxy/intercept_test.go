@@ -445,15 +445,15 @@ func TestInterceptHTTP2EnabledStillInnerPRI(t *testing.T) {
 	tlsConn := tls.Client(c.Conn, &tls.Config{
 		ServerName: "app.lab",
 		RootCAs:    px.Authority().CertPool(),
-		NextProtos: []string{"h2", tlsmitm.ALPN},
+		NextProtos: []string{tlsmitm.ALPN},
 		MinVersion: tls.VersionTLS12,
 	})
 	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
 	if err := tlsConn.Handshake(); err != nil {
 		t.Fatal(err)
 	}
-	if tlsConn.ConnectionState().NegotiatedProtocol != "h2" {
-		t.Fatalf("ALPN=%q (want h2 from snapshot)", tlsConn.ConnectionState().NegotiatedProtocol)
+	if tlsConn.ConnectionState().NegotiatedProtocol != tlsmitm.ALPN {
+		t.Fatalf("ALPN=%q (want http/1.1; h2 is a separate inner path)", tlsConn.ConnectionState().NegotiatedProtocol)
 	}
 	if _, err := tlsConn.Write([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")); err != nil {
 		t.Fatal(err)

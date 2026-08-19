@@ -7,10 +7,17 @@ import (
 )
 
 func matchAND(m model.RuleMatchSpec, in Request) bool {
-	if !matchHost(m.Host, in.Host) {
+	host := in.Host
+	if auth := headerValue(in.Headers, ":authority"); auth != "" {
+		host = authorityHost(auth)
+	}
+	if !matchHost(m.Host, host) {
 		return false
 	}
 	path := in.Path
+	if p := headerValue(in.Headers, ":path"); p != "" {
+		path = pathComponent(p)
+	}
 	if path == "" {
 		path = "/"
 	}
@@ -20,7 +27,11 @@ func matchAND(m model.RuleMatchSpec, in Request) bool {
 	if m.PathPrefix != "" && !strings.HasPrefix(path, m.PathPrefix) {
 		return false
 	}
-	if m.Method != "" && !strings.EqualFold(m.Method, in.Method) {
+	method := in.Method
+	if meth := headerValue(in.Headers, ":method"); meth != "" {
+		method = meth
+	}
+	if m.Method != "" && !strings.EqualFold(m.Method, method) {
 		return false
 	}
 	if m.Protocol != "" && !strings.EqualFold(m.Protocol, in.Protocol) {
@@ -28,6 +39,58 @@ func matchAND(m model.RuleMatchSpec, in Request) bool {
 	}
 	if !matchHeader(m, in.Headers) {
 		return false
+	}
+	return true
+}
+
+func headerValue(hs []model.Header, name string) string {
+	for i := range hs {
+		if strings.EqualFold(hs[i].Name, name) {
+			return hs[i].Value
+		}
+	}
+	return ""
+}
+
+func pathComponent(p string) string {
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	if p == "" {
+		return "/"
+	}
+	return p
+}
+
+func authorityHost(auth string) string {
+	auth = strings.TrimSpace(auth)
+	if auth == "" {
+		return ""
+	}
+	if strings.HasPrefix(auth, "[") {
+		end := strings.Index(auth, "]")
+		if end > 0 {
+			return auth[1:end]
+		}
+		return auth
+	}
+	if i := strings.LastIndex(auth, ":"); i >= 0 {
+		port := auth[i+1:]
+		if port != "" && isAllDigits(port) {
+			return auth[:i]
+		}
+	}
+	return auth
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
 	}
 	return true
 }

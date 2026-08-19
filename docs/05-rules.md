@@ -2,14 +2,14 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-19 (match.protocol AND)
+Last reviewed: 2026-08-19 (h2 :path/:method/:authority match)
 Related ADRs: 0002
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
 
 RULES-001 implements match/eval only. STA-001 compiles `spec.rules` into `snapshot.Rules` (`*rules.Engine`). The proxy loads that Engine once per request / CONNECT so a later live `replaceRules` swap keeps in-flight sessions on the Engine they already matched. Tests may still construct `rules.New(spec)` without the compiler.
 
-Proxy hooks (cleartext absolute-form and intercepted inner HTTP/1.1):
+Proxy hooks (cleartext absolute-form and intercepted inner HTTP/1.1 **and** inner HTTP/2 streams):
 
 1. After request parse + target guards: request-phase match.
 2. After upstream response headers (before any client body byte): response-phase match.
@@ -48,7 +48,7 @@ rules:
           timeout: 30s         # 1s–60s
 ```
 
-Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query). `match.protocol` is optional and case-insensitive; a non-empty value that does not match the request protocol (including `h2` / `socks5` / `socks4` until those hops exist) matches nothing.
+Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query). On an inner HTTP/2 stream the reconstructed request includes ordered pseudo-headers (`:method`, `:scheme`, `:authority`, `:path`); `match.method` uses `:method`, `match.pathPrefix`/`pathExact` use the path-component of `:path` (query stripped), `match.host` uses the host of `:authority`, and `match.headerName` sees leading-`:` names. `match.protocol` is optional and case-insensitive; a non-empty value that does not match the request protocol (including `h2` on an inner h2 stream) matches nothing. Breakpoints pause the **stream**, not the CONNECT TCP session (D37): request-phase `WaitPaused` runs outside the origin mutex so a paused stream does not block another stream’s request-phase rules.
 
 | Action | Request phase | Response phase |
 |---|---|---|

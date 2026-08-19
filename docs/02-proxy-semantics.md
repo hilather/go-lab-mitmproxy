@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-19 (accept mux D42 + http2x codec)
+Last reviewed: 2026-08-19 (h2 innerHTTP + accept mux D42)
 Related ADRs: 0002, 0009, 0010
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 
-Completed flows (including `TLSInfo` when intercept ran) are inserted into `store.Memory`. `fullPolicy: reject` drops capture only; the client hop still succeeds. `proxy.NewNull` remains a test fallback. TLS intercept is implemented: `intercept: false` (or a non-listed port) is a raw tunnel; `intercept: true` on a listed port mints a leaf and runs the inner HTTP/1.1 session. Handshake failure does not fall back to a blind tunnel (D20). Request- and response-phase rules (`internal/rules`) run after parse and after upstream headers. `rules.enabled` default-off matches nothing.
+Completed flows (including `TLSInfo` when intercept ran) are inserted into `store.Memory`. `fullPolicy: reject` drops capture only; the client hop still succeeds. `proxy.NewNull` remains a test fallback. TLS intercept is implemented: `intercept: false` (or a non-listed port) is a raw tunnel; `intercept: true` on a listed port mints a leaf and runs the inner HTTP session (HTTP/1.1, or HTTP/2 when `protocols.http2.enabled` and the inner ALPN is `h2`). Handshake failure does not fall back to a blind tunnel (D20). Request- and response-phase rules (`internal/rules`) run after parse and after upstream headers. `rules.enabled` default-off matches nothing.
 
 This document is the accept/reject table. Do not invent additional request classes, replies, or limits without an ADR.
 
@@ -77,17 +77,17 @@ Normative for every `CONNECT` (D19). Tests: two GETs on one CONNECT; “forgot t
      or Error=upstream_tls. Do NOT fall back to a blind tunnel.
    - otherwise → bidirectional copy; metadata-only flow (Protocol=connect,
      intercepted=false). No inner HTTP parse.
-7. Intercept success: inner HTTP/1.1 session.
+7. Intercept success: inner HTTP session (HTTP/1.1, or HTTP/2 when enabled).
 ```
 
-**Inner HTTP/1.1 (intercepted CONNECT only):**
+**Inner HTTP (intercepted CONNECT only):**
 
 - One CONNECT = **one** upstream TCP + **one** upstream TLS conn. Do **not** put this conn in the cleartext `Transport` idle pool.
-- Serialized inner requests: `http.ReadRequest` on the client `tls.Conn`, then `Transport.RoundTrip` with a one-shot `DialContext` that returns the already-handshaked upstream `tls.Conn`.
-- Each inner request is **one flow**.
-- Inner knobs: HTTP/1 only until the HTTP/2 capture workstream. Inner `PRI` → close both sides, `Error=http2_inner` (flag off **and** flag on until capture is wired). Handshake ALPN is taken from the session snapshot (D46); default/flag-off is `http/1.1`. Flag-on advertises `h2` on the **leaf** only; origin NextProtos stay `http/1.1` until transcode.
-- Client keep-alive on the inner TLS session is allowed.
-- Inner `Upgrade: websocket` + `101` uses the same 101 + bidirectional copy as cleartext (no frame inspect). RoundTrip failure writes `502` and closes both TLS sides (no keep-alive loop).
+- Handshake ALPN is taken from the session snapshot (D46). Default / flag-off is `http/1.1`. Flag-on advertises `h2` then `http/1.1` on the **leaf**; origin NextProtos stay `http/1.1` until origin transcode. Captured `Protocol` is the **inner client** protocol (D47): `h2` when the leaf negotiated `h2`.
+- **HTTP/1.1 inner** (ALPN `http/1.1`, including flag-on when the client did not offer `h2`): serialized `http.ReadRequest` then `Transport.RoundTrip` with a one-shot `DialContext` that returns the already-handshaked upstream `tls.Conn`. Inner `PRI` → close both sides, `Error=http2_inner`. Inner `Upgrade: websocket` + `101` uses the same 101 + bidirectional copy as cleartext (no frame inspect). RoundTrip failure writes `502` and closes both TLS sides.
+- **HTTP/2 inner** (`protocols.http2.enabled` and leaf ALPN `h2`): `http2x.ServeClient` on the client TLS conn. Each request stream is **one flow** with `HTTP2.StreamID`. `roundTripInnerH2` returns `(resp, trailers, err)` to `ServeClient`; it must **not** write HTTP/1.1 to the client TLS conn and must **not** close CONNECT on a per-stream origin error (RST_STREAM / 502 DATA, not GOAWAY) (D53). Origin is still HTTP/1.1: strip leading-`:` names on the origin request; hold the origin mutex across `RoundTrip` **and** full body drain (D44); request- and response-phase `WaitPaused` stay **outside** the mutex so a paused stream does not block another stream’s request-phase rules (D37).
+- Inner hop rejects `:method=CONNECT`, Extended CONNECT (`:protocol`), and websocket `Upgrade` on an h2 session: RST_STREAM `PROTOCOL_ERROR`, metric `reason="http2"`, no flow (D48).
+- Client keep-alive on the inner TLS session is allowed. Each inner request / stream is **one flow**.
 
 ## Cleartext forward
 
