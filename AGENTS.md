@@ -112,7 +112,7 @@ The numbered pack is the source of truth after FND-001. Do not invent paths, typ
 - Pin direct dependencies and review transitive changes.
 - Allowed 1.0 direct deps: `gopkg.in/yaml.v3`, `github.com/modelcontextprotocol/go-sdk v1.7.0`, `github.com/oklog/ulid/v2`. 1.1 codec: `golang.org/x/net/http2` behind `internal/http2x` only.
 - No Prometheus client (`github.com/prometheus/*` forbidden). Metrics are hand-rolled OpenMetrics.
-- 1.1 allows `golang.org/x/net/http2` as a **codec** behind `internal/http2x` only (ADR 0009 / D28; Apache-2.0 compatible BSD-3). Still forbidden as a proxy/MITM framework. Production Dial idents stay forbidden in `internal/http2x`. `http2.Transport.DialTLS` must stay nil. New deps need a PR justification and license check (Apache-2.0 compatible).
+- 1.1 allows `golang.org/x/net/http2` as a **codec** behind `internal/http2x` only (ADR 0009 / D28; Apache-2.0 compatible BSD-3). Still forbidden as a proxy/MITM framework. Production Dial idents stay forbidden in `internal/http2x`. `http2.Transport.DialTLS` stays nil; `DialTLSContext` may only return `proxy: intercepted CONNECT refuses redial` (never `tls.Dial`). New deps need a PR justification and license check (Apache-2.0 compatible).
 
 ## Required completion commands
 

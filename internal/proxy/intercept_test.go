@@ -346,7 +346,7 @@ func TestHandshakeNextProtosFromSpec(t *testing.T) {
 	if len(got) != 1 || got[0] != tlsmitm.ALPN {
 		t.Fatalf("flag off client %v", got)
 	}
-	if orig := handshakeOriginNextProtos(spec, "h2"); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
+	if orig := handshakeOriginNextProtos(); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
 		t.Fatalf("flag off origin %v", orig)
 	}
 	spec.Protocols.HTTP2.Enabled = true
@@ -354,13 +354,8 @@ func TestHandshakeNextProtosFromSpec(t *testing.T) {
 	if len(got) != 2 || got[0] != "h2" || got[1] != tlsmitm.ALPN {
 		t.Fatalf("flag on client %v", got)
 	}
-	orig := handshakeOriginNextProtos(spec, "h2")
-	if len(orig) != 2 || orig[0] != "h2" || orig[1] != tlsmitm.ALPN {
-		t.Fatalf("origin prefer h2 %v", orig)
-	}
-	orig = handshakeOriginNextProtos(spec, tlsmitm.ALPN)
-	if len(orig) != 2 || orig[0] != tlsmitm.ALPN || orig[1] != "h2" {
-		t.Fatalf("origin prefer h1 %v", orig)
+	if orig := handshakeOriginNextProtos(); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
+		t.Fatalf("flag on origin still http/1.1 until transcode %v", orig)
 	}
 }
 

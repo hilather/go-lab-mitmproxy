@@ -78,7 +78,7 @@ func (s *Server) serveInterceptConn(client net.Conn, bufrw *bufio.ReadWriter, up
 	}
 
 	_ = up.SetDeadline(time.Now().Add(hsTO))
-	upTLS, err := auth.HandshakeClient(hsCtx, up, upName, handshakeOriginNextProtos(sess.spec, clientTLS.ConnectionState().NegotiatedProtocol))
+	upTLS, err := auth.HandshakeClient(hsCtx, up, upName, handshakeOriginNextProtos())
 	if err != nil {
 		result := tlsmitm.ResultUpstreamTLS
 		if tlsmitm.IsVerifyError(err) {
@@ -290,19 +290,11 @@ func handshakeClientNextProtos(spec model.Spec) []string {
 	return []string{tlsmitm.ALPN}
 }
 
-// handshakeOriginNextProtos prefers the client-negotiated proto, then the other (D32).
-func handshakeOriginNextProtos(spec model.Spec, negotiated string) []string {
-	if !spec.Protocols.HTTP2.Enabled {
-		return []string{tlsmitm.ALPN}
-	}
-	switch negotiated {
-	case "h2":
-		return []string{"h2", tlsmitm.ALPN}
-	case tlsmitm.ALPN:
-		return []string{tlsmitm.ALPN, "h2"}
-	default:
-		return []string{"h2", tlsmitm.ALPN}
-	}
+// handshakeOriginNextProtos is origin ALPN. Inner HTTP is still HTTP/1.1
+// (PR 3b/3c own h2 origin / transcode), so this stays http/1.1 even when
+// the leaf advertises h2.
+func handshakeOriginNextProtos() []string {
+	return []string{tlsmitm.ALPN}
 }
 
 func drainBody(req *http.Request) {

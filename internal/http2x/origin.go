@@ -1,6 +1,8 @@
 package http2x
 
 import (
+	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"sync"
@@ -9,14 +11,17 @@ import (
 )
 
 // NewOriginTransport binds an HTTP/2 client to an already-dialed origin conn.
-// DialTLS / DialTLSContext stay nil. A second open errors ErrRefuseRedial.
+// DialTLS stays nil. DialTLSContext refuses a second open instead of tls.Dial.
 func NewOriginTransport(up net.Conn) (*http2.Transport, error) {
 	if up == nil {
 		return nil, ErrRefuseRedial
 	}
 	tr := &http2.Transport{
 		DisableCompression: true,
-		AllowHTTP:          true, // already-dialed conn; never tls.Dial
+		AllowHTTP:          true, // already-dialed conn
+		DialTLSContext: func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+			return nil, ErrRefuseRedial
+		},
 	}
 	cc, err := tr.NewClientConn(up)
 	if err != nil {

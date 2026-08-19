@@ -53,7 +53,7 @@ Leaf `NotAfter: now+24h` is long enough for a lab session. LRU eviction of a liv
 3. Mint or LRU-get leaf.
 4. Return `tls.Config{Certificates, NextProtos: <session snapshot>, MinVersion: tls.VersionTLS12}`.
 
-Handshake NextProtos come from the session snapshot, not Authority compile (D46). Empty `nextProtos` (and flag-off `protocols.http2`) materialize `[]string{"http/1.1"}`. When `protocols.http2.enabled` is true the client handshake advertises `["h2","http/1.1"]`; origin prefers the client-negotiated proto then the other (D32). `compileCA` may still reuse the CA when the TLS spec is unchanged.
+Handshake NextProtos come from the session snapshot, not Authority compile (D46). Empty `nextProtos` (and flag-off `protocols.http2`) materialize `[]string{"http/1.1"}`. When `protocols.http2.enabled` is true the **client-facing leaf** advertises `["h2","http/1.1"]`; origin ALPN stays `http/1.1` until h2 transcode (inner HTTP is still HTTP/1.1). `compileCA` may still reuse the CA when the TLS spec is unchanged.
 
 Upstream: `tls.Client(rawConn, &tls.Config{ServerName: sni, RootCAs: pool, NextProtos: <session snapshot>, MinVersion: tls.VersionTLS12, InsecureSkipVerify: spec.tls.upstream.insecureSkipVerify})`.
 

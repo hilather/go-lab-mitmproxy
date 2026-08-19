@@ -1,18 +1,27 @@
 package http2x
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
+)
+
+const (
+	maxFramePayload = 16384
+	initialWindow   = 1 << 20
 )
 
 var hopHeaders = map[string]bool{
@@ -24,8 +33,13 @@ var hopHeaders = map[string]bool{
 	"proxy-authorization": true,
 }
 
+type streamState struct {
+	body *io.PipeWriter
+}
+
 // ServeClient runs an h2 server on client (already ALPN h2). It does not Dial.
-// Each request stream invokes h on a goroutine. StreamID is the HTTP/2 stream id.
+// Each request stream invokes h on a goroutine. StreamID is taken from the
+// opening HEADERS frame (not a FIFO of every HEADERS, including trailers).
 func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 	if client == nil {
 		return errors.New("http2x: nil client conn")
@@ -43,183 +57,373 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 		_ = client.Close()
 	}()
 
-	spy := newFrameSpy(client)
-	srv := &http2.Server{MaxConcurrentStreams: maxConcurrentStreams}
-	srv.ServeConn(spy, &http2.ServeConnOpts{
-		Context: ctx,
-		Handler: streamAdapter{h: h, spy: spy},
-	})
-	if ctx.Err() != nil {
-		return ctx.Err()
+	br := bufio.NewReader(client)
+	preface := make([]byte, len(http2.ClientPreface))
+	if _, err := io.ReadFull(br, preface); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
 	}
-	return nil
-}
+	if string(preface) != http2.ClientPreface {
+		return fmt.Errorf("http2x: bad client preface")
+	}
 
-type streamAdapter struct {
-	h   StreamHandler
-	spy *frameSpy
-}
+	fr := http2.NewFramer(client, br)
+	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	fr.MaxHeaderListSize = 1 << 20
 
-func (a streamAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	id := a.spy.takeHeadersID()
-	in := streamFromRequest(id, r)
-	resp, trailers, err := a.h(r.Context(), in)
-	if in.Body != nil {
-		_, _ = io.Copy(io.Discard, in.Body)
-		_ = in.Body.Close()
+	encBuf := new(bytes.Buffer)
+	enc := hpack.NewEncoder(encBuf)
+	var writeMu sync.Mutex
+	write := func(fn func() error) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return fn()
 	}
-	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
+
+	if err := write(func() error {
+		if err := fr.WriteSettings(
+			http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: maxConcurrentStreams},
+			http2.Setting{ID: http2.SettingInitialWindowSize, Val: initialWindow},
+			http2.Setting{ID: http2.SettingEnablePush, Val: 0},
+		); err != nil {
+			return err
 		}
-		if errors.Is(err, ErrInnerCONNECT) {
-			panic(http.ErrAbortHandler)
+		incr := uint32(initialWindow - 65535)
+		if incr > 0 {
+			return fr.WriteWindowUpdate(0, incr)
 		}
-		if resp == nil {
-			panic(http.ErrAbortHandler)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	var (
+		mu     sync.Mutex
+		open   int
+		closed bool
+		lastID uint32
+	)
+	streams := make(map[uint32]*streamState)
+
+	finish := func(id uint32) {
+		mu.Lock()
+		if st, ok := streams[id]; ok {
+			if st.body != nil {
+				_ = st.body.Close()
+			}
+			delete(streams, id)
+			if open > 0 {
+				open--
+			}
 		}
+		mu.Unlock()
 	}
-	if resp == nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	if resp.Body != nil {
-		defer func() { _ = resp.Body.Close() }()
-	}
-	hdr := w.Header()
-	if resp.Header != nil {
-		for k, vs := range resp.Header {
-			lk := strings.ToLower(k)
-			if hopHeaders[lk] {
+
+	for {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			mu.Lock()
+			closed = true
+			for id, st := range streams {
+				if st.body != nil {
+					_ = st.body.CloseWithError(io.EOF)
+				}
+				delete(streams, id)
+			}
+			mu.Unlock()
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || isClosedConn(err) {
+				return nil
+			}
+			var se http2.StreamError
+			if errors.As(err, &se) {
+				finish(se.StreamID)
+				_ = write(func() error { return fr.WriteRSTStream(se.StreamID, se.Code) })
 				continue
 			}
-			for _, v := range vs {
-				hdr.Add(k, v)
+			return err
+		}
+		switch f := f.(type) {
+		case *http2.SettingsFrame:
+			if !f.IsAck() {
+				if err := write(fr.WriteSettingsAck); err != nil {
+					return err
+				}
 			}
+		case *http2.PingFrame:
+			if !f.IsAck() {
+				data := f.Data
+				if err := write(func() error { return fr.WritePing(true, data) }); err != nil {
+					return err
+				}
+			}
+		case *http2.WindowUpdateFrame:
+		case *http2.RSTStreamFrame:
+			finish(f.StreamID)
+		case *http2.GoAwayFrame:
+			return nil
+		case *http2.PushPromiseFrame:
+			_ = write(func() error { return fr.WriteRSTStream(f.PromiseID, http2.ErrCodeProtocol) })
+		case *http2.DataFrame:
+			mu.Lock()
+			st := streams[f.StreamID]
+			mu.Unlock()
+			if st == nil || st.body == nil {
+				_ = write(func() error { return fr.WriteRSTStream(f.StreamID, http2.ErrCodeStreamClosed) })
+				continue
+			}
+			if payload := f.Data(); len(payload) > 0 {
+				if _, err := st.body.Write(append([]byte(nil), payload...)); err != nil {
+					finish(f.StreamID)
+					_ = write(func() error { return fr.WriteRSTStream(f.StreamID, http2.ErrCodeCancel) })
+					continue
+				}
+				n := uint32(len(payload))
+				_ = write(func() error {
+					if err := fr.WriteWindowUpdate(f.StreamID, n); err != nil {
+						return err
+					}
+					return fr.WriteWindowUpdate(0, n)
+				})
+			}
+			if f.StreamEnded() {
+				_ = st.body.Close()
+			}
+		case *http2.MetaHeadersFrame:
+			id := f.StreamID
+			if id == 0 || id%2 == 0 {
+				return http2.ConnectionError(http2.ErrCodeProtocol)
+			}
+			mu.Lock()
+			if _, exists := streams[id]; exists {
+				st := streams[id]
+				mu.Unlock()
+				// Trailer HEADERS: not a new stream; do not start a handler.
+				if st.body != nil {
+					_ = st.body.Close()
+				}
+				continue
+			}
+			if id <= lastID {
+				mu.Unlock()
+				_ = write(func() error { return fr.WriteRSTStream(id, http2.ErrCodeProtocol) })
+				continue
+			}
+			if open >= maxConcurrentStreams {
+				mu.Unlock()
+				_ = write(func() error { return fr.WriteRSTStream(id, http2.ErrCodeRefusedStream) })
+				continue
+			}
+			lastID = id
+			open++
+			pr, pw := io.Pipe()
+			if f.StreamEnded() {
+				_ = pw.Close()
+			}
+			streams[id] = &streamState{body: pw}
+			mu.Unlock()
+
+			in := streamFromMeta(id, f, pr)
+			go serveStream(ctx, h, in, func(resp *http.Response, trailers []model.Header, herr error) {
+				defer finish(id)
+				_ = write(func() error {
+					mu.Lock()
+					gone := closed
+					mu.Unlock()
+					if gone {
+						if resp != nil && resp.Body != nil {
+							_ = resp.Body.Close()
+						}
+						return nil
+					}
+					if herr != nil {
+						code := http2.ErrCodeInternal
+						if errors.Is(herr, ErrInnerCONNECT) {
+							code = http2.ErrCodeProtocol
+						}
+						if resp != nil && resp.Body != nil {
+							_ = resp.Body.Close()
+						}
+						return fr.WriteRSTStream(id, code)
+					}
+					if resp == nil {
+						return fr.WriteRSTStream(id, http2.ErrCodeInternal)
+					}
+					return writeResponse(fr, enc, encBuf, id, resp, trailers)
+				})
+			})
 		}
-	}
-	for _, th := range trailers {
-		if th.Name == "" || hopHeaders[strings.ToLower(th.Name)] {
-			continue
-		}
-		hdr.Add("Trailer", th.Name)
-		hdr.Add(http2.TrailerPrefix+th.Name, th.Value)
-	}
-	status := resp.StatusCode
-	if status == 0 {
-		status = http.StatusOK
-	}
-	w.WriteHeader(status)
-	if resp.Body != nil {
-		_, _ = io.Copy(w, resp.Body)
 	}
 }
 
-func streamFromRequest(id uint32, r *http.Request) Stream {
-	scheme := r.URL.Scheme
-	if scheme == "" {
-		scheme = "https"
-	}
-	authority := r.Host
-	path := r.URL.RequestURI()
-	if path == "" {
-		path = r.URL.Path
-		if r.URL.RawQuery != "" {
-			path += "?" + r.URL.RawQuery
+func serveStream(ctx context.Context, h StreamHandler, in Stream, done func(*http.Response, []model.Header, error)) {
+	defer func() {
+		if in.Body != nil {
+			_ = in.Body.Close()
 		}
-	}
-	if path == "" {
-		path = "/"
-	}
+	}()
+	resp, trailers, err := h(ctx, in)
+	done(resp, trailers, err)
+}
+
+func streamFromMeta(id uint32, mh *http2.MetaHeadersFrame, body io.ReadCloser) Stream {
+	method := mh.PseudoValue("method")
+	scheme := mh.PseudoValue("scheme")
+	authority := mh.PseudoValue("authority")
+	path := mh.PseudoValue("path")
 	pseudos := []model.Header{
-		{Name: ":method", Value: r.Method},
+		{Name: ":method", Value: method},
 		{Name: ":scheme", Value: scheme},
 		{Name: ":authority", Value: authority},
 		{Name: ":path", Value: path},
 	}
-	var headers []model.Header
-	for k, vs := range r.Header {
-		lk := strings.ToLower(k)
-		if hopHeaders[lk] {
+	for _, hf := range mh.PseudoFields() {
+		switch hf.Name {
+		case ":method", ":scheme", ":authority", ":path":
 			continue
+		default:
+			pseudos = append(pseudos, model.Header{Name: strings.Clone(hf.Name), Value: strings.Clone(hf.Value)})
 		}
-		for _, v := range vs {
-			headers = append(headers, model.Header{Name: k, Value: v})
-		}
-	}
-	body := r.Body
-	if body == nil {
-		body = http.NoBody
 	}
 	return Stream{
 		ID:        id,
 		Pseudos:   pseudos,
-		Headers:   headers,
+		Headers:   cloneFields(mh.RegularFields()),
 		Body:      body,
-		Method:    r.Method,
+		Method:    method,
 		Scheme:    scheme,
 		Authority: authority,
 		Path:      path,
 	}
 }
 
-// frameSpy tees HEADERS stream IDs. x/net/http2 strips StreamID from http.Request.
-type frameSpy struct {
-	net.Conn
-	mu         sync.Mutex
-	buf        []byte
-	prefaceOff bool
-	ids        []uint32
+func cloneFields(in []hpack.HeaderField) []model.Header {
+	out := make([]model.Header, len(in))
+	for i, hf := range in {
+		out[i] = model.Header{Name: strings.Clone(hf.Name), Value: strings.Clone(hf.Value)}
+	}
+	return out
 }
 
-func newFrameSpy(c net.Conn) *frameSpy {
-	return &frameSpy{Conn: c}
+func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, id uint32, resp *http.Response, trailers []model.Header) error {
+	if resp.Body != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
+	status := resp.StatusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+	buf.Reset()
+	if err := enc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)}); err != nil {
+		return err
+	}
+	if resp.Header != nil {
+		for k, vs := range resp.Header {
+			lk := strings.ToLower(k)
+			if hopHeaders[lk] || lk == "host" {
+				continue
+			}
+			for _, v := range vs {
+				if err := enc.WriteField(hpack.HeaderField{Name: lk, Value: v}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	hasBody := resp.Body != nil
+	hasTrailers := len(trailers) > 0
+	if err := writeHeaderBlock(fr, id, buf.Bytes(), !hasBody && !hasTrailers); err != nil {
+		return err
+	}
+	if hasBody {
+		chunk := make([]byte, maxFramePayload)
+		sawEnd := false
+		for {
+			n, err := resp.Body.Read(chunk)
+			if n > 0 {
+				end := err == io.EOF && !hasTrailers
+				if werr := fr.WriteData(id, end, chunk[:n]); werr != nil {
+					return werr
+				}
+				if end {
+					sawEnd = true
+				}
+			}
+			if err == io.EOF {
+				if !hasTrailers && !sawEnd {
+					if werr := fr.WriteData(id, true, nil); werr != nil {
+						return werr
+					}
+				}
+				break
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if hasTrailers {
+		buf.Reset()
+		for _, th := range trailers {
+			name := strings.ToLower(th.Name)
+			if name == "" || hopHeaders[name] {
+				continue
+			}
+			if err := enc.WriteField(hpack.HeaderField{Name: name, Value: th.Value}); err != nil {
+				return err
+			}
+		}
+		return writeHeaderBlock(fr, id, buf.Bytes(), true)
+	}
+	return nil
 }
 
-func (s *frameSpy) Read(p []byte) (int, error) {
-	n, err := s.Conn.Read(p)
-	if n > 0 {
-		s.mu.Lock()
-		s.buf = append(s.buf, p[:n]...)
-		s.consume()
-		s.mu.Unlock()
+func writeHeaderBlock(fr *http2.Framer, id uint32, block []byte, endStream bool) error {
+	if len(block) == 0 {
+		return fr.WriteHeaders(http2.HeadersFrameParam{
+			StreamID:      id,
+			BlockFragment: block,
+			EndHeaders:    true,
+			EndStream:     endStream,
+		})
 	}
-	return n, err
+	first := true
+	for len(block) > 0 {
+		n := len(block)
+		if n > maxFramePayload {
+			n = maxFramePayload
+		}
+		chunk := block[:n]
+		block = block[n:]
+		endHeaders := len(block) == 0
+		if first {
+			first = false
+			if err := fr.WriteHeaders(http2.HeadersFrameParam{
+				StreamID:      id,
+				BlockFragment: chunk,
+				EndHeaders:    endHeaders,
+				EndStream:     endStream && endHeaders,
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := fr.WriteContinuation(id, endHeaders, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (s *frameSpy) consume() {
-	if !s.prefaceOff {
-		if len(s.buf) < len(http2.ClientPreface) {
-			return
-		}
-		s.buf = s.buf[len(http2.ClientPreface):]
-		s.prefaceOff = true
+func isClosedConn(err error) bool {
+	if err == nil {
+		return false
 	}
-	for {
-		if len(s.buf) < 9 {
-			return
-		}
-		length := int(s.buf[0])<<16 | int(s.buf[1])<<8 | int(s.buf[2])
-		total := 9 + length
-		if length < 0 || total < 9 || len(s.buf) < total {
-			return
-		}
-		ftype := s.buf[3]
-		sid := binary.BigEndian.Uint32(s.buf[5:9]) & 0x7fffffff
-		if ftype == byte(http2.FrameHeaders) && sid != 0 {
-			s.ids = append(s.ids, sid)
-		}
-		s.buf = append([]byte(nil), s.buf[total:]...)
-	}
-}
-
-func (s *frameSpy) takeHeadersID() uint32 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.ids) == 0 {
-		return 0
-	}
-	id := s.ids[0]
-	s.ids = s.ids[1:]
-	return id
+	msg := err.Error()
+	return strings.Contains(msg, "use of closed network connection") ||
+		strings.Contains(msg, "tls: failed to send closeNotify")
 }

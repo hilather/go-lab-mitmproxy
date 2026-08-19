@@ -85,7 +85,7 @@ Normative for every `CONNECT` (D19). Tests: two GETs on one CONNECT; “forgot t
 - One CONNECT = **one** upstream TCP + **one** upstream TLS conn. Do **not** put this conn in the cleartext `Transport` idle pool.
 - Serialized inner requests: `http.ReadRequest` on the client `tls.Conn`, then `Transport.RoundTrip` with a one-shot `DialContext` that returns the already-handshaked upstream `tls.Conn`.
 - Each inner request is **one flow**.
-- Inner knobs: HTTP/1 only until the HTTP/2 capture workstream. Inner `PRI` → close both sides, `Error=http2_inner` (flag off **and** flag on until capture is wired). Handshake ALPN is taken from the session snapshot (D46); default/flag-off is `http/1.1`.
+- Inner knobs: HTTP/1 only until the HTTP/2 capture workstream. Inner `PRI` → close both sides, `Error=http2_inner` (flag off **and** flag on until capture is wired). Handshake ALPN is taken from the session snapshot (D46); default/flag-off is `http/1.1`. Flag-on advertises `h2` on the **leaf** only; origin NextProtos stay `http/1.1` until transcode.
 - Client keep-alive on the inner TLS session is allowed.
 - Inner `Upgrade: websocket` + `101` uses the same 101 + bidirectional copy as cleartext (no frame inspect). RoundTrip failure writes `502` and closes both TLS sides (no keep-alive loop).
 
