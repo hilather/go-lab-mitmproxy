@@ -1,6 +1,7 @@
 package web
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -77,14 +78,55 @@ func TestReservedPathsNotCaptured(t *testing.T) {
 	}
 }
 
+func TestFilesHasIndex(t *testing.T) {
+	t.Parallel()
+	raw, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "LabMITM") {
+		t.Fatalf("embedded index=%s", raw)
+	}
+}
+
 func TestStubFiles(t *testing.T) {
 	h := NewHandler(nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("stub GET / code=%d", rec.Code)
+		t.Fatalf("GET / code=%d", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), "LabMITM") {
-		t.Fatalf("stub body=%s", rec.Body.String())
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestRejectsTraversalAndNonGET(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(testFS())
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/foo/../../etc/passwd", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("traversal code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	post := httptest.NewRecorder()
+	h.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/", nil))
+	if post.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST / code=%d", post.Code)
+	}
+}
+
+func TestHEADIndex(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(testFS())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HEAD / code=%d", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("HEAD / leaked body len=%d", rec.Body.Len())
 	}
 }

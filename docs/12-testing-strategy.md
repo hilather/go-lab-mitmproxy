@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-18 (SEC-001)
+Last reviewed: 2026-08-19 (DEP-001 + UI-001)
 Related ADRs: 0002, 0004
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -24,7 +24,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Docs | required files, links, example YAML validates | `make test-docs` |
 | Config compat | `testdata/config/valid` + `invalid` | `make test-config-compat` |
 | Changelog | user-visible paths require `CHANGELOG.md` | `make test-changelog` |
-| UI | SPA fallback, `ui.enabled: false` 404, CSRF, no exploit controls | `make web-test` |
+| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
 
 ## Required Make targets
 
@@ -38,11 +38,16 @@ make test-container security-scan test-changelog
 make web-test web-build
 ```
 
-FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-fuzz-smoke`, `test-docs`, and `security-scan`. CFG-001 implements `test-config-compat` (`testdata/config/valid` + `invalid`) and extends `test-fuzz-smoke` with `FuzzDecode`. API-001 implements `generate` / `verify-generated` (`api/capabilities/v1.json`, `api/openapi/v1.json`). MCP-001 implements `test-parity` (`internal/capabilities`, `internal/control/rest`, `internal/control/mcp` plus `testdata/mcp/goldens` and `api/mcp/v1.json`). `test-container`, `test-changelog`, `web-test`, and `web-build` fail closed until their owning PR.
+FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-fuzz-smoke`, `test-docs`, and `security-scan`. CFG-001 implements `test-config-compat` (`testdata/config/valid` + `invalid`) and extends `test-fuzz-smoke` with `FuzzDecode`. API-001 implements `generate` / `verify-generated` (`api/capabilities/v1.json`, `api/openapi/v1.json`). MCP-001 implements `test-parity` (`internal/capabilities`, `internal/control/rest`, `internal/control/mcp` plus `testdata/mcp/goldens` and `api/mcp/v1.json`). DEP-001 implements `test-container` (`scripts/test-container.sh`; Docker required, fail closed if missing). `test-changelog`, `web-test`, and `web-build` fail closed until their owning PR.
 
-## Required CI (MCP-001)
+## Required CI (DEP-001)
 
-Jobs: format, lint, unit, documentation, config-compat, generated-file, parity. There is no optional or bypassable job. Later PRs add race, fuzz-smoke, security-scan, container-test, changelog, and web when those targets first exist.
+Jobs: format, lint, unit, documentation, config-compat, generated-file, parity, container-test. There is no optional or bypassable job. Later PRs add race, fuzz-smoke, security-scan, changelog, and web when those targets first exist.
+FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-fuzz-smoke`, `test-docs`, and `security-scan`. CFG-001 implements `test-config-compat` (`testdata/config/valid` + `invalid`) and extends `test-fuzz-smoke` with `FuzzDecode`. API-001 implements `generate` / `verify-generated` (`api/capabilities/v1.json`, `api/openapi/v1.json`). MCP-001 implements `test-parity` (`internal/capabilities`, `internal/control/rest`, `internal/control/mcp` plus `testdata/mcp/goldens` and `api/mcp/v1.json`). UI-001 implements `web-test` / `web-build` (Node **22.14.0**, Vite, Vitest; copies `web/dist` into `internal/web/dist`). `test-container` and `test-changelog` fail closed until their owning PR.
+
+## Required CI (UI-001)
+
+Jobs: format, lint, unit, documentation, config-compat, generated-file, parity, web. There is no optional or bypassable job. Later PRs add race, fuzz-smoke, security-scan, container-test, and changelog when those targets first exist.
 
 Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`. govulncheck `v1.1.4`. Actions SHA-pinned.
 
@@ -53,6 +58,8 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 - API-001: REST contract tests (`internal/control/rest`) for auth 401, problem+json, list/get/delete/wait/resume/drop/replay, HMAC cursor stale, `GET /v1/ca` cert-only; `proxy.Replay` HTTP/HTTPS, `HTTP_PROXY` ignored, hairpin rejected.
 - MCP-001: `testdata/mcp/goldens/{tools,resources,mutating-tools}.txt`; `internal/control/mcp` initialize/tools/list/tool call/origin/bearer; URI-only `subscriptions/listen` on `labmitm://flows`; `api/mcp/v1.json`.
 - SEC-001: `testdata/container/{config.yaml,token}` (bearer, not `dev-loopback-unauth`); REST unauthenticated `GET /v1/flows` is 401; cookie `labmitm_session` + CSRF; token reread on reset/apply keeps sessions on failed secret reread; audit records `actorId`.
+- DEP-001: `Dockerfile` (Go 1.26.6-alpine → scratch, UID `65532`, copy `ca-certificates.crt`, no Node stage); `examples/compose.smoke.yaml`; `scripts/test-container.sh` asserts system CA bundle + `SystemCertPool` non-empty + HTTPS intercept fixture + authenticated `/v1/flows`.
+- UI-001: `web/` React/TS + Vite (Node **22.14.0**); Vitest login/list/detail/status/reset; no token in web storage; no exploit/fuzzer/repeater; escaped HTML bodies; `ca.spkiSha256` on status; `make web-test` / `make web-build`; CI job `web`.
 - STORE-001: `testdata/flows/**` golden captured flows; `internal/store` insert/delete/wait/wipe/epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate, stacked caps, spill, race; proxy store-full still forwards.
 - RULES-001: `internal/rules` first-match, default-off, AND match, no Dial; Resume without HTTP (store only, test-constructed snapshot); proxy delay/drop/status/header/body/breakpoint, stream-vs-mutate `body_skipped`, inner CONNECT drop.
 - STA-001: `internal/compiler` (rules engine + CA handle; reuse CA unless `replaceTLS` / reset); `internal/snapshot` atomic swap; `internal/audit` ring + redact (`BEGIN PRIVATE` never logged); `internal/app` Plan/Apply/Reset/Export, reset-wipes-flows, failed reset leaves snapshot+inbox, generate-mode CA rotates on reset, idempotency LRU, `replaceStoreCaps` / `replaceRules` / `replaceTLS` / `replaceAdmission` / `replaceTargets`; proxy loads snapshot per request / CONNECT (in-flight keeps the pin, including response-phase rules); accept-time epoch so reset cannot refill the inbox from an in-flight hop.

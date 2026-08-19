@@ -1,0 +1,30 @@
+# Minimal Compose smoke for the hardened image. Pin by digest in GitOps.
+# Healthcheck is HTTP ready (exec form). Token is a bind-mounted secret file.
+# Bind-mounted secrets must be readable by UID 65532 (0o644).
+services:
+  labmitm:
+    image: ghcr.io/hilather/labmitm:local
+    build:
+      context: ..
+    # Flag default is off (proxy-only); compose smoke binds management for ready + /v1.
+    command: ["serve", "--config=/etc/labmitm/config.yaml", "--management-listen=:8088"]
+    ports:
+      - "8888:8888/tcp"
+      - "8088:8088/tcp"
+    volumes:
+      - ../testdata/container/config.yaml:/etc/labmitm/config.yaml:ro
+      - ../testdata/container/token:/etc/labmitm/token:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "65532:65532"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/labmitm", "healthcheck", "--url=http://127.0.0.1:8088/v1/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3

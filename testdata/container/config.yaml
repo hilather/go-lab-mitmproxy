@@ -8,11 +8,16 @@ metadata:
 spec:
   listeners:
     proxy:
-      address: "127.0.0.1:8888"
+      address: ":8888"
     management:
-      address: "127.0.0.1:8088"
+      address: ":8088"
       restPath: /v1
       mcpPath: /mcp
+  tls:
+    intercept: true
+    ports: [443]
+    ca:
+      mode: generate
   ui:
     enabled: false
   management:

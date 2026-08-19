@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Integration, Platform
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (DEP-001)
 Related ADRs: 0005, 0006, 0007
 
 This document is the bill of materials for adding LabMITM to `mcp-integration-lab`. The compose/image pin change is a **follow-on lab PR** after `v1.0.0-rc.1` of this repo (D18). SWAP-001 (named slice inside PR 14) lands the overlay examples this lab will copy.

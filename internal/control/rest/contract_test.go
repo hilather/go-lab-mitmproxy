@@ -106,6 +106,9 @@ func TestContractReads(t *testing.T) {
 	if raw.Body.String() != "req" {
 		t.Fatalf("request body %q", raw.Body.String())
 	}
+	if !strings.Contains(raw.Header().Get("Content-Type"), "application/octet-stream") {
+		t.Fatalf("request body type=%s", raw.Header().Get("Content-Type"))
+	}
 
 	missing := doReq(t, h, http.MethodGet, "/v1/flows/01AAAAAAAAAAAAAAAAAAAAAAAA", "")
 	requireProblem(t, missing, http.StatusNotFound, "not_found")
@@ -120,6 +123,50 @@ func TestContractReads(t *testing.T) {
 	}
 	if !strings.Contains(ca.Body.String(), "BEGIN CERTIFICATE") {
 		t.Fatalf("ca pem=%s", ca.Body.String())
+	}
+}
+
+func TestFlowBodyDoesNotReflectCapturedHTMLType(t *testing.T) {
+	s, svc := newTestServer(t)
+	html := []byte("<html><script>alert(1)</script></html>")
+	res, err := svc.Inbox().Insert(t.Context(), svc.Inbox().Epoch(), &model.Flow{
+		Host:     "app.lab",
+		Method:   "GET",
+		URL:      "http://app.lab/",
+		Scheme:   "http",
+		Protocol: model.FlowProtocolHTTP11,
+		State:    model.FlowStateCompleted,
+		Status:   200,
+		Request:  model.HTTPMessage{Body: []byte("req"), Size: 3},
+		Response: model.HTTPMessage{
+			Headers: []model.Header{{Name: "Content-Type", Value: "text/html; charset=utf-8"}},
+			Body:    html,
+			Size:    len(html),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := doReq(t, s.Handler(), http.MethodGet, "/v1/flows/"+res.ID+"/response", "")
+	requireStatus(t, got, http.StatusOK)
+	ct := got.Header().Get("Content-Type")
+	if strings.Contains(ct, "text/html") {
+		t.Fatalf("captured HTML type leaked onto management: %s", ct)
+	}
+	if !strings.Contains(ct, "application/octet-stream") {
+		t.Fatalf("body type=%s", ct)
+	}
+	disp := got.Header().Get("Content-Disposition")
+	wantName := `filename="flow-` + res.ID + `-response.bin"`
+	if !strings.HasPrefix(disp, "attachment;") || !strings.Contains(disp, wantName) {
+		t.Fatalf("disposition=%q", disp)
+	}
+	if got.Header().Get("Content-Security-Policy") != "default-src 'none'" {
+		t.Fatalf("csp=%q", got.Header().Get("Content-Security-Policy"))
+	}
+	if got.Body.String() != string(html) {
+		t.Fatalf("body=%q", got.Body.String())
 	}
 }
 

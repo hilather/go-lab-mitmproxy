@@ -10,9 +10,10 @@ LabMITM is a **lab appliance**, not a public edge proxy and not an attack framew
 [![Go](https://img.shields.io/github/go-mod/go-version/hilather/go-lab-mitmproxy?label=Go)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/hilather/go-lab-mitmproxy/blob/main/LICENSE)
 
-Status: **HTTP/1.1 forward proxy plus optional TLS intercept, a bounded in-memory flow store, native REST `/v1`, MCP `POST /mcp`, and lab static bearer**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). Management REST/MCP bind only with a usable bearer token (or `--management-listen=off`). Unauthenticated `GET /v1/flows` is 401. REST cookie `labmitm_session` + CSRF. Production UI and the container image are later PRs.
+Status: **HTTP/1.1 forward proxy plus optional TLS intercept, a bounded in-memory flow store, native REST `/v1`, MCP `POST /mcp`, lab static bearer, and a hardened scratch image**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). Management REST/MCP bind only with a usable bearer token (or `--management-listen=off`). Unauthenticated `GET /v1/flows` is 401. REST cookie `labmitm_session` + CSRF. Production UI is UI-001.
+Status: **HTTP/1.1 forward proxy plus optional TLS intercept, a bounded in-memory flow store, native REST `/v1`, MCP `POST /mcp`, lab static bearer, and the embedded flow-inspector UI**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). Management REST/MCP bind only with a usable bearer token (or `--management-listen=off`). Unauthenticated `GET /v1/flows` is 401. REST cookie `labmitm_session` + CSRF. The SPA at `/` talks REST only. The container image is a later PR.
 
-Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-lab-mitmproxy) · Binary `labmitm` · Image (later) `ghcr.io/hilather/labmitm` · YAML `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`
+Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-lab-mitmproxy) · Binary `labmitm` · Image `ghcr.io/hilather/labmitm` · YAML `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`
 
 New here? Start with [START-HERE.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/START-HERE.md). Architecture, ADRs, and the program board are indexed in [Documentation](#documentation).
 
@@ -48,7 +49,10 @@ go build -o bin/labmitm ./cmd/labmitm
 ./bin/labmitm serve --config testdata/config/valid/defaults.yaml --proxy-listen 127.0.0.1:8888 --management-listen=off
 ```
 
-`serve --management-listen=off` binds the proxy only. Binding management requires `spec.management.auth.mode: bearer` with ≥1 token file (allow-all is not a 1.0 posture). Empty `spec: {}` materializes loopback defaults `127.0.0.1:8888` / `127.0.0.1:8088`. `tls.intercept: true` mints a lab CA and intercepts CONNECT on listed ports (default `443`); handshake failure does not fall back to a blind tunnel. The CA certificate is `GET /v1/ca` (PEM cert only, authenticated; never the key; not on `:8888`).
+`serve --management-listen=off` binds the proxy only. Binding management requires `spec.management.auth.mode: bearer` with ≥1 token file (allow-all is not a 1.0 posture). Empty `spec: {}` materializes loopback defaults `127.0.0.1:8888` / `127.0.0.1:8088`. `tls.intercept: true` mints a lab CA and intercepts CONNECT on listed ports (default `443`); handshake failure does not fall back to a blind tunnel. The CA certificate is `GET /v1/ca` (PEM cert only, authenticated; never the key; not on `:8888`). There is no `serve --token-file`.
+
+Hardened image: non-root UID `65532`, scratch, read-only root, `cap_drop: ALL`, system CA bundle copied so `x509.SystemCertPool()` is non-empty. Healthcheck is HTTP ready (exec form). Compose smoke: [examples/compose.smoke.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.smoke.yaml).
+`serve --management-listen=off` binds the proxy only. Binding management requires `spec.management.auth.mode: bearer` with ≥1 token file (allow-all is not a 1.0 posture). Empty `spec: {}` materializes loopback defaults `127.0.0.1:8888` / `127.0.0.1:8088`. `tls.intercept: true` mints a lab CA and intercepts CONNECT on listed ports (default `443`); handshake failure does not fall back to a blind tunnel. The CA certificate is `GET /v1/ca` (PEM cert only, authenticated; never the key; not on `:8888`). Production UI assets: `make web-build` (Node **22.14.0**) copies `web/dist` into `internal/web/dist`. `spec.ui.enabled: false` 404s `/` and keeps REST/MCP.
 
 ## Build and test
 
@@ -61,10 +65,17 @@ make test
 make test-config-compat
 make test-docs
 make test-parity
+make test-container
 make build
 ```
 
-Required CI jobs: format, lint, unit, documentation, config-compat, generated-file, parity. There is no optional or bypassable job.
+Required CI jobs: format, lint, unit, documentation, config-compat, generated-file, parity, container-test. There is no optional or bypassable job. `make test-container` needs Docker.
+make web-test
+make web-build
+make build
+```
+
+Required CI jobs: format, lint, unit, documentation, config-compat, generated-file, parity, web. There is no optional or bypassable job.
 
 ## Documentation
 

@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-18 (SEC-001)
+Last reviewed: 2026-08-18 (UI-001 review)
 Related ADRs: 0004, 0005, 0007
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
 
-API-001 implements the native REST adapter (`internal/control/rest`) from the frozen capability registry. OpenAPI is generated (`make generate` → `api/openapi/v1.json`). SEC-001 implements cookie `labmitm_session` + CSRF (`X-LabMITM-CSRF`); `GET /v1/session` returns the cookie CSRF secret for reload recovery. Unauthenticated `GET /v1/flows` is 401. The embedded UI is a compile-time stub until UI-001. Management bind refuses listen when `mode: bearer` has no usable token.
+API-001 implements the native REST adapter (`internal/control/rest`) from the frozen capability registry. OpenAPI is generated (`make generate` → `api/openapi/v1.json`). SEC-001 implements cookie `labmitm_session` + CSRF (`X-LabMITM-CSRF`); `GET /v1/session` returns the cookie CSRF secret for reload recovery. Unauthenticated `GET /v1/flows` is 401. UI-001 embeds the React flow-inspector (`internal/web` `go:embed` of `web/dist`; `make web-build`). Management bind refuses listen when `mode: bearer` has no usable token.
 
 ## Problem details
 
@@ -62,6 +62,8 @@ Cursor: opaque `base64url(id || uint64 storeGeneration || HMAC-SHA256)`. MAC key
 
 List items omit bodies (`requestBytes`, `responseBytes`, `truncated` flags only).
 
+`GET /v1/flows/{id}/request` and `GET /v1/flows/{id}/response` return the captured bytes as `application/octet-stream` with `Content-Disposition: attachment` and `Content-Security-Policy: default-src 'none'`. They never reflect the captured `Content-Type` (a browser GET of `text/html` would execute scripts on the management origin).
+
 `POST /v1/flows:wait` filter `{host, method, pathPrefix, status, after, intercepted}` + `timeout` (default 10s, cap `store.maxWait`).
 
 ## Session (REST_ONLY)
@@ -115,7 +117,7 @@ Required for GA / 1.0 (D13). Talks REST only.
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie + CSRF. No Basic form. |
 | Pages | Flow list, flow detail, CA download, status, audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream`. Fallback: 3s poll of `GET /v1/flows` |
-| Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
+| Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download links use `download=` plus a blob fetch (click is not a document navigation). Raw body GETs are `application/octet-stream` + `Content-Disposition: attachment`. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle |
 
 `spec.ui.enabled: false` serves 404 for `/` but keeps REST/MCP.

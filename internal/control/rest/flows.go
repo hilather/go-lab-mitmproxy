@@ -116,19 +116,34 @@ func (s *Server) handleFlowBody(w http.ResponseWriter, r *http.Request, instance
 		return
 	}
 	side := f.Response
+	name := "response"
 	if request {
 		side = f.Request
+		name = "request"
 	}
-	ct := "application/octet-stream"
-	for _, h := range side.Headers {
-		if strings.EqualFold(h.Name, "Content-Type") && h.Value != "" {
-			ct = h.Value
-			break
-		}
-	}
+	// Never reflect captured Content-Type. A browser GET of text/html
+	// or image/svg+xml would execute scripts on the management origin.
+	w.Header().Set("Content-Disposition", `attachment; filename="`+flowBodyFilename(id, name)+`"`)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	s.writeBytes(w, http.StatusOK, ct, side.Body)
+	w.Header().Set("Content-Security-Policy", "default-src 'none'")
+	s.writeBytes(w, http.StatusOK, "application/octet-stream", side.Body)
 	_ = r
+}
+
+func flowBodyFilename(id, side string) string {
+	return "flow-" + sanitizeDownloadName(id) + "-" + sanitizeDownloadName(side) + ".bin"
+}
+
+func sanitizeDownloadName(name string) string {
+	name = strings.ReplaceAll(name, `"`, "")
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "\\", "_")
+	name = strings.ReplaceAll(name, "\r", "")
+	name = strings.ReplaceAll(name, "\n", "")
+	if name == "" {
+		return "body"
+	}
+	return name
 }
 
 func (s *Server) handleDeleteFlow(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor, id string) {

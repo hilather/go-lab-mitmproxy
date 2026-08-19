@@ -1,0 +1,255 @@
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  APIError,
+  deleteFlow,
+  downloadFlowBody,
+  flowBodyFilename,
+  getFlow,
+  requestBodyURL,
+  responseBodyURL,
+  type FlowBodySide,
+} from "../api/client";
+import type { Flow, Header, HTTPMessage } from "../api/types";
+import { useAuth } from "../auth/AuthProvider";
+import { SCOPE_WRITE, formatBytes } from "../auth/scopes";
+import { contentTypeOf, shouldRenderAsText, toHexDump } from "../ui/bodyView";
+
+type Tab = "request" | "response" | "tls";
+
+function HeadersTable({ headers }: { headers: Header[] }) {
+  if (headers.length === 0) {
+    return <p>No headers.</p>;
+  }
+  return (
+    <table className="data">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {headers.map((h, i) => (
+          <tr key={`${h.name}-${i}`}>
+            <td>{h.name}</td>
+            <td>{h.value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function MessageBody({ msg }: { msg: HTTPMessage }) {
+  const ct = contentTypeOf(msg.headers);
+  const body = msg.body ?? "";
+  if (body === "" && msg.size === 0) {
+    return <p className="muted">Empty body.</p>;
+  }
+  if (shouldRenderAsText(ct, body)) {
+    return <pre className="raw">{body || "(empty)"}</pre>;
+  }
+  return (
+    <>
+      <p className="muted">
+        Binary or non-text body{ct !== "" ? ` (${ct})` : ""}. Showing hex preview of{" "}
+        {formatBytes(body.length)}
+        {msg.size > 0 && msg.size !== body.length ? ` (reported ${formatBytes(msg.size)})` : ""}.
+      </p>
+      <pre className="raw">{toHexDump(body)}</pre>
+    </>
+  );
+}
+
+export function FlowPage() {
+  const { id = "" } = useParams();
+  const navigate = useNavigate();
+  const { hasScope } = useAuth();
+  const canWrite = hasScope(SCOPE_WRITE);
+  const [tab, setTab] = useState<Tab>("request");
+  const [flow, setFlow] = useState<Flow | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const next = await getFlow(id);
+        if (!cancelled) {
+          setFlow(next);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof APIError ? err.message : "Flow not found.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  async function onDelete() {
+    if (!window.confirm("Delete this flow?")) {
+      return;
+    }
+    try {
+      await deleteFlow(id);
+      void navigate("/", { replace: true });
+    } catch (err) {
+      setError(err instanceof APIError ? err.message : "Delete failed.");
+    }
+  }
+
+  async function onDownload(side: FlowBodySide) {
+    try {
+      await downloadFlowBody(id, side);
+    } catch (err) {
+      setError(err instanceof APIError ? err.message : "Download failed.");
+    }
+  }
+
+  if (error !== "" && flow === null) {
+    return (
+      <main className="page">
+        <p className="banner-error" role="alert">
+          {error}
+        </p>
+        <p>
+          <Link to="/">Back to flows</Link>
+        </p>
+      </main>
+    );
+  }
+  if (flow === null) {
+    return (
+      <main className="page">
+        <p role="status">Loading flow…</p>
+      </main>
+    );
+  }
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "request", label: "Request" },
+    { id: "response", label: "Response" },
+    { id: "tls", label: "TLS" },
+  ];
+
+  return (
+    <main className="page">
+      <p>
+        <Link to="/">Flows</Link>
+      </p>
+      <h1>
+        {flow.method} {flow.url}
+      </h1>
+      <p>
+        {flow.status > 0 ? `HTTP ${flow.status}` : flow.state} · {flow.host} · {flow.scheme} ·{" "}
+        {flow.protocol}
+        {flow.intercepted ? " · intercepted" : ""}
+        {flow.truncated ? " · truncated" : ""}
+      </p>
+      <p className="muted">
+        {formatBytes(flow.requestBytes)} request · {formatBytes(flow.responseBytes)} response
+        {flow.clientAddr ? ` · ${flow.clientAddr}` : ""}
+        {flow.ruleIds && flow.ruleIds.length > 0 ? ` · rules ${flow.ruleIds.join(", ")}` : ""}
+      </p>
+      {flow.error ? <p className="banner-error">{flow.error}</p> : null}
+      {error !== "" ? (
+        <p className="banner-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {canWrite ? (
+        <p>
+          <button type="button" onClick={() => void onDelete()}>
+            Delete flow
+          </button>
+        </p>
+      ) : null}
+      <div className="tabs" role="tablist" aria-label="Flow parts">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "request" ? (
+        <>
+          <p>
+            <a
+              href={requestBodyURL(flow.id)}
+              download={flowBodyFilename(flow.id, "request")}
+              onClick={(ev) => {
+                ev.preventDefault();
+                void onDownload("request");
+              }}
+            >
+              Download request body
+            </a>
+          </p>
+          <HeadersTable headers={flow.request.headers ?? []} />
+          <MessageBody msg={flow.request} />
+        </>
+      ) : null}
+      {tab === "response" ? (
+        <>
+          <p>
+            <a
+              href={responseBodyURL(flow.id)}
+              download={flowBodyFilename(flow.id, "response")}
+              onClick={(ev) => {
+                ev.preventDefault();
+                void onDownload("response");
+              }}
+            >
+              Download response body
+            </a>
+          </p>
+          <HeadersTable headers={flow.response.headers ?? []} />
+          <MessageBody msg={flow.response} />
+        </>
+      ) : null}
+      {tab === "tls" ? (
+        flow.tls ? (
+          <dl>
+            <div>
+              <dt>SNI</dt>
+              <dd>{flow.tls.sni || "—"}</dd>
+            </div>
+            <div>
+              <dt>Version</dt>
+              <dd>{flow.tls.version || "—"}</dd>
+            </div>
+            <div>
+              <dt>Cipher</dt>
+              <dd>{flow.tls.cipherSuite || "—"}</dd>
+            </div>
+            <div>
+              <dt>ALPN</dt>
+              <dd>{flow.tls.alpn || "—"}</dd>
+            </div>
+            <div>
+              <dt>Upstream verified</dt>
+              <dd>{flow.tls.upstreamVerified ? "yes" : "no"}</dd>
+            </div>
+            <div>
+              <dt>Leaf DNS</dt>
+              <dd>{(flow.tls.leafDns ?? []).join(", ") || "—"}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p>No TLS metadata. Cleartext hop or intercept did not run.</p>
+        )
+      ) : null}
+    </main>
+  );
+}

@@ -1,6 +1,6 @@
 # Start here
 
-LabMITM is a laboratory HTTP(S) intercepting proxy in the LabDNS / LabMail / TacLab family. Systems under test send HTTP/1.1 absolute-form requests and CONNECT tunnels to it. LabMITM captures, optionally intercepts TLS with a lab CA, and exposes flows over native REST `/v1` and MCP `POST /mcp` (the production UI follows). Management is lab static bearer; unauthenticated `GET /v1/flows` is 401. It never wraps Python mitmproxy.
+LabMITM is a laboratory HTTP(S) intercepting proxy in the LabDNS / LabMail / TacLab family. Systems under test send HTTP/1.1 absolute-form requests and CONNECT tunnels to it. LabMITM captures, optionally intercepts TLS with a lab CA, and exposes flows over native REST `/v1`, MCP `POST /mcp`, and the embedded flow-inspector UI at `/`. Management is lab static bearer; unauthenticated `GET /v1/flows` is 401. It never wraps Python mitmproxy.
 
 If you want to run what exists today, stay on this page, then follow the [README](README.md). If you want to change it, read [AGENTS.md](AGENTS.md) before touching code.
 
@@ -13,7 +13,8 @@ If you want to run what exists today, stay on this page, then follow the [README
 5. `./bin/labmitm canonicalize --config testdata/config/valid/defaults.yaml --format yaml`
 6. `./bin/labmitm serve --config testdata/config/valid/defaults.yaml --proxy-listen 127.0.0.1:8888 --management-listen=off`
 
-`serve` binds the HTTP/1.1 forward proxy. Management REST `/v1` and `POST /mcp` bind when `--management-listen` is an address and bearer auth has ≥1 token. `labmitm mcp-stdio --config … --token-file …` serves the same registry over stdio. `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/ready` probes readiness. Set `tls.intercept: true` to mint a lab CA and intercept HTTPS on listed ports.
+`serve` binds the HTTP/1.1 forward proxy. Management REST `/v1` and `POST /mcp` bind when `--management-listen` is an address and bearer auth has ≥1 token. `labmitm mcp-stdio --config … --token-file …` serves the same registry over stdio. `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/ready` probes readiness. Set `tls.intercept: true` to mint a lab CA and intercept HTTPS on listed ports. There is no `serve --token-file`. The hardened image is `ghcr.io/hilather/labmitm` (scratch, UID `65532`, system CA bundle). Compose smoke: `examples/compose.smoke.yaml`. `make test-container` requires Docker.
+`serve` binds the HTTP/1.1 forward proxy. Management REST `/v1`, the flow-inspector SPA at `/`, and `POST /mcp` bind when `--management-listen` is an address and bearer auth has ≥1 token. `labmitm mcp-stdio --config … --token-file …` serves the same registry over stdio. `healthcheck` remains unimplemented and exits 2. Set `tls.intercept: true` to mint a lab CA and intercept HTTPS on listed ports. `make web-build` (Node **22.14.0**) embeds the production SPA.
 
 YAML field rules, revisions, and reset live in [docs/06-state-and-configuration.md](docs/06-state-and-configuration.md). Proxy accept/reject tables live in [docs/02-proxy-semantics.md](docs/02-proxy-semantics.md). REST and MCP twins are in [docs/08-rest-api.md](docs/08-rest-api.md) and [docs/09-mcp-api.md](docs/09-mcp-api.md).
 
