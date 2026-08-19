@@ -1,0 +1,326 @@
+package mcp
+
+import (
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
+	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+func TestToolsRegisteredFromRegistry(t *testing.T) {
+	s, _ := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	seen := map[string]bool{}
+	for tool, err := range cs.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[tool.Name] = true
+		if tool.InputSchema == nil {
+			t.Errorf("%s missing input schema", tool.Name)
+		}
+	}
+	want := capabilities.Tools()
+	if len(seen) != len(want) {
+		t.Errorf("live tools=%d registry=%d", len(seen), len(want))
+	}
+	for _, name := range want {
+		if !seen[name] {
+			t.Errorf("missing tool %s", name)
+		}
+	}
+	for name := range seen {
+		found := false
+		for _, w := range want {
+			if w == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("extra live tool %s", name)
+		}
+	}
+	if seen["health.live"] || seen["mitm_health_live"] {
+		t.Fatal("health live must not be a tool")
+	}
+}
+
+func TestResourcesRegisteredFromRegistry(t *testing.T) {
+	s, _ := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	seen := map[string]bool{}
+	for r, err := range cs.Resources(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[r.URI] = true
+	}
+	for tmpl, err := range cs.ResourceTemplates(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[tmpl.URITemplate] = true
+	}
+	want := capabilities.Resources()
+	if len(seen) != len(want) {
+		t.Errorf("live resources=%d registry=%d", len(seen), len(want))
+	}
+	for _, uri := range want {
+		if !seen[uri] {
+			t.Errorf("missing resource %s", uri)
+		}
+	}
+	for uri := range seen {
+		found := false
+		for _, w := range want {
+			if w == uri {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("extra live resource %s", uri)
+		}
+	}
+}
+
+func TestContractReads(t *testing.T) {
+	s, svc := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+
+	ver := structuredMap(t, callTool(t, cs, "mitm_version_get", map[string]any{}))
+	if ver["protocols"] == nil {
+		t.Fatalf("version=%v", ver)
+	}
+	caps := structuredMap(t, callTool(t, cs, "mitm_capabilities_get", map[string]any{}))
+	if caps["capabilities"] == nil {
+		t.Fatalf("capabilities=%v", caps)
+	}
+	st := structuredMap(t, callTool(t, cs, "mitm_status_get", map[string]any{}))
+	if st["revisions"] == nil || st["ca"] == nil {
+		t.Fatalf("status=%v", st)
+	}
+	schema := callTool(t, cs, "mitm_schema_get", map[string]any{})
+	raw, _ := json.Marshal(schema.StructuredContent)
+	if !strings.Contains(string(raw), "labmitm.dev/v1alpha1") {
+		t.Fatalf("schema missing api version: %s", raw)
+	}
+
+	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	if state["runtimeRevision"] == "" {
+		t.Fatalf("state=%v", state)
+	}
+
+	id := insertFlow(t, svc, "app.lab")
+	list := structuredMap(t, callTool(t, cs, "mitm_flows_list", map[string]any{"limit": 1}))
+	if list["storeGeneration"] == nil {
+		t.Fatalf("list=%v", list)
+	}
+	items, _ := list["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items=%v", list)
+	}
+	item := items[0].(map[string]any)
+	req, _ := item["request"].(map[string]any)
+	if _, ok := req["body"]; ok {
+		t.Fatal("list item must omit bodies")
+	}
+
+	got := structuredMap(t, callTool(t, cs, "mitm_flow_get", map[string]any{"id": id}))
+	req, _ = got["request"].(map[string]any)
+	if req["body"] == nil {
+		t.Fatalf("get must include body: %v", got)
+	}
+	rawReq := structuredMap(t, callTool(t, cs, "mitm_flow_request_get", map[string]any{"id": id}))
+	if rawReq["body"] != "req" || rawReq["side"] != "request" {
+		t.Fatalf("request body=%v", rawReq)
+	}
+	missing := callToolExpectError(t, cs, "mitm_flow_get", map[string]any{"id": "01AAAAAAAAAAAAAAAAAAAAAAAA"})
+	if domainCode(t, missing) != "not_found" {
+		t.Fatalf("missing flow error=%v", missing)
+	}
+
+	ca := structuredMap(t, callTool(t, cs, "mitm_ca_get", map[string]any{}))
+	pem, _ := ca["pem"].(string)
+	if strings.Contains(pem, "PRIVATE KEY") {
+		t.Fatal("mitm_ca_get leaked a private key")
+	}
+	if !strings.Contains(pem, "BEGIN CERTIFICATE") {
+		t.Fatalf("ca=%v", ca)
+	}
+
+	stateRes, err := cs.ReadResource(t.Context(), &sdk.ReadResourceParams{URI: "labmitm://state"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stateRes.Contents) == 0 || !strings.Contains(stateRes.Contents[0].Text, "runtimeRevision") {
+		t.Fatalf("resource state=%+v", stateRes)
+	}
+	flowRes, err := cs.ReadResource(t.Context(), &sdk.ReadResourceParams{URI: "labmitm://flows/" + id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flowRes.Contents) == 0 || !strings.Contains(flowRes.Contents[0].Text, `"id"`) {
+		t.Fatalf("resource flow=%+v", flowRes)
+	}
+}
+
+func TestContractMutations(t *testing.T) {
+	s, _ := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+
+	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rev, _ := state["runtimeRevision"].(string)
+	args := map[string]any{
+		"expectedRevision": rev,
+		"reason":           "enable rules",
+		"operations": []model.Operation{{
+			Op:    model.OpReplaceRules,
+			Rules: &model.RulesSpec{Enabled: true, Items: []model.RuleSpec{}},
+		}},
+	}
+	val := structuredMap(t, callTool(t, cs, "mitm_state_validate", map[string]any{
+		"operations": []model.Operation{{
+			Op:    model.OpReplaceRules,
+			Rules: &model.RulesSpec{Enabled: true, Items: []model.RuleSpec{}},
+		}},
+	}))
+	if val["candidateRevision"] == nil && val["previousRevision"] == nil {
+		t.Fatalf("validate=%v", val)
+	}
+	plan := structuredMap(t, callTool(t, cs, "mitm_change_plan", args))
+	if plan["candidateRevision"] == rev {
+		t.Fatal("plan did not change revision")
+	}
+	bad := callToolExpectError(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": "sha256:deadbeef",
+		"operations": []model.Operation{{
+			Op:    model.OpReplaceRules,
+			Rules: &model.RulesSpec{Enabled: true, Items: []model.RuleSpec{}},
+		}},
+	})
+	if domainCode(t, bad) != "revision_conflict" {
+		t.Fatalf("apply conflict=%v", bad)
+	}
+	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", args))
+	if apply["applied"] != true {
+		t.Fatalf("apply=%v", apply)
+	}
+	exp := structuredMap(t, callTool(t, cs, "mitm_state_export", map[string]any{"format": "yaml"}))
+	body, _ := exp["body"].(string)
+	if !strings.Contains(body, "apiVersion") {
+		t.Fatalf("export missing body: %v", exp)
+	}
+	reset := structuredMap(t, callTool(t, cs, "mitm_state_reset", map[string]any{"reason": "test"}))
+	if reset["applied"] != true {
+		t.Fatalf("reset=%v", reset)
+	}
+}
+
+func TestWaitTimeout(t *testing.T) {
+	s, svc := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	insertFlow(t, svc, "wait.lab")
+	wait := structuredMap(t, callTool(t, cs, "mitm_flows_wait", map[string]any{
+		"filter":  map[string]any{"host": "wait.lab"},
+		"timeout": "1s",
+	}))
+	id, _ := wait["id"].(string)
+	if id == "" {
+		t.Fatalf("wait=%v", wait)
+	}
+	timed := callToolExpectError(t, cs, "mitm_flows_wait", map[string]any{
+		"filter":  map[string]any{"host": "never.lab"},
+		"timeout": "1ms",
+	})
+	if domainCode(t, timed) != "timeout" {
+		t.Fatalf("wait timeout=%v", timed)
+	}
+}
+
+func TestHealthNotRegisteredAsTools(t *testing.T) {
+	s, _ := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	for tool, err := range cs.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(tool.Name, "health") || tool.Name == "health.live" || tool.Name == "health.ready" {
+			t.Fatalf("health probe leaked as tool %q", tool.Name)
+		}
+	}
+}
+
+func callToolExpectError(t *testing.T, cs *sdk.ClientSession, name string, args any) error {
+	t.Helper()
+	res, err := cs.CallTool(t.Context(), &sdk.CallToolParams{Name: name, Arguments: args})
+	if err != nil {
+		return err
+	}
+	if res != nil && res.IsError {
+		raw, _ := json.Marshal(res.StructuredContent)
+		return &toolDomainError{raw: raw, text: firstText(res)}
+	}
+	t.Fatalf("CallTool %s: want error", name)
+	return nil
+}
+
+type toolDomainError struct {
+	raw  []byte
+	text string
+}
+
+func (e *toolDomainError) Error() string { return e.text }
+
+func firstText(res *sdk.CallToolResult) string {
+	if res == nil {
+		return ""
+	}
+	for _, c := range res.Content {
+		if tc, ok := c.(*sdk.TextContent); ok {
+			return tc.Text
+		}
+	}
+	return "tool error"
+}
+
+func domainCode(t *testing.T, err error) string {
+	t.Helper()
+	var te *toolDomainError
+	if errors.As(err, &te) && len(te.raw) > 0 {
+		var payload struct {
+			Code string `json:"code"`
+		}
+		if json.Unmarshal(te.raw, &payload) == nil && payload.Code != "" {
+			return payload.Code
+		}
+	}
+	var werr *jsonrpc.Error
+	if errors.As(err, &werr) && len(werr.Data) > 0 {
+		var payload struct {
+			Code string `json:"code"`
+		}
+		if json.Unmarshal(werr.Data, &payload) == nil && payload.Code != "" {
+			return payload.Code
+		}
+	}
+	s := err.Error()
+	for _, code := range []string{"not_found", "revision_conflict", "idempotency_conflict", "validation_failed", "timeout"} {
+		if strings.Contains(s, code) {
+			return code
+		}
+	}
+	return s
+}

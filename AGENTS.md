@@ -137,4 +137,4 @@ make web-build
 
 If a target does not yet exist, the task that first needs it must add it rather than silently omitting the check. Placeholders must fail closed, not succeed as no-ops.
 
-CFG-001 required CI jobs: `format`, `lint`, `unit`, `documentation`, `config-compat`. API-001 adds `generated-file`. MCP-001 adds `parity`. DEP-001 adds `container-test`. UI-001 adds `web`.
+CFG-001 required CI jobs: `format`, `lint`, `unit`, `documentation`, `config-compat`. API-001 adds `generated-file`. MCP-001 adds `parity` (`make test-parity`). DEP-001 adds `container-test`. UI-001 adds `web`.

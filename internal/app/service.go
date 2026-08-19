@@ -27,6 +27,7 @@ type Service interface {
 	Wait(ctx context.Context, actor Actor, in WaitIn) (*model.Flow, error)
 	Resume(ctx context.Context, actor Actor, id string, patch *store.ResumePatch) error
 	Drop(ctx context.Context, actor Actor, id string) error
+	Replay(ctx context.Context, actor Actor, id string) (*model.Flow, error)
 	Subscribe(ctx context.Context, actor Actor, buffer int) (<-chan FlowEvent, func())
 	OnReset(fn func())
 	OnApply(fn func())

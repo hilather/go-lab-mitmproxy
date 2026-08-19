@@ -7,7 +7,7 @@ Related ADRs: 0003
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
 
-STA-001 implements the HTTP-less control plane: `internal/compiler` (the **only** compiler), `internal/snapshot` (atomic immutable snapshot), `internal/audit` (ring + redact), and `internal/app.Service` (`Plan` / `Apply` / `Reset` / `Export`). REST and MCP adapters do not exist yet (API-001 / MCP-001); they will call `app.Service` rather than reimplementing mutation.
+STA-001 implements the HTTP-less control plane: `internal/compiler` (the **only** compiler), `internal/snapshot` (atomic immutable snapshot), `internal/audit` (ring + redact), and `internal/app.Service` (`Plan` / `Apply` / `Reset` / `Export`). API-001 REST (`internal/control/rest`) and MCP-001 (`internal/control/mcp`) call `app.Service` rather than reimplementing mutation.
 
 ## YAML rules (fail-closed)
 

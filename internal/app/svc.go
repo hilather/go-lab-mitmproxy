@@ -42,6 +42,7 @@ type App struct {
 	audit         *audit.Fanout
 	resetHooks    []func()
 	applyHooks    []func()
+	replay        ReplayFunc
 	healthMu      sync.Mutex
 	health        func() HealthFacts
 }

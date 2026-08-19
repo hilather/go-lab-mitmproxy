@@ -1,0 +1,1610 @@
+{
+  "components": {
+    "schemas": {
+      "ApplyResult": {
+        "description": "Application type ApplyResult.",
+        "type": "object"
+      },
+      "AuditEvent": {
+        "description": "Application type AuditEvent.",
+        "type": "object"
+      },
+      "AuditList": {
+        "description": "Application type AuditList.",
+        "type": "object"
+      },
+      "AuditQuery": {
+        "description": "Application type AuditQuery.",
+        "type": "object"
+      },
+      "CapabilityView": {
+        "description": "Application type CapabilityView.",
+        "type": "object"
+      },
+      "ChangeIn": {
+        "description": "Application type ChangeIn.",
+        "type": "object"
+      },
+      "Export": {
+        "description": "Application type Export.",
+        "type": "object"
+      },
+      "FieldViolation": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Flow": {
+        "description": "Application type Flow.",
+        "type": "object"
+      },
+      "FlowList": {
+        "description": "Application type FlowList.",
+        "type": "object"
+      },
+      "Health": {
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Plan": {
+        "description": "Application type Plan.",
+        "type": "object"
+      },
+      "Problem": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "currentRevision": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "fieldViolations": {
+            "items": {
+              "$ref": "#/components/schemas/FieldViolation"
+            },
+            "type": "array"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "remediation": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code"
+        ],
+        "type": "object"
+      },
+      "ResetIn": {
+        "description": "Application type ResetIn.",
+        "type": "object"
+      },
+      "ResumeIn": {
+        "description": "Application type ResumeIn.",
+        "type": "object"
+      },
+      "State": {
+        "description": "labmitm.dev/v1alpha1 LabMITM document.",
+        "properties": {
+          "apiVersion": {
+            "const": "labmitm.dev/v1alpha1",
+            "type": "string"
+          },
+          "kind": {
+            "const": "LabMITM",
+            "type": "string"
+          },
+          "metadata": {
+            "properties": {
+              "labels": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "spec": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "kind",
+          "spec"
+        ],
+        "type": "object"
+      },
+      "StateView": {
+        "description": "Application type StateView.",
+        "type": "object"
+      },
+      "Status": {
+        "description": "Application type Status.",
+        "type": "object"
+      },
+      "ValidateIn": {
+        "description": "Application type ValidateIn.",
+        "type": "object"
+      },
+      "Version": {
+        "description": "Application type Version.",
+        "type": "object"
+      },
+      "WaitIn": {
+        "description": "Application type WaitIn.",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "token",
+        "description": "Lab static bearer. There is no HTTP Basic.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "REST adapter for the shared LabMITM capability registry. Generated from internal/capabilities. Do not edit by hand.",
+    "title": "LabMITM Management API",
+    "version": "v1",
+    "x-generated-by": "internal/control/rest.RenderOpenAPI; DO NOT EDIT."
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/audit": {
+      "get": {
+        "description": "Query recent in-memory audit events.",
+        "operationId": "get_v1_audit",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            },
+            "description": "Audit list"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Audit list",
+        "tags": [
+          "audit"
+        ],
+        "x-capability-id": "audit.list",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.audit.read"
+        ]
+      }
+    },
+    "/v1/audit/{eventId}": {
+      "get": {
+        "description": "Get one audit event by ID.",
+        "operationId": "get_v1_audit_eventId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "eventId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEvent"
+                }
+              }
+            },
+            "description": "Audit get"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Audit get",
+        "tags": [
+          "audit"
+        ],
+        "x-capability-id": "audit.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.audit.read"
+        ]
+      }
+    },
+    "/v1/ca": {
+      "get": {
+        "description": "PEM certificate only. Never the private key.",
+        "operationId": "get_v1_ca",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-pem-file": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Lab CA certificate"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Lab CA certificate",
+        "tags": [
+          "ca"
+        ],
+        "x-capability-id": "ca.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "description": "Capability list and protocol metadata.",
+        "operationId": "get_v1_capabilities",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityView"
+                }
+              }
+            },
+            "description": "Capabilities"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Capabilities",
+        "tags": [
+          "capabilities"
+        ],
+        "x-capability-id": "capabilities.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/changes:apply": {
+      "post": {
+        "description": "Apply operations. expectedRevision is required.",
+        "operationId": "post_v1_changes_apply",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResult"
+                }
+              }
+            },
+            "description": "Apply"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Apply",
+        "tags": [
+          "changes"
+        ],
+        "x-capability-id": "changes.apply",
+        "x-idempotent": true,
+        "x-mutating": true,
+        "x-required-scopes": [
+          "mitm.admin"
+        ]
+      }
+    },
+    "/v1/changes:plan": {
+      "post": {
+        "description": "Dry-run operations against the active snapshot.",
+        "operationId": "post_v1_changes_plan",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Plan"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Plan",
+        "tags": [
+          "changes"
+        ],
+        "x-capability-id": "changes.plan",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.admin"
+        ]
+      }
+    },
+    "/v1/events/stream": {
+      "get": {
+        "description": "REST SSE flow events. MCP uses subscriptions/listen URI-only notify.",
+        "operationId": "get_v1_events_stream",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Events stream"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Events stream",
+        "tags": [
+          "events"
+        ],
+        "x-capability-id": "events.stream",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/flows": {
+      "delete": {
+        "description": "Delete every flow. Does not bump epoch.",
+        "operationId": "delete_v1_flows",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Clear flows"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Clear flows",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.clear",
+        "x-idempotent": true,
+        "x-mutating": true,
+        "x-required-scopes": [
+          "mitm.write"
+        ]
+      },
+      "get": {
+        "description": "Cursor-paginated flow list. HMAC cursors bind storeGeneration.",
+        "operationId": "get_v1_flows",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "host",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "method",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scheme",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "intercepted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ruleId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowList"
+                }
+              }
+            },
+            "description": "List flows"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "List flows",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.list",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/flows/{id}": {
+      "delete": {
+        "description": "Delete one flow by id.",
+        "operationId": "delete_v1_flows_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Delete flow"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Delete flow",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.delete",
+        "x-idempotent": true,
+        "x-mutating": true,
+        "x-required-scopes": [
+          "mitm.write"
+        ]
+      },
+      "get": {
+        "description": "One flow including headers and truncated bodies.",
+        "operationId": "get_v1_flows_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Flow"
+                }
+              }
+            },
+            "description": "Get flow"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Get flow",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/flows/{id}/request": {
+      "get": {
+        "description": "Captured request body bytes.",
+        "operationId": "get_v1_flows_id_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Raw request body"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Raw request body",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.request",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/flows/{id}/response": {
+      "get": {
+        "description": "Captured response body bytes.",
+        "operationId": "get_v1_flows_id_response",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Raw response body"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Raw response body",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.response",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/flows/{id}:drop": {
+      "post": {
+        "description": "Drop a paused flow.",
+        "operationId": "post_v1_flows_id_drop",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Drop breakpoint"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Drop breakpoint",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.drop",
+        "x-idempotent": true,
+        "x-mutating": true,
+        "x-required-scopes": [
+          "mitm.write"
+        ]
+      }
+    },
+    "/v1/flows/{id}:replay": {
+      "post": {
+        "description": "Replay a stored request to the origin (never hairpins the proxy). Returns a new flow id.",
+        "operationId": "post_v1_flows_id_replay",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Flow"
+                }
+              }
+            },
+            "description": "Replay flow"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Replay flow",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.replay",
+        "x-idempotent": false,
+        "x-mutating": true,
+        "x-required-scopes": [
+          "mitm.write"
+        ]
+      }
+    },
+    "/v1/flows/{id}:resume": {
+      "post": {
+        "description": "Resume a paused flow. Optional header/body patch.",
+        "operationId": "post_v1_flows_id_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeIn"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "204": {
+            "description": "Resume breakpoint"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Resume breakpoint",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.resume",
+        "x-idempotent": true,
+        "x-mutating": true,
+        "x-required-scopes": [
+          "mitm.write"
+        ]
+      }
+    },
+    "/v1/flows:wait": {
+      "post": {
+        "description": "Block until a matching flow arrives or the timeout fires.",
+        "operationId": "post_v1_flows_wait",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Flow"
+                }
+              }
+            },
+            "description": "Wait for flow"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Wait for flow",
+        "tags": [
+          "flows"
+        ],
+        "x-capability-id": "flows.wait",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/health/live": {
+      "get": {
+        "description": "Process liveness. Not an MCP tool.",
+        "operationId": "get_v1_health_live",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Health live"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "security": [],
+        "summary": "Health live",
+        "tags": [
+          "health"
+        ],
+        "x-capability-id": "health.live",
+        "x-idempotent": true,
+        "x-mutating": false
+      }
+    },
+    "/v1/health/ready": {
+      "get": {
+        "description": "Proxy bound, store initialized, and management bound or explicitly off. Not an MCP tool.",
+        "operationId": "get_v1_health_ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Health ready"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "security": [],
+        "summary": "Health ready",
+        "tags": [
+          "health"
+        ],
+        "x-capability-id": "health.ready",
+        "x-idempotent": true,
+        "x-mutating": false
+      }
+    },
+    "/v1/metrics": {
+      "get": {
+        "description": "OpenMetrics text. Served only when observability.metrics.publicPath is true.",
+        "operationId": "get_v1_metrics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Metrics"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Metrics",
+        "tags": [
+          "metrics"
+        ],
+        "x-capability-id": "metrics.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/schema/config": {
+      "get": {
+        "description": "Published v1alpha1 config JSON Schema.",
+        "operationId": "get_v1_schema_config",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/schema+json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Config schema"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Config schema",
+        "tags": [
+          "schema"
+        ],
+        "x-capability-id": "schema.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/session": {
+      "delete": {
+        "description": "Clear the flow-inspector UI session cookie. Implemented in SEC-001.",
+        "operationId": "delete_v1_session",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Delete session"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Delete session",
+        "tags": [
+          "session"
+        ],
+        "x-capability-id": "session.delete",
+        "x-idempotent": true,
+        "x-mutating": true
+      },
+      "get": {
+        "description": "Current session principal (cookie or bearer). Cookie path is SEC-001.",
+        "operationId": "get_v1_session",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Get session"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Get session",
+        "tags": [
+          "session"
+        ],
+        "x-capability-id": "session.get",
+        "x-idempotent": true,
+        "x-mutating": false
+      },
+      "post": {
+        "description": "Cookie + CSRF session for the flow-inspector UI. Accepts bearer. Implemented in SEC-001.",
+        "operationId": "post_v1_session",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Create session"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Create session",
+        "tags": [
+          "session"
+        ],
+        "x-capability-id": "session.create",
+        "x-idempotent": false,
+        "x-mutating": true
+      }
+    },
+    "/v1/state": {
+      "get": {
+        "description": "Redacted spec plus revision metadata.",
+        "operationId": "get_v1_state",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateView"
+                }
+              }
+            },
+            "description": "Get state"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Get state",
+        "tags": [
+          "state"
+        ],
+        "x-capability-id": "state.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/state:export": {
+      "get": {
+        "description": "Canonical desired-state export plus drift material.",
+        "operationId": "get_v1_state_export",
+        "parameters": [
+          {
+            "description": "Export encoding. Omitted or yaml returns canonical YAML. json returns a metadata wrapper.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "yaml",
+              "enum": [
+                "yaml",
+                "json"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              },
+              "application/yaml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Canonical export."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Export",
+        "tags": [
+          "state"
+        ],
+        "x-capability-id": "state.export",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.admin"
+        ]
+      }
+    },
+    "/v1/state:reset": {
+      "post": {
+        "description": "Reread the bootstrap mount, wipe the inbox, and swap. Never writes the file.",
+        "operationId": "post_v1_state_reset",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetIn"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResult"
+                }
+              }
+            },
+            "description": "Reset"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Reset",
+        "tags": [
+          "state"
+        ],
+        "x-capability-id": "state.reset",
+        "x-idempotent": false,
+        "x-mutating": true,
+        "x-required-scopes": [
+          "mitm.admin"
+        ]
+      }
+    },
+    "/v1/state:validate": {
+      "post": {
+        "description": "Validate a candidate document and/or operations without writing.",
+        "operationId": "post_v1_state_validate",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Validate"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Validate",
+        "tags": [
+          "state"
+        ],
+        "x-capability-id": "state.validate",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.admin"
+        ]
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "description": "Listeners, store stats, revisions, intercept on/off, and CA metadata (never the key).",
+        "operationId": "get_v1_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "Agent status"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Agent status",
+        "tags": [
+          "status"
+        ],
+        "x-capability-id": "status.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "description": "Build and protocol versions.",
+        "operationId": "get_v1_version",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Version"
+                }
+              }
+            },
+            "description": "Version"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Version",
+        "tags": [
+          "version"
+        ],
+        "x-capability-id": "version.get",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "Management listener (default address 127.0.0.1:8088)",
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Process liveness. Not an MCP tool.",
+      "name": "health"
+    },
+    {
+      "description": "Build and protocol versions.",
+      "name": "version"
+    },
+    {
+      "description": "Capability list and protocol metadata.",
+      "name": "capabilities"
+    },
+    {
+      "description": "Listeners, store stats, revisions, intercept on/off, and CA metadata (never the key).",
+      "name": "status"
+    },
+    {
+      "description": "Published v1alpha1 config JSON Schema.",
+      "name": "schema"
+    },
+    {
+      "description": "Redacted spec plus revision metadata.",
+      "name": "state"
+    },
+    {
+      "description": "Dry-run operations against the active snapshot.",
+      "name": "changes"
+    },
+    {
+      "description": "Cookie + CSRF session for the flow-inspector UI. Accepts bearer. Implemented in SEC-001.",
+      "name": "session"
+    },
+    {
+      "description": "REST SSE flow events. MCP uses subscriptions/listen URI-only notify.",
+      "name": "events"
+    },
+    {
+      "description": "Cursor-paginated flow list. HMAC cursors bind storeGeneration.",
+      "name": "flows"
+    },
+    {
+      "description": "PEM certificate only. Never the private key.",
+      "name": "ca"
+    },
+    {
+      "description": "Query recent in-memory audit events.",
+      "name": "audit"
+    },
+    {
+      "description": "OpenMetrics text. Served only when observability.metrics.publicPath is true.",
+      "name": "metrics"
+    }
+  ]
+}

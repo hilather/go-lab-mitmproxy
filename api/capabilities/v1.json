@@ -1,0 +1,796 @@
+{
+  "apiVersion": "labmitm.dev/capabilities/v1",
+  "generatedBy": "scripts/generate; DO NOT EDIT.",
+  "capabilities": [
+    {
+      "id": "health.live",
+      "title": "Health live",
+      "version": "v1",
+      "description": "Process liveness. Not an MCP tool.",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/health/live"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "health.ready",
+      "title": "Health ready",
+      "version": "v1",
+      "description": "Proxy bound, store initialized, and management bound or explicitly off. Not an MCP tool.",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/health/ready"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "version.get",
+      "title": "Version",
+      "version": "v1",
+      "description": "Build and protocol versions.",
+      "outputSchema": {
+        "name": "Version"
+      },
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/version"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_version_get"
+        ]
+      },
+      "serviceMethods": [
+        "Version"
+      ]
+    },
+    {
+      "id": "capabilities.get",
+      "title": "Capabilities",
+      "version": "v1",
+      "description": "Capability list and protocol metadata.",
+      "outputSchema": {
+        "name": "CapabilityView"
+      },
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/capabilities"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_capabilities_get"
+        ],
+        "resources": [
+          "labmitm://capabilities"
+        ]
+      },
+      "serviceMethods": [
+        "Capabilities"
+      ]
+    },
+    {
+      "id": "status.get",
+      "title": "Agent status",
+      "version": "v1",
+      "description": "Listeners, store stats, revisions, intercept on/off, and CA metadata (never the key).",
+      "outputSchema": {
+        "name": "Status"
+      },
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/status"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_status_get"
+        ],
+        "resources": [
+          "labmitm://status"
+        ]
+      },
+      "serviceMethods": [
+        "Status"
+      ]
+    },
+    {
+      "id": "schema.get",
+      "title": "Config schema",
+      "version": "v1",
+      "description": "Published v1alpha1 config JSON Schema.",
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/schema/config"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_schema_get"
+        ],
+        "resources": [
+          "labmitm://schema/config"
+        ]
+      },
+      "serviceMethods": [
+        "ConfigSchema"
+      ]
+    },
+    {
+      "id": "state.get",
+      "title": "Get state",
+      "version": "v1",
+      "description": "Redacted spec plus revision metadata.",
+      "outputSchema": {
+        "name": "StateView"
+      },
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/state"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_state_get"
+        ],
+        "resources": [
+          "labmitm://state"
+        ]
+      },
+      "serviceMethods": [
+        "GetState"
+      ]
+    },
+    {
+      "id": "state.validate",
+      "title": "Validate",
+      "version": "v1",
+      "description": "Validate a candidate document and/or operations without writing.",
+      "inputSchema": {
+        "name": "ValidateIn"
+      },
+      "outputSchema": {
+        "name": "Plan"
+      },
+      "requiredScopes": [
+        "mitm.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/state:validate"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_state_validate"
+        ]
+      },
+      "serviceMethods": [
+        "Validate"
+      ]
+    },
+    {
+      "id": "state.export",
+      "title": "Export",
+      "version": "v1",
+      "description": "Canonical desired-state export plus drift material.",
+      "outputSchema": {
+        "name": "Export"
+      },
+      "requiredScopes": [
+        "mitm.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/state:export"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_state_export"
+        ]
+      },
+      "serviceMethods": [
+        "Export"
+      ]
+    },
+    {
+      "id": "state.reset",
+      "title": "Reset",
+      "version": "v1",
+      "description": "Reread the bootstrap mount, wipe the inbox, and swap. Never writes the file.",
+      "inputSchema": {
+        "name": "ResetIn"
+      },
+      "outputSchema": {
+        "name": "ApplyResult"
+      },
+      "requiredScopes": [
+        "mitm.admin"
+      ],
+      "mutating": true,
+      "idempotent": false,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/state:reset"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_state_reset"
+        ]
+      },
+      "serviceMethods": [
+        "Reset"
+      ]
+    },
+    {
+      "id": "changes.plan",
+      "title": "Plan",
+      "version": "v1",
+      "description": "Dry-run operations against the active snapshot.",
+      "inputSchema": {
+        "name": "ChangeIn"
+      },
+      "outputSchema": {
+        "name": "Plan"
+      },
+      "requiredScopes": [
+        "mitm.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/changes:plan"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_change_plan"
+        ]
+      },
+      "serviceMethods": [
+        "Plan"
+      ]
+    },
+    {
+      "id": "changes.apply",
+      "title": "Apply",
+      "version": "v1",
+      "description": "Apply operations. expectedRevision is required.",
+      "inputSchema": {
+        "name": "ChangeIn"
+      },
+      "outputSchema": {
+        "name": "ApplyResult"
+      },
+      "requiredScopes": [
+        "mitm.admin"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/changes:apply"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_change_apply"
+        ]
+      },
+      "serviceMethods": [
+        "Apply"
+      ]
+    },
+    {
+      "id": "session.create",
+      "title": "Create session",
+      "version": "v1",
+      "description": "Cookie + CSRF session for the flow-inspector UI. Accepts bearer. Implemented in SEC-001.",
+      "mutating": true,
+      "idempotent": false,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "session.delete",
+      "title": "Delete session",
+      "version": "v1",
+      "description": "Clear the flow-inspector UI session cookie. Implemented in SEC-001.",
+      "mutating": true,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "DELETE",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "session.get",
+      "title": "Get session",
+      "version": "v1",
+      "description": "Current session principal (cookie or bearer). Cookie path is SEC-001.",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "events.stream",
+      "title": "Events stream",
+      "version": "v1",
+      "description": "REST SSE flow events. MCP uses subscriptions/listen URI-only notify.",
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "differentBinding": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/events/stream"
+        }
+      ],
+      "mcp": {
+        "resources": [
+          "labmitm://flows"
+        ]
+      },
+      "serviceMethods": [
+        "Subscribe"
+      ]
+    },
+    {
+      "id": "flows.list",
+      "title": "List flows",
+      "version": "v1",
+      "description": "Cursor-paginated flow list. HMAC cursors bind storeGeneration.",
+      "outputSchema": {
+        "name": "FlowList"
+      },
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/flows"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flows_list"
+        ],
+        "resources": [
+          "labmitm://flows"
+        ]
+      },
+      "serviceMethods": [
+        "ListFlows"
+      ]
+    },
+    {
+      "id": "flows.get",
+      "title": "Get flow",
+      "version": "v1",
+      "description": "One flow including headers and truncated bodies.",
+      "outputSchema": {
+        "name": "Flow"
+      },
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/flows/{id}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flow_get"
+        ],
+        "resources": [
+          "labmitm://flows/{id}"
+        ]
+      },
+      "serviceMethods": [
+        "GetFlow"
+      ]
+    },
+    {
+      "id": "flows.request",
+      "title": "Raw request body",
+      "version": "v1",
+      "description": "Captured request body bytes.",
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/flows/{id}/request"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flow_request_get"
+        ]
+      },
+      "serviceMethods": [
+        "GetFlow"
+      ]
+    },
+    {
+      "id": "flows.response",
+      "title": "Raw response body",
+      "version": "v1",
+      "description": "Captured response body bytes.",
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/flows/{id}/response"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flow_response_get"
+        ]
+      },
+      "serviceMethods": [
+        "GetFlow"
+      ]
+    },
+    {
+      "id": "flows.delete",
+      "title": "Delete flow",
+      "version": "v1",
+      "description": "Delete one flow by id.",
+      "requiredScopes": [
+        "mitm.write"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "DELETE",
+          "path": "/v1/flows/{id}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flow_delete"
+        ]
+      },
+      "serviceMethods": [
+        "DeleteFlow"
+      ]
+    },
+    {
+      "id": "flows.clear",
+      "title": "Clear flows",
+      "version": "v1",
+      "description": "Delete every flow. Does not bump epoch.",
+      "requiredScopes": [
+        "mitm.write"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "DELETE",
+          "path": "/v1/flows"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flows_clear"
+        ]
+      },
+      "serviceMethods": [
+        "ClearFlows"
+      ]
+    },
+    {
+      "id": "flows.wait",
+      "title": "Wait for flow",
+      "version": "v1",
+      "description": "Block until a matching flow arrives or the timeout fires.",
+      "inputSchema": {
+        "name": "WaitIn"
+      },
+      "outputSchema": {
+        "name": "Flow"
+      },
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/flows:wait"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flows_wait"
+        ]
+      },
+      "serviceMethods": [
+        "Wait"
+      ]
+    },
+    {
+      "id": "flows.resume",
+      "title": "Resume breakpoint",
+      "version": "v1",
+      "description": "Resume a paused flow. Optional header/body patch.",
+      "inputSchema": {
+        "name": "ResumeIn"
+      },
+      "requiredScopes": [
+        "mitm.write"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/flows/{id}:resume"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flow_resume"
+        ]
+      },
+      "serviceMethods": [
+        "Resume"
+      ]
+    },
+    {
+      "id": "flows.drop",
+      "title": "Drop breakpoint",
+      "version": "v1",
+      "description": "Drop a paused flow.",
+      "requiredScopes": [
+        "mitm.write"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/flows/{id}:drop"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flow_drop"
+        ]
+      },
+      "serviceMethods": [
+        "Drop"
+      ]
+    },
+    {
+      "id": "flows.replay",
+      "title": "Replay flow",
+      "version": "v1",
+      "description": "Replay a stored request to the origin (never hairpins the proxy). Returns a new flow id.",
+      "outputSchema": {
+        "name": "Flow"
+      },
+      "requiredScopes": [
+        "mitm.write"
+      ],
+      "mutating": true,
+      "idempotent": false,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/flows/{id}:replay"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_flow_replay"
+        ]
+      },
+      "serviceMethods": [
+        "Replay"
+      ]
+    },
+    {
+      "id": "ca.get",
+      "title": "Lab CA certificate",
+      "version": "v1",
+      "description": "PEM certificate only. Never the private key.",
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/ca"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_ca_get"
+        ],
+        "resources": [
+          "labmitm://ca"
+        ]
+      },
+      "serviceMethods": [
+        "GetCA"
+      ]
+    },
+    {
+      "id": "audit.list",
+      "title": "Audit list",
+      "version": "v1",
+      "description": "Query recent in-memory audit events.",
+      "inputSchema": {
+        "name": "AuditQuery"
+      },
+      "outputSchema": {
+        "name": "AuditList"
+      },
+      "requiredScopes": [
+        "mitm.audit.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/audit"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_audit_query"
+        ],
+        "resources": [
+          "labmitm://audit/recent"
+        ]
+      },
+      "serviceMethods": [
+        "QueryAudit"
+      ]
+    },
+    {
+      "id": "audit.get",
+      "title": "Audit get",
+      "version": "v1",
+      "description": "Get one audit event by ID.",
+      "outputSchema": {
+        "name": "AuditEvent"
+      },
+      "requiredScopes": [
+        "mitm.audit.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/audit/{eventId}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_audit_get"
+        ]
+      },
+      "serviceMethods": [
+        "GetAudit"
+      ]
+    },
+    {
+      "id": "metrics.get",
+      "title": "Metrics",
+      "version": "v1",
+      "description": "OpenMetrics text. Served only when observability.metrics.publicPath is true.",
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/metrics"
+        }
+      ],
+      "mcp": null
+    }
+  ]
+}

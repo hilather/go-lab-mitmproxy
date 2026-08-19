@@ -72,6 +72,35 @@ func TestHelp(t *testing.T) {
 	if strings.Contains(stdout.String(), "Management, TLS intercept") {
 		t.Fatalf("help still lists TLS intercept as unbound: %q", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "mcp-stdio") {
+		t.Fatalf("help %q missing mcp-stdio", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "mcp-stdio       Streamable MCP over stdio\n\nPlanned") {
+		t.Fatal("help still lists mcp-stdio as planned")
+	}
+}
+
+func TestMCPStdioRequiresConfig(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labmitm", "mcp-stdio"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "--config") {
+		t.Fatalf("stderr %q missing --config", stderr.String())
+	}
+}
+
+func TestMCPStdioRequiresTokenFile(t *testing.T) {
+	path := testdataConfig(t, "valid", "defaults.yaml")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labmitm", "mcp-stdio", "--config", path}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--token-file") {
+		t.Fatalf("stderr %q missing --token-file", stderr.String())
+	}
 }
 
 func TestValidateAndCanonicalize(t *testing.T) {

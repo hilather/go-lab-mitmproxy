@@ -229,7 +229,7 @@ func (m *Memory) Insert(ctx context.Context, epoch uint64, f *model.Flow) (model
 	if prepared.State == model.FlowStatePaused {
 		kind = EventPaused
 	}
-	m.emitLocked(Event{Kind: kind, ID: id, Gen: m.generation})
+	m.emitLocked(Event{Kind: kind, ID: id, Host: prepared.Host, Gen: m.generation})
 	committed = true
 	return model.InsertResult{ID: id, Generation: m.generation}, nil
 }
@@ -670,7 +670,11 @@ func (m *Memory) removeLocked(id string, eviction bool) {
 	}
 	m.finishPausedLocked(id, pauseResult{err: ErrNotFound})
 	m.cond.Broadcast()
-	m.emitLocked(Event{Kind: EventDeleted, ID: id, Gen: m.generation})
+	host := ""
+	if rec.flow != nil {
+		host = rec.flow.Host
+	}
+	m.emitLocked(Event{Kind: EventDeleted, ID: id, Host: host, Gen: m.generation})
 }
 
 func snapshotRecord(rec *record) recSnap {

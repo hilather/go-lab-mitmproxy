@@ -2,10 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-18 (API-001)
 Related ADRs: 0004, 0005, 0007
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
+
+API-001 implements the native REST adapter (`internal/control/rest`) from the frozen capability registry. OpenAPI is generated (`make generate` → `api/openapi/v1.json`). Session cookie create/delete is SEC-001; `GET /v1/session` returns the bearer principal. The embedded UI is a compile-time stub until UI-001. Management bind refuses listen when `mode: bearer` has no usable token.
 
 ## Problem details
 

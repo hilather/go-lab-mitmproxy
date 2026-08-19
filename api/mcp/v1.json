@@ -1,0 +1,55 @@
+{
+  "apiVersion": "labmitm.dev/mcp/v1",
+  "generatedBy": "internal/control/mcp.RenderManifest; DO NOT EDIT.",
+  "protocol": "2026-07-28",
+  "sdk": "github.com/modelcontextprotocol/go-sdk",
+  "sdkVersion": "v1.7.0",
+  "tools": [
+    "mitm_version_get",
+    "mitm_capabilities_get",
+    "mitm_status_get",
+    "mitm_schema_get",
+    "mitm_state_get",
+    "mitm_state_validate",
+    "mitm_state_export",
+    "mitm_state_reset",
+    "mitm_change_plan",
+    "mitm_change_apply",
+    "mitm_flows_list",
+    "mitm_flow_get",
+    "mitm_flow_request_get",
+    "mitm_flow_response_get",
+    "mitm_flow_delete",
+    "mitm_flows_clear",
+    "mitm_flows_wait",
+    "mitm_flow_resume",
+    "mitm_flow_drop",
+    "mitm_flow_replay",
+    "mitm_ca_get",
+    "mitm_audit_query",
+    "mitm_audit_get"
+  ],
+  "resources": [
+    "labmitm://capabilities",
+    "labmitm://status",
+    "labmitm://schema/config",
+    "labmitm://state",
+    "labmitm://flows",
+    "labmitm://flows/{id}",
+    "labmitm://ca",
+    "labmitm://audit/recent"
+  ],
+  "mutatingTools": [
+    "mitm_state_reset",
+    "mitm_change_apply",
+    "mitm_flow_delete",
+    "mitm_flows_clear",
+    "mitm_flow_resume",
+    "mitm_flow_drop",
+    "mitm_flow_replay"
+  ],
+  "healthNotTools": [
+    "health.live",
+    "health.ready"
+  ]
+}

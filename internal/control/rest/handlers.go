@@ -1,0 +1,327 @@
+package rest
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/hilather/go-lab-mitmproxy/internal/app"
+	"github.com/hilather/go-lab-mitmproxy/internal/buildinfo"
+	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
+	"github.com/hilather/go-lab-mitmproxy/internal/config"
+	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+)
+
+func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, instance string, actor app.Actor, rt compiledRoute, params map[string]string) {
+	ctx := r.Context()
+	if err := ctx.Err(); err != nil {
+		s.writeProblem(w, r, instance, domainerr.Internal("request canceled"))
+		return
+	}
+	switch rt.cap.ID {
+	case capabilities.HealthLive:
+		s.handleHealthLive(w, r)
+	case capabilities.HealthReady:
+		s.handleHealthReady(w, r, ctx)
+	case capabilities.VersionGet:
+		s.writeJSON(w, http.StatusOK, fromVersion(buildinfo.Current()))
+	case capabilities.CapabilitiesGet:
+		s.writeJSON(w, http.StatusOK, fromCapabilities())
+	case capabilities.StatusGet:
+		s.handleStatus(w, r, instance, ctx, actor)
+	case capabilities.SchemaGet:
+		s.handleSchema(w, r, instance)
+	case capabilities.StateGet:
+		s.handleGetState(w, r, instance, ctx, actor)
+	case capabilities.StateValidate:
+		s.handleValidate(w, r, instance, ctx, actor)
+	case capabilities.ChangesPlan:
+		s.handlePlan(w, r, instance, ctx, actor)
+	case capabilities.ChangesApply:
+		s.handleApply(w, r, instance, ctx, actor)
+	case capabilities.SessionCreate:
+		s.handleSessionCreate(w, r, instance, actor)
+	case capabilities.SessionDelete:
+		s.handleSessionDelete(w, r, instance, actor)
+	case capabilities.SessionGet:
+		s.handleSessionGet(w, r, instance, actor)
+	case capabilities.StateExport:
+		s.handleExport(w, r, instance, ctx, actor)
+	case capabilities.StateReset:
+		s.handleReset(w, r, instance, ctx, actor)
+	case capabilities.EventsStream:
+		s.handleEvents(w, r, instance, actor)
+	case capabilities.FlowsList:
+		s.handleListFlows(w, r, instance, ctx, actor)
+	case capabilities.FlowsGet:
+		s.handleGetFlow(w, r, instance, ctx, actor, params["id"])
+	case capabilities.FlowsRequest:
+		s.handleFlowBody(w, r, instance, ctx, actor, params["id"], true)
+	case capabilities.FlowsResponse:
+		s.handleFlowBody(w, r, instance, ctx, actor, params["id"], false)
+	case capabilities.FlowsDelete:
+		s.handleDeleteFlow(w, r, instance, ctx, actor, params["id"])
+	case capabilities.FlowsClear:
+		s.handleClear(w, r, instance, ctx, actor)
+	case capabilities.FlowsWait:
+		s.handleWait(w, r, instance, ctx, actor)
+	case capabilities.FlowsResume:
+		s.handleResume(w, r, instance, ctx, actor, params["id"])
+	case capabilities.FlowsDrop:
+		s.handleDrop(w, r, instance, ctx, actor, params["id"])
+	case capabilities.FlowsReplay:
+		s.handleReplay(w, r, instance, ctx, actor, params["id"])
+	case capabilities.CAGet:
+		s.handleCA(w, r, instance, ctx, actor)
+	case capabilities.AuditList:
+		s.handleAuditList(w, r, instance, ctx, actor)
+	case capabilities.AuditGet:
+		s.handleAuditGet(w, r, instance, ctx, actor, params["eventId"])
+	case capabilities.MetricsGet:
+		s.handleMetrics(w, r, instance)
+	default:
+		s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
+	}
+}
+
+func (s *Server) handleHealthLive(w http.ResponseWriter, r *http.Request) {
+	if !s.isLive() {
+		s.writeJSON(w, http.StatusServiceUnavailable, healthResponse{Status: "down"})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
+	_ = r
+}
+
+func (s *Server) handleHealthReady(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+	if !s.isReady(ctx) {
+		s.writeJSON(w, http.StatusServiceUnavailable, healthResponse{Status: "not ready"})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
+	_ = r
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	st, err := s.svc.Status(ctx, actor)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	view, err := s.svc.GetState(ctx, actor)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	rev, err := marshalAPI(st.Revisions)
+	if err != nil {
+		s.writeProblem(w, r, instance, domainerr.Internal("internal error"))
+		return
+	}
+	out := statusResponse{
+		Ready:     s.isReady(ctx),
+		Revisions: rev,
+		Listeners: []listenerJSON{},
+		Store: storeStatsJSON{
+			FlowCount:  st.Revisions.FlowCount,
+			Bytes:      st.Revisions.StoreBytes,
+			Generation: st.Revisions.StoreGeneration,
+			Epoch:      st.Epoch,
+		},
+		Intercept: st.Intercept,
+		CA:        fromCA(st.CA),
+	}
+	if view != nil && view.Canonical != nil {
+		out.Listeners = []listenerJSON{
+			{Name: "proxy", Address: view.Canonical.Spec.Listeners.Proxy.Address},
+			{Name: "management", Address: view.Canonical.Spec.Listeners.Management.Address},
+		}
+	}
+	s.writeJSON(w, http.StatusOK, out)
+	_ = r
+}
+
+func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request, instance string) {
+	b, err := config.SchemaBytes()
+	if err != nil {
+		s.writeProblem(w, r, instance, domainerr.Internal("schema unavailable"))
+		return
+	}
+	s.writeBytes(w, http.StatusOK, "application/schema+json", b)
+	_ = r
+}
+
+func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	v, err := s.svc.GetState(ctx, actor)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	canon, err := marshalAPI(v.Canonical)
+	if err != nil {
+		s.writeProblem(w, r, instance, domainerr.Internal("internal error"))
+		return
+	}
+	if v.RuntimeRevision != "" {
+		w.Header().Set(headerRevision, string(v.RuntimeRevision))
+	}
+	s.writeJSON(w, http.StatusOK, stateViewJSON{
+		BootstrapRevision: string(v.BootstrapRevision),
+		RuntimeRevision:   string(v.RuntimeRevision),
+		Generation:        uint64(v.Generation),
+		StoreGeneration:   v.StoreGeneration,
+		Drifted:           v.Drifted,
+		LoadedAt:          rfc3339(v.LoadedAt),
+		FlowCount:         v.FlowCount,
+		StoreBytes:        v.StoreBytes,
+		Canonical:         canon,
+	})
+	_ = r
+}
+
+func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	var in changeRequest
+	if !s.decodeJSON(w, r, instance, &in) {
+		return
+	}
+	st, err := decodeCandidateState(in.State)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	plan, err := s.svc.Validate(ctx, actor, app.ValidateIn{State: st, Operations: in.Operations})
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	s.writeJSON(w, http.StatusOK, fromPlan(plan))
+}
+
+func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	in, ok := s.readChange(w, r, instance)
+	if !ok {
+		return
+	}
+	plan, err := s.svc.Plan(ctx, actor, in)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	s.writeJSON(w, http.StatusOK, fromPlan(plan))
+}
+
+func (s *Server) handleApply(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	in, ok := s.readChange(w, r, instance)
+	if !ok {
+		return
+	}
+	res, err := s.svc.Apply(ctx, actor, in)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	if res != nil && res.RuntimeRevision != "" {
+		w.Header().Set(headerRevision, string(res.RuntimeRevision))
+	}
+	s.writeJSON(w, http.StatusOK, fromApply(res))
+}
+
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	format := app.ExportYAML
+	switch strings.ToLower(r.URL.Query().Get("format")) {
+	case "", "yaml", "yml":
+	case "json":
+		format = app.ExportJSON
+	default:
+		s.writeProblem(w, r, instance, domainerr.ValidationFailed("unknown export format",
+			domainerr.FieldViolation{Path: "format", Code: "invalid_value", Message: "format must be yaml or json"}))
+		return
+	}
+	exp, err := s.svc.Export(ctx, actor, format)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	if exp.Revision != "" {
+		w.Header().Set(headerRevision, string(exp.Revision))
+	}
+	if format == app.ExportYAML {
+		s.writeBytes(w, http.StatusOK, "application/yaml", exp.Body)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, exportJSON{
+		Format:            string(exp.Format),
+		Revision:          string(exp.Revision),
+		BootstrapRevision: string(exp.BootstrapRevision),
+		Drifted:           exp.Drifted,
+		Body:              json.RawMessage(exp.Body),
+		HumanDiff:         exp.HumanDiff,
+	})
+}
+
+func (s *Server) handleReset(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	var in resetRequest
+	if !s.decodeJSONOptional(w, r, instance, &in) {
+		return
+	}
+	res, err := s.svc.Reset(ctx, actor, app.ResetIn{Reason: in.Reason})
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	s.writeJSON(w, http.StatusOK, fromApply(res))
+}
+
+func (s *Server) handleCA(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	pem, err := s.svc.GetCA(ctx, actor)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	if strings.Contains(string(pem), "PRIVATE KEY") {
+		s.writeProblem(w, r, instance, domainerr.Internal("CA private key must never be exported"))
+		return
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="labmitm-ca.pem"`)
+	s.writeBytes(w, http.StatusOK, "application/x-pem-file", pem)
+	_ = r
+}
+
+func (s *Server) handleAuditList(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	limit := 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			s.writeProblem(w, r, instance, domainerr.ValidationFailed("invalid limit",
+				domainerr.FieldViolation{Path: "limit", Code: "invalid_value", Message: "limit must be a non-negative integer"}))
+			return
+		}
+		limit = n
+	}
+	list, err := s.svc.QueryAudit(ctx, actor, app.AuditQuery{Limit: limit})
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	events := list.Events
+	if events == nil {
+		events = []app.AuditEvent{}
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"events": events})
+}
+
+func (s *Server) handleAuditGet(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor, id string) {
+	ev, err := s.svc.GetAudit(ctx, actor, id)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	s.writeJSON(w, http.StatusOK, fromAudit(*ev))
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request, instance string) {
+	s.writeProblem(w, r, instance, domainerr.NotFound("metrics public path is disabled"))
+	_ = r
+}
