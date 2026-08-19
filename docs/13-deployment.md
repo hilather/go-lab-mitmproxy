@@ -2,10 +2,10 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-08-19 (DEP-001 + UI-001)
+Last reviewed: 2026-08-18 (DEP-001 + UI-001 + SWAP-001 + GA-001)
 Related ADRs: 0001, 0003
 
-DEP-001 shipped the hardened image, `examples/compose.smoke.yaml`, and `scripts/test-container.sh`. Ports and image posture stay frozen here. This document freezes the contract so later PRs do not invent ports or image posture.
+DEP-001 shipped the hardened image, `examples/compose.smoke.yaml`, and `scripts/test-container.sh`. Ports and image posture stay frozen here. A `v*` tag is refused unless [`.github/workflows/release.yml`](https://github.com/hilather/go-lab-mitmproxy/blob/main/.github/workflows/release.yml) `tag-gate` sees required CI green on that SHA. Current notes: [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md). The lab overlay YAML is [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) (SWAP-001; published binds, `allowLegacyClients: true`). Do not mount that overlay as the smoke config without a 0o644 `labmitm-token`.
 
 ## CLI
 
@@ -105,4 +105,4 @@ services:
 
 ## Compatibility promise
 
-Standalone defaults stay loopback `127.0.0.1:8888` / `127.0.0.1:8088`. Lab overlay publishes `:8888` / `:8088`. Host ports when composed later: `18888` / `18088`.
+Standalone defaults stay loopback `127.0.0.1:8888` / `127.0.0.1:8088`. Lab overlay publishes `:8888` / `:8088`. Host ports when composed later: `18888` / `18088`. Soak: `go test ./internal/perf` (CI default N=8; local lab target 100 flows/s for 30s). Compose-in to mcp-integration-lab remains a follow-on (D18).

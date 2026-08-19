@@ -24,7 +24,7 @@ help:
 		'  verify-generated    fail if generate would change those files' \
 		'  test                go test ./...' \
 		'  test-race           go test -race ./...' \
-		'  test-fuzz-smoke     buildinfo + config FuzzDecode seed corpora (5s each)' \
+		'  test-fuzz-smoke     buildinfo + config + HTTP request fuzz corpora (5s each)' \
 		'  test-docs           required documents, metadata, and links' \
 		'  security-scan       govulncheck' \
 		'  test-parity         REST/MCP capability parity and MCP goldens' \
@@ -34,7 +34,7 @@ help:
 		'  web-build           production Vite build + copy into internal/web/dist' \
 		'  web-embed           copy web/dist into internal/web/dist' \
 		'  test-container      build ghcr.io/hilather/labmitm and check non-root/read-only/no-caps' \
-		'  test-changelog      unimplemented until GA-001 (PR 14); fail-closed'
+		'  test-changelog      observable paths require a CHANGELOG.md entry'
 
 fmt: format
 
@@ -63,8 +63,10 @@ test-race:
 	$(GO) test -race ./...
 
 test-fuzz-smoke:
+	$(GO) test ./scripts/checkdocs -run TestFuzzCorporaPresent -count=1
 	$(GO) test ./internal/buildinfo -fuzz=FuzzInfoString -fuzztime=5s -count=1
 	$(GO) test ./internal/config -fuzz=FuzzDecode -fuzztime=5s -count=1
+	$(GO) test ./internal/httputilx -fuzz=FuzzReadRequest -fuzztime=5s -count=1
 
 test-docs:
 	$(GO) run ./scripts/checkdocs
@@ -98,4 +100,4 @@ test-container:
 	bash scripts/test-container.sh
 
 test-changelog:
-	@echo 'test-changelog: unimplemented until a checkchangelog script lands' >&2; exit 1
+	$(GO) run ./scripts/checkchangelog

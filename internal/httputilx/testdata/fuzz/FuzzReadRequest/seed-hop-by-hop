@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("GET http://app.lab/ HTTP/1.1\r\nHost: app.lab\r\nConnection: close, X-Hop\r\nX-Hop: 1\r\nProxy-Authorization: Basic x\r\n\r\n")

@@ -34,7 +34,7 @@ Standalone defaults bind loopback (an intercepting proxy is an open-proxy loaded
 | Management / UI / REST / MCP | `127.0.0.1:8088` | `:8088` (host `18088`) | inspect captured flows |
 | Metrics | `127.0.0.1:9090` | loopback-per-container | hand-rolled OpenMetrics |
 
-The labinfo catalog id will be **`labmitm`** (no legacy id to preserve). Compose-in to mcp-integration-lab is a follow-on lab PR after this repo’s SWAP-001 overlays land.
+The labinfo catalog id is **`labmitm`** (no legacy id to preserve). Overlay examples land in this repo (`examples/labmitm.yaml`, MCPJungle JSON, labinfo snippet). Compose-in to mcp-integration-lab is a follow-on lab PR (D18). Do not claim the lab already runs LabMITM.
 
 ## Quick start
 
@@ -62,6 +62,8 @@ make lint
 make generate
 make verify-generated
 make test
+make test-race
+make test-fuzz-smoke
 make test-config-compat
 make test-docs
 make test-parity
@@ -70,12 +72,14 @@ make build
 ```
 
 Required CI jobs: format, lint, unit, documentation, config-compat, generated-file, parity, container-test. There is no optional or bypassable job. `make test-container` needs Docker.
+make test-changelog
 make web-test
 make web-build
 make build
 ```
 
-Required CI jobs: format, lint, unit, documentation, config-compat, generated-file, parity, web. There is no optional or bypassable job.
+Required CI jobs: format, lint, unit, race, fuzz-smoke, generated-file, documentation, security-scan, changelog, parity, config-compat, container-test, web. There is no optional or bypassable job. Tag creation is gated by `.github/workflows/release.yml` (`tag-gate`). `make test-container` needs Docker. Soak: `go test ./internal/perf` (CI N=8).
+
 
 ## Documentation
 
@@ -101,6 +105,7 @@ The numbered pack is normative after FND-001. Cross-file links are absolute.
 | [docs/13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md) | Image, compose, CLI |
 | [docs/14-integration-lab.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/14-integration-lab.md) | Overlay BOM for mcp-integration-lab |
 | [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) | 1.0 residuals |
+| [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) | First candidate notes |
 | [tasks/00-program-board.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/tasks/00-program-board.md) | PRs 1–14 |
 | [CHANGELOG.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/CHANGELOG.md) | Curated history |
 

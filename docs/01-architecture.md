@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-19 (DEP-001 + UI-001)
+Last reviewed: 2026-08-18 (DEP-001 + UI-001 + SWAP-001 + GA-001)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007
 
 ## Problem statement
@@ -330,6 +330,8 @@ See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blo
 - Default metadata CIDRs are AWS/GCP IPv4 + AWS IPv6 IMDS. Alibaba `100.100.100.200/32` and RFC1918 are **not** default-deny.
 - Not a general attack tool.
 - Worst-case RSS ≈ 256 + 64 + 4 + 64 = **388 MiB**.
+- Default soak in CI is 8 flows; local lab target is 100 flows/s for 30s. Absolute QPS is not a CI gate.
+- Overlay examples live in this repo; mcp-integration-lab compose-in is a follow-on (D18).
 
 ## Related documents
 

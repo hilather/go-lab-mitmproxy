@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
