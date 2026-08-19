@@ -58,10 +58,11 @@ type Hit struct {
 // are the side being matched (request headers in request phase, response
 // headers in response phase).
 type Request struct {
-	Host    string
-	Path    string
-	Method  string
-	Headers []model.Header
+	Host     string
+	Path     string
+	Method   string
+	Headers  []model.Header
+	Protocol string
 }
 
 // Match returns the first enabled item whose AND match succeeds for phase.

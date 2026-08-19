@@ -30,4 +30,7 @@ func TestKnownEnums(t *testing.T) {
 	if !KnownRuleAction(ActionBreakpoint) || KnownRuleAction("fuzz") {
 		t.Fatal("action set")
 	}
+	if !KnownRuleProtocol(FlowProtocolHTTP2) || !KnownRuleProtocol(FlowProtocolSOCKS5) || KnownRuleProtocol("http2") {
+		t.Fatal("protocol set")
+	}
 }

@@ -23,6 +23,9 @@ func matchAND(m model.RuleMatchSpec, in Request) bool {
 	if m.Method != "" && !strings.EqualFold(m.Method, in.Method) {
 		return false
 	}
+	if m.Protocol != "" && !strings.EqualFold(m.Protocol, in.Protocol) {
+		return false
+	}
 	if !matchHeader(m, in.Headers) {
 		return false
 	}

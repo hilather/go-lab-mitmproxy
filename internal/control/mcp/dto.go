@@ -59,6 +59,8 @@ type listIn struct {
 	Intercepted *bool  `json:"intercepted,omitempty"`
 	RuleID      string `json:"ruleId,omitempty"`
 	PathPrefix  string `json:"pathPrefix,omitempty"`
+	Protocol    string `json:"protocol,omitempty"`
+	Via         string `json:"via,omitempty"`
 	Cursor      string `json:"cursor,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 }
@@ -75,6 +77,8 @@ type waitFilter struct {
 	Status      *int   `json:"status,omitempty"`
 	After       string `json:"after,omitempty"`
 	Intercepted *bool  `json:"intercepted,omitempty"`
+	Protocol    string `json:"protocol,omitempty"`
+	Via         string `json:"via,omitempty"`
 }
 
 type resumeIn struct {
@@ -146,6 +150,8 @@ func (in listIn) filter() (model.FlowFilter, error) {
 		Scheme:      in.Scheme,
 		RuleID:      in.RuleID,
 		PathPrefix:  in.PathPrefix,
+		Protocol:    in.Protocol,
+		Via:         in.Via,
 		Intercepted: in.Intercepted,
 	}
 	if in.Status != nil {
@@ -160,6 +166,8 @@ func (in waitIn) toWait() (app.WaitIn, error) {
 		Method:      in.Filter.Method,
 		PathPrefix:  in.Filter.PathPrefix,
 		Intercepted: in.Filter.Intercepted,
+		Protocol:    in.Filter.Protocol,
+		Via:         in.Filter.Via,
 	}
 	if in.Filter.Status != nil {
 		f.Status = *in.Filter.Status
@@ -221,12 +229,21 @@ type capabilityInfoJSON struct {
 }
 
 type statusJSON struct {
-	Ready     bool            `json:"ready"`
-	Revisions json.RawMessage `json:"revisions"`
-	Listeners []listenerJSON  `json:"listeners"`
-	Store     storeStatsJSON  `json:"store"`
-	Intercept bool            `json:"intercept"`
-	CA        caStatusJSON    `json:"ca"`
+	Ready     bool               `json:"ready"`
+	Revisions json.RawMessage    `json:"revisions"`
+	Listeners []listenerJSON     `json:"listeners"`
+	Store     storeStatsJSON     `json:"store"`
+	Intercept bool               `json:"intercept"`
+	CA        caStatusJSON       `json:"ca"`
+	Features  statusFeaturesJSON `json:"features"`
+}
+
+type statusFeaturesJSON struct {
+	HTTP2               bool `json:"http2"`
+	SOCKS5              bool `json:"socks5"`
+	SOCKS4              bool `json:"socks4"`
+	OriginalDestination bool `json:"originalDestination"`
+	CompatFlowREST      bool `json:"compatFlowREST"`
 }
 
 type listenerJSON struct {
@@ -289,35 +306,51 @@ type flowListJSON struct {
 }
 
 type flowJSON struct {
-	ID            string       `json:"id"`
-	StartedAt     string       `json:"startedAt,omitempty"`
-	CompletedAt   string       `json:"completedAt,omitempty"`
-	State         string       `json:"state"`
-	PausedPhase   string       `json:"pausedPhase,omitempty"`
-	ClientAddr    string       `json:"clientAddr,omitempty"`
-	Method        string       `json:"method"`
-	URL           string       `json:"url"`
-	Host          string       `json:"host"`
-	Scheme        string       `json:"scheme"`
-	Protocol      string       `json:"protocol"`
-	Status        int          `json:"status"`
-	Error         string       `json:"error,omitempty"`
-	Intercepted   bool         `json:"intercepted"`
-	Request       messageJSON  `json:"request"`
-	Response      messageJSON  `json:"response"`
-	TLS           *tlsInfoJSON `json:"tls,omitempty"`
-	Timings       timingsJSON  `json:"timings"`
-	RuleIDs       []string     `json:"ruleIds,omitempty"`
-	Truncated     bool         `json:"truncated"`
-	RequestBytes  int          `json:"requestBytes"`
-	ResponseBytes int          `json:"responseBytes"`
+	ID            string         `json:"id"`
+	StartedAt     string         `json:"startedAt,omitempty"`
+	CompletedAt   string         `json:"completedAt,omitempty"`
+	State         string         `json:"state"`
+	PausedPhase   string         `json:"pausedPhase,omitempty"`
+	ClientAddr    string         `json:"clientAddr,omitempty"`
+	Method        string         `json:"method"`
+	URL           string         `json:"url"`
+	Host          string         `json:"host"`
+	Scheme        string         `json:"scheme"`
+	Protocol      string         `json:"protocol"`
+	Status        int            `json:"status"`
+	Error         string         `json:"error,omitempty"`
+	Intercepted   bool           `json:"intercepted"`
+	Request       messageJSON    `json:"request"`
+	Response      messageJSON    `json:"response"`
+	TLS           *tlsInfoJSON   `json:"tls,omitempty"`
+	HTTP2         *http2InfoJSON `json:"http2,omitempty"`
+	SOCKS         *socksInfoJSON `json:"socks,omitempty"`
+	Via           string         `json:"via,omitempty"`
+	OriginalDest  string         `json:"originalDest,omitempty"`
+	Timings       timingsJSON    `json:"timings"`
+	RuleIDs       []string       `json:"ruleIds,omitempty"`
+	Truncated     bool           `json:"truncated"`
+	RequestBytes  int            `json:"requestBytes"`
+	ResponseBytes int            `json:"responseBytes"`
 }
 
 type messageJSON struct {
 	Headers   []headerJSON `json:"headers,omitempty"`
+	Trailers  []headerJSON `json:"trailers,omitempty"`
 	Body      string       `json:"body,omitempty"`
 	Size      int          `json:"size"`
 	Truncated bool         `json:"truncated"`
+}
+
+type http2InfoJSON struct {
+	StreamID uint32 `json:"streamId"`
+}
+
+type socksInfoJSON struct {
+	Version int    `json:"version,omitempty"`
+	ATYP    string `json:"atyp,omitempty"`
+	Dest    string `json:"dest,omitempty"`
+	Command string `json:"command,omitempty"`
 }
 
 type headerJSON struct {
@@ -419,8 +452,22 @@ func fromStatus(st *app.Status, view *app.StateView) (statusJSON, error) {
 			{Name: "proxy", Address: view.Canonical.Spec.Listeners.Proxy.Address},
 			{Name: "management", Address: view.Canonical.Spec.Listeners.Management.Address},
 		}
+		out.Features = featuresFromSpec(&view.Canonical.Spec)
 	}
 	return out, nil
+}
+
+func featuresFromSpec(sp *model.Spec) statusFeaturesJSON {
+	if sp == nil {
+		return statusFeaturesJSON{}
+	}
+	return statusFeaturesJSON{
+		HTTP2:               sp.Protocols.HTTP2.Enabled,
+		SOCKS5:              sp.Listeners.Proxy.AcceptSOCKS5,
+		SOCKS4:              sp.Listeners.Proxy.AcceptSOCKS4,
+		OriginalDestination: sp.Listeners.OriginalDestination.Enabled,
+		CompatFlowREST:      sp.Compat.FlowREST.Enabled,
+	}
 }
 
 func fromCA(st model.CAStatus) caStatusJSON {
@@ -519,11 +566,19 @@ func fromFlow(f *model.Flow, listItem bool) flowJSON {
 		RequestBytes:  messageBytes(f.Request),
 		ResponseBytes: messageBytes(f.Response),
 	}
+	out.Via = f.Via
+	out.OriginalDest = f.OriginalDest
 	if f.TLS != nil {
 		out.TLS = &tlsInfoJSON{
 			SNI: f.TLS.SNI, Version: f.TLS.Version, CipherSuite: f.TLS.CipherSuite,
 			ALPN: f.TLS.ALPN, UpstreamVerified: f.TLS.UpstreamVerified, LeafDNS: append([]string(nil), f.TLS.LeafDNS...),
 		}
+	}
+	if f.HTTP2 != nil {
+		out.HTTP2 = &http2InfoJSON{StreamID: f.HTTP2.StreamID}
+	}
+	if f.SOCKS != nil {
+		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command}
 	}
 	return out
 }
@@ -537,6 +592,7 @@ func fromMessage(m model.HTTPMessage, listItem bool) messageJSON {
 		return out
 	}
 	out.Headers = fromHeaders(m.Headers)
+	out.Trailers = fromHeaders(m.Trailers)
 	if len(m.Body) > 0 {
 		out.Body = string(m.Body)
 	}

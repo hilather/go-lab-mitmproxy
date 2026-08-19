@@ -90,10 +90,11 @@ func (s *Server) matchHit(sess *ruleSession, phase, host string, req *http.Reque
 		return nil
 	}
 	hit := sess.eng.Match(phase, rules.Request{
-		Host:    host,
-		Path:    requestPath(req),
-		Method:  requestMethod(req),
-		Headers: headersFrom(hdr),
+		Host:     host,
+		Path:     requestPath(req),
+		Method:   requestMethod(req),
+		Headers:  headersFrom(hdr),
+		Protocol: model.FlowProtocolHTTP11,
 	})
 	if hit != nil && count {
 		s.metrics.ruleHit(hit.Action.Type)

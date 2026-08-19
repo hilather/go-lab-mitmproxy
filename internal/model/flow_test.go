@@ -24,6 +24,14 @@ func TestResidentBytes(t *testing.T) {
 	if spilled.ResidentBytes() != 10 {
 		t.Fatalf("spilled %d", spilled.ResidentBytes())
 	}
+	trailers := &Flow{
+		Request: HTTPMessage{
+			Trailers: []Header{{Name: "X-T", Value: "1"}},
+		},
+	}
+	if trailers.ResidentBytes() != int64(len("X-T")+len("1")+4) {
+		t.Fatalf("trailers %d", trailers.ResidentBytes())
+	}
 }
 
 func TestFlowPath(t *testing.T) {

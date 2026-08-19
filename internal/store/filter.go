@@ -34,6 +34,12 @@ func matchFilter(f *model.Flow, q model.FlowFilter) bool {
 	if q.RuleID != "" && !hasRule(f.RuleIDs, q.RuleID) {
 		return false
 	}
+	if q.Protocol != "" && !strings.EqualFold(f.Protocol, q.Protocol) {
+		return false
+	}
+	if q.Via != "" && f.Via != q.Via {
+		return false
+	}
 	return true
 }
 

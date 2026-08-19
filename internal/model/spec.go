@@ -37,14 +37,24 @@ const (
 	ActionBody       = "body"
 )
 
-// ListenersSpec configures the proxy and management listeners.
+// ListenersSpec configures the proxy, management, and optional orig-dest listeners.
 type ListenersSpec struct {
-	Proxy      ProxyListenerSpec `json:"proxy"`
-	Management MgmtListenerSpec  `json:"management"`
+	Proxy               ProxyListenerSpec        `json:"proxy"`
+	Management          MgmtListenerSpec         `json:"management"`
+	OriginalDestination OriginalDestListenerSpec `json:"originalDestination"`
 }
 
 // ProxyListenerSpec is the data-plane listener.
 type ProxyListenerSpec struct {
+	Address      string `json:"address"`
+	AcceptSOCKS5 bool   `json:"acceptSOCKS5"`
+	AcceptSOCKS4 bool   `json:"acceptSOCKS4"`
+}
+
+// OriginalDestListenerSpec is the optional Linux REDIRECT listener.
+// Empty Address materializes 127.0.0.1:8890 when Enabled.
+type OriginalDestListenerSpec struct {
+	Enabled bool   `json:"enabled"`
 	Address string `json:"address"`
 }
 
@@ -72,15 +82,16 @@ type ProxySpec struct {
 
 // AdmissionSpec caps concurrent proxy sessions and in-flight work.
 type AdmissionSpec struct {
-	MaxSessions      int           `json:"maxSessions"`
-	MaxSessionsPerIP int           `json:"maxSessionsPerIP"`
-	MaxInFlight      int           `json:"maxInFlight"`
-	MaxInFlightBytes int64         `json:"maxInFlightBytes"`
-	SessionTimeout   time.Duration `json:"sessionTimeout"`
-	IdleTimeout      time.Duration `json:"idleTimeout"`
-	HeaderTimeout    time.Duration `json:"headerTimeout"`
-	DialTimeout      time.Duration `json:"dialTimeout"`
-	UpstreamTimeout  time.Duration `json:"upstreamTimeout"`
+	MaxSessions          int           `json:"maxSessions"`
+	MaxSessionsPerIP     int           `json:"maxSessionsPerIP"`
+	MaxInFlight          int           `json:"maxInFlight"`
+	MaxInFlightBytes     int64         `json:"maxInFlightBytes"`
+	SessionTimeout       time.Duration `json:"sessionTimeout"`
+	IdleTimeout          time.Duration `json:"idleTimeout"`
+	HeaderTimeout        time.Duration `json:"headerTimeout"`
+	DialTimeout          time.Duration `json:"dialTimeout"`
+	UpstreamTimeout      time.Duration `json:"upstreamTimeout"`
+	MaxConcurrentStreams int           `json:"maxConcurrentStreams"` // 0 materializes 100
 }
 
 // TargetsSpec is resolve-then-guard policy. Empty allowHosts means any name.
@@ -138,6 +149,29 @@ type RuleMatchSpec struct {
 	Method         string `json:"method"`
 	HeaderName     string `json:"headerName"`
 	HeaderContains string `json:"headerContains"`
+	Protocol       string `json:"protocol"`
+}
+
+// ProtocolsSpec is hop-protocol policy. HTTP/2 defaults off.
+type ProtocolsSpec struct {
+	HTTP2 HTTP2Spec `json:"http2"`
+}
+
+// HTTP2Spec enables inner+origin HTTP/2. Default off.
+type HTTP2Spec struct {
+	Enabled bool `json:"enabled"`
+}
+
+// CompatSpec is optional first-party compat adapters. Default off.
+type CompatSpec struct {
+	FlowREST FlowRESTCompatSpec `json:"flowREST"`
+}
+
+// FlowRESTCompatSpec is optional mitmproxy-inspired flow REST.
+// Empty PathPrefix materializes /compat when Enabled.
+type FlowRESTCompatSpec struct {
+	Enabled    bool   `json:"enabled"`
+	PathPrefix string `json:"pathPrefix"`
 }
 
 // RuleActionSpec is one deterministic action.
@@ -264,6 +298,16 @@ func KnownRulePhase(p string) bool {
 func KnownRuleAction(t string) bool {
 	switch t {
 	case ActionBreakpoint, ActionDrop, ActionDelay, ActionStatus, ActionHeader, ActionBody:
+		return true
+	default:
+		return false
+	}
+}
+
+// KnownRuleProtocol reports whether p is a v1alpha1 match.protocol value.
+func KnownRuleProtocol(p string) bool {
+	switch p {
+	case FlowProtocolHTTP11, FlowProtocolHTTP2, FlowProtocolWebSocket, FlowProtocolConnect, FlowProtocolSOCKS5, FlowProtocolSOCKS4:
 		return true
 	default:
 		return false

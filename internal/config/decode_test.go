@@ -44,6 +44,12 @@ func TestDecodeDefaultsYAML(t *testing.T) {
 	}
 }
 
+func TestDecodeAcceptSOCKS5HyphenUnknownField(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      accept-socks5: true\n"
+	_, err := Decode([]byte(doc))
+	_ = requireValidation(t, err, violationUnknownField)
+}
+
 func TestDecodeJSONUnknownField(t *testing.T) {
 	_, err := DecodeJSON([]byte(`{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"nope":1}}`))
 	_ = requireValidation(t, err, violationUnknownField)

@@ -587,6 +587,20 @@
           },
           {
             "in": "query",
+            "name": "protocol",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "via",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "cursor",
             "schema": {
               "type": "string"

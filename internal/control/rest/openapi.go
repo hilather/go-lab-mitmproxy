@@ -121,6 +121,8 @@ func openAPIOperation(c capabilities.Capability, b capabilities.RESTBinding) map
 			map[string]any{"name": "scheme", "in": "query", "schema": map[string]any{"type": "string"}},
 			map[string]any{"name": "intercepted", "in": "query", "schema": map[string]any{"type": "boolean"}},
 			map[string]any{"name": "ruleId", "in": "query", "schema": map[string]any{"type": "string"}},
+			map[string]any{"name": "protocol", "in": "query", "schema": map[string]any{"type": "string"}},
+			map[string]any{"name": "via", "in": "query", "schema": map[string]any{"type": "string"}},
 			map[string]any{"name": "cursor", "in": "query", "schema": map[string]any{"type": "string"}},
 			map[string]any{"name": "limit", "in": "query", "schema": map[string]any{"type": "integer", "minimum": 0, "maximum": 200, "default": 50}},
 		)

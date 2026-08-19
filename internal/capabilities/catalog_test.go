@@ -83,6 +83,57 @@ func TestLookupRESTAndTool(t *testing.T) {
 	}
 }
 
+func TestCatalogRESTPathsAreV1Only(t *testing.T) {
+	if len(All()) != TableRowCount {
+		t.Fatalf("TableRowCount=%d All=%d", TableRowCount, len(All()))
+	}
+	for _, c := range All() {
+		for _, b := range c.REST {
+			if !strings.HasPrefix(b.Path, "/v1") {
+				t.Errorf("%s REST path %s is not /v1", c.ID, b.Path)
+			}
+			if strings.Contains(b.Path, "/compat") {
+				t.Errorf("%s catalog REST path must not include /compat: %s", c.ID, b.Path)
+			}
+		}
+	}
+}
+
+func TestCompatBindingsSideTable(t *testing.T) {
+	binds := CompatBindings()
+	if len(binds) == 0 {
+		t.Fatal("CompatBindings empty")
+	}
+	seen := map[string]bool{}
+	for _, c := range All() {
+		for _, b := range c.REST {
+			seen[b.RESTRef()] = true
+		}
+	}
+	for _, c := range binds {
+		if c.MCP != nil {
+			t.Errorf("%s compat binding must not declare MCP", c.ID)
+		}
+		if !c.RESTOnly {
+			t.Errorf("%s compat binding RESTOnly=false", c.ID)
+		}
+		for _, b := range c.REST {
+			if strings.HasPrefix(b.Path, "/v1") {
+				t.Errorf("compat path %s must not be /v1", b.Path)
+			}
+			if !strings.HasPrefix(b.Path, DefaultCompatPathPrefix+"/") && b.Path != DefaultCompatPathPrefix {
+				t.Errorf("compat path %s missing %s prefix", b.Path, DefaultCompatPathPrefix)
+			}
+			if seen[b.RESTRef()] {
+				t.Errorf("compat REST %s leaked into catalog", b.RESTRef())
+			}
+			if _, ok := LookupREST(b.Method, b.Path); ok {
+				t.Errorf("LookupREST(%s %s) hit catalog", b.Method, b.Path)
+			}
+		}
+	}
+}
+
 func TestHealthHasNoTools(t *testing.T) {
 	for _, id := range []ID{HealthLive, HealthReady, MetricsGet} {
 		c := MustLookup(id)

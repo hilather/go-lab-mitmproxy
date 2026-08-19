@@ -31,6 +31,15 @@ func TestRoutesRegisteredFromRegistry(t *testing.T) {
 	}
 }
 
+func TestCompileRoutesHasNoCompat(t *testing.T) {
+	s, _ := newTestServer(t)
+	for _, rt := range s.routes {
+		if strings.Contains(rt.path, "/compat") {
+			t.Errorf("compileRoutes saw %s %s", rt.method, rt.path)
+		}
+	}
+}
+
 func TestContractReads(t *testing.T) {
 	s, svc := newTestServer(t)
 	h := s.Handler()
@@ -62,6 +71,15 @@ func TestContractReads(t *testing.T) {
 	body := decodeJSON(t, st)
 	if body["revisions"] == nil || body["ca"] == nil {
 		t.Fatalf("status=%s", st.Body.String())
+	}
+	feat, _ := body["features"].(map[string]any)
+	if feat == nil {
+		t.Fatalf("status missing features: %s", st.Body.String())
+	}
+	for _, k := range []string{"http2", "socks5", "socks4", "originalDestination", "compatFlowREST"} {
+		if _, ok := feat[k]; !ok {
+			t.Fatalf("status.features missing %s: %s", k, st.Body.String())
+		}
 	}
 
 	schema := doReq(t, h, http.MethodGet, "/v1/schema/config", "")

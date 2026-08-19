@@ -1,0 +1,51 @@
+# ADR 0009: HTTP/2 via http2x (D8 scope)
+
+Status: Accepted
+Date: 2026-08-19
+Decisions: D26, D27, D28, D32, D44, D45, D46, D47, D48, D53
+
+## Context
+
+ADR 0002 **D8** required HTTP/1.1 on every hop in 1.0. Browsers and gRPC SUTs negotiate ALPN `h2`; 1.0 closes the intercepted session (`Error=http2_inner`). Intercepting HTTP/2 needs a frame codec the family does not own in-tree.
+
+This ADR supersedes ADR 0002 **D8 scope only**. **D7, D16, D19, D20, and D21 stand.** The proxy stays in-tree. Third-party MITM/proxy libraries stay forbidden. CONNECT still Hijacks. Dial isolation is unchanged. Handshake failure still does not blind-tunnel. Origin fetches still use `Transport.RoundTrip` only.
+
+## Decision
+
+**D26 — HTTP/2 is inner + origin only.** The client-facing cleartext proxy hop stays HTTP/1.1. `PRI * HTTP/2.0` is a hard close on every data-plane listener.
+
+**D27 — D19 preserved.** One CONNECT / SOCKS CONNECT / orig-dest TCP = one upstream TCP (and at most one upstream TLS). One captured flow per request stream.
+
+**D28 — `golang.org/x/net/http2` behind `internal/http2x` later.** Codec, not a proxy library. No Dial idents. A `DialTLS` field stays nil. Not added to `go.mod` until the codec PR.
+
+**D32 — ALPN preference + transcode, not lockstep.** Client handshake first. Origin may pick the other proto. Handshake failure still does not blind-tunnel (D20).
+
+**D44 — h2 client + h1 origin serializes streams** on the single origin TCP: mutex covers `RoundTrip` and full body drain; `MaxConnsPerHost: 1`.
+
+**D45 — `http2x` is not a bare `http.Handler`.** Per-stream values carry StreamID, ordered pseudos, headers, trailers, and body.
+
+**D46 — Handshake NextProtos come from the session snapshot**, not from Authority compile.
+
+**D47 — Captured `Protocol` is the inner client protocol.**
+
+**D48 — Inner hop rejects CONNECT and Extended CONNECT** (`:method=CONNECT` or `:protocol`).
+
+**D53 — `roundTripInnerH2` must not write HTTP/1.1 to the client TLS conn** and must not close the CONNECT on a per-stream origin error.
+
+`protocols.http2.enabled` defaults false. Runtime remains unread until the HTTP/2 workstream.
+
+## Consequences
+
+- 1.0 transcripts stay green while the flag is off.
+- `AGENTS.md` may note a future codec dep; the module is not added in the foundation PR.
+- D7 is **not** superseded.
+
+## Alternatives considered
+
+- HTTP/2 on the client-facing proxy hop: rejected (D26).
+- In-tree h2 codec: rejected; `x/net/http2` behind `http2x` is the 1.1 plan (D28).
+- Third-party MITM library to get HTTP/2: rejected. D7 stands.
+
+## Review triggers
+
+Review when `golang.org/x/net/http2` is added, when inner CONNECT policy changes, or when a second Dial site is proposed inside `http2x`.

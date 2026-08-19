@@ -101,7 +101,7 @@ func reservedFields(v any, path string) []domainerr.FieldViolation {
 				vs = append(vs, domainerr.FieldViolation{
 					Path:    p,
 					Code:    violationReservedName,
-					Message: fmt.Sprintf("reserved key %q %s — not a 1.0 LabMITM surface", k, why),
+					Message: fmt.Sprintf("reserved key %q %s — not a LabMITM surface", k, why),
 				})
 				continue
 			}

@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-18 (DEP-001 + UI-001 + SWAP-001 + GA-001)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007
+Last reviewed: 2026-08-19 (1.1 foundation ADRs 0008–0011)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011
 
 ## Problem statement
 
@@ -83,6 +83,17 @@ Family container-internal binds that must not collide:
 - Proxy-Authorization (data-plane auth) — deferred to 1.1.
 - QUIC / HTTP/3, gRPC-over-h2 inspect, DTLS.
 - Being a general attack framework or “burp-like” scanner.
+
+## 1.1 opt-in (types; flags default off)
+
+Additive `labmitm.dev/v1alpha1` fields exist so later workstreams can enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off and are unread by the proxy** except that CONNECT already calls the extracted `serveInterceptConn` helper (behavior-identical HTTP 200 then intercept).
+
+- [ADR 0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md): additive schema; reserved keys stay; flags are bootstrap + **Reset only** (D51).
+- [ADR 0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md): supersedes ADR 0002 **D8 scope only**. **D7 stands.**
+- [ADR 0010](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md): supersedes the “TPROXY/SOCKS are 1.1+” **sentence**. TPROXY stays rejected.
+- [ADR 0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md): supersedes ADR 0007 D5’s “no compat path in 1.0” **sentence**. Native `/v1` + MCP primacy stands. `/compat` is **not** on `catalog()` / `compileRoutes`.
+
+**D7 stands.** In-tree proxy, no third-party MITM library, CONNECT Hijack. Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocols.http2`, `compat.flowREST`). Reserved `socks*` / `tproxy` / `mitmproxy*` keys stay reserved.
 
 ## Key decisions
 

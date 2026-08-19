@@ -37,3 +37,9 @@ Frozen capability table: [docs/07-control-plane-and-parity.md](https://github.co
 ## Review triggers
 
 Review this decision when a concrete mitmproxy API client appears in the lab (it must not drive 1.0), or when a 1.1 compat shim is proposed with a named consumer.
+
+## Notes (1.1)
+
+[ADR 0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md) supersedes the D5 sentence “No mitmproxy REST, no mitmweb, no Python addon protocol in 1.0” only for an optional, default-off first-party compat flow REST under a configurable prefix (default `/compat`). Native `/v1` + `POST /mcp` remain the source of truth (D5 remainder). There is still no Python mitmproxy wrap/exec, no mitmweb, and no addon VM.
+
+**D7 stands.** The proxy remains in-tree. Compat is an adapter over `internal/app`, not a second proxy.
