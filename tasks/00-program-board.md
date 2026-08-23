@@ -1,7 +1,7 @@
 # Program Board
 
-Status: in-review (GA-001 + SWAP-001)
-Last reviewed: 2026-08-18 (GA-001 + SWAP-001)
+Status: done (GA-001 + SWAP-001)
+Last reviewed: 2026-08-23
 
 Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs/` is the source of truth.
 
@@ -18,12 +18,11 @@ Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs
 | 7 | Application service, snapshot, reset | STA-001 | CFG-001, PROXY-001, TLS-001, STORE-001, RULES-001 | `app.Service`, snapshot, plan/apply/reset | done |
 | 8 | REST `/v1` and OpenAPI | API-001 | PROXY-001, TLS-001, STA-001 | Native REST except UI/session; problem+json; replay | done |
 | 9 | MCP Streamable HTTP and parity | MCP-001 | API-001 | `mitm_*` tools, `labmitm://` resources, `make test-parity` | done |
-| 9 | MCP Streamable HTTP and parity | MCP-001 | API-001 | `mitm_*` tools, `labmitm://` resources, `make test-parity` | done |
 | 10 | Auth, session, audit identity | SEC-001 | API-001, MCP-001 | Bearer, CSRF session, 401 contract | done |
 | 11 | Observability | OBS-001 | PROXY-001, API-001 | slog events, hand-rolled OpenMetrics, ready semantics | done |
 | 12 | CLI completion, image, compose smoke | DEP-001 | PROXY-001, TLS-001, API-001, SEC-001, OBS-001 | Hardened image, compose contract, healthcheck | done |
 | 13 | Embedded flow-inspector UI | UI-001 | API-001, SEC-001 | React SPA; **required for GA / 1.0** | done |
-| 14 | GA hardening + lab overlays | GA-001 + SWAP-001 | PRs 1–13 | Fuzz, soak, tag-gate, SWAP overlay BOM | in-review |
+| 14 | GA hardening + lab overlays | GA-001 + SWAP-001 | PRs 1–13 | Fuzz, soak, tag-gate, SWAP overlay BOM | done |
 
 ## Parallelization
 
@@ -67,9 +66,10 @@ Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs
 
 ### M5: GA
 
-- GA-001 acceptance review passes.
-- All required CI must pass on the **tag** commit.
-- Residual limitations match [docs/known-limitations.md](../docs/known-limitations.md).
+- GA-001 acceptance **passed**.
+- All required CI passed on the **tag** commit `a2aa229` (https://github.com/hilather/go-lab-mitmproxy/actions/runs/32278756064).
+- Residual limitations still match [docs/known-limitations.md](../docs/known-limitations.md).
+- D18 compose-in is **not** an M5 gate.
 
 ## Frozen product decisions
 

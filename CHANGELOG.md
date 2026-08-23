@@ -12,6 +12,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 - Overlay `allowHosts` uses compose DNS names `control` and `taclab` instead of MCP catalog names `labldap` and `labtacacs`.
 - README, START-HERE, and docs/14 hygiene for the v1.1.0 tree: collapsed duplicate Status, repaired Build-and-test fence, vendor+local-build compose fragment, and lab rollout resequenced so smoke is after MCP.
+- Program board and v1.1.0 notes now record verified tag CI and close GA-001 + SWAP-001; GHCR digest remains unpublished.
 
 ### Fixed
 
