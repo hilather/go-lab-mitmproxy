@@ -10,7 +10,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- None.
+- Overlay `allowHosts` uses compose DNS names `control` and `taclab` instead of MCP catalog names `labldap` and `labtacacs`.
 
 ### Fixed
 
