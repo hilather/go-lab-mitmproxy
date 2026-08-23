@@ -10,6 +10,26 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.1.1 - 2026-08-23
+
+Closeout of the tagged 1.1 appliance (overlay lab-readiness, onboarding docs, GA board, D18 wording). Notes: [docs/releases/v1.1.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.1.1/docs/releases/v1.1.1.md).
+
+### Added
+
+- None.
+
+### Changed
+
 - Overlay `allowHosts` uses compose DNS names `control` and `taclab` instead of MCP catalog names `labldap` and `labtacacs`.
 - README, START-HERE, and docs/14 hygiene for the v1.1.0 tree: collapsed duplicate Status, repaired Build-and-test fence, vendor+local-build compose fragment, and lab rollout resequenced so smoke is after MCP.
 - Program board and v1.1.0 notes now record verified tag CI and close GA-001 + SWAP-001; GHCR digest remains unpublished.
