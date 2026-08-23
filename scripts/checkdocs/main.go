@@ -48,6 +48,7 @@ var RequiredRootDocs = []string{
 	"docs/adr/0009-http2-via-http2x.md",
 	"docs/adr/0010-socks-and-original-destination.md",
 	"docs/adr/0011-optional-compat-flow-rest.md",
+	"docs/adr/0012-protocol-expansion-12.md",
 	"tasks/00-program-board.md",
 	"tasks/README.md",
 	".github/workflows/ci.yml",

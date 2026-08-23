@@ -49,3 +49,13 @@ This ADR supersedes ADR 0002 **D8 scope only**. **D7, D16, D19, D20, and D21 sta
 ## Review triggers
 
 Review when `golang.org/x/net/http2` is added, when inner CONNECT policy changes, or when a second Dial site is proposed inside `http2x`.
+
+## Notes (1.2)
+
+[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) supersedes **D26 hop list**: client-facing may be h2c when `protocols.http2.clientCleartext`. Flag-off keeps the 1.0/1.1 PRI hard close.
+
+[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) supersedes **D48 Extended CONNECT / `:protocol=websocket` sentence only**. Nested inner CONNECT without `:protocol` still RST, **no flow**. Illegal h2 `Upgrade: websocket` still RST, **no flow**.
+
+[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) supersedes **D32 origin lock**: origin ALPN may include `h2` when `protocols.http2.origin` and the inner leaf negotiated `h2`. Still one CONNECT = one origin TCP. Flag-off keeps D32/D44 transcode.
+
+Remainder of this ADR stands. **D7 stands.**

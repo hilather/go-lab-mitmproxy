@@ -66,6 +66,7 @@ The numbered pack is the source of truth.
 | [0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md) | HTTP/2 via http2x; D8 scope only (D7 stands) |
 | [0010](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md) | SOCKS5 multiplex + orig-dest REDIRECT; TPROXY stays rejected |
 | [0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md) | Optional compat flow REST; `/v1`+MCP primacy stands |
+| [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) | 1.2 protocol expansion (D58–D68); D7 stands |
 
 ## Task lists
 
