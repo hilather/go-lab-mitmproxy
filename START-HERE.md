@@ -1,8 +1,14 @@
 # Start here
 
-LabMITM is a laboratory HTTP(S) intercepting proxy in the LabDNS / LabMail / TacLab family. Systems under test send HTTP/1.1 absolute-form requests and CONNECT tunnels to it. LabMITM captures, optionally intercepts TLS with a lab CA, and exposes flows over native REST `/v1`, MCP `POST /mcp`, and the embedded flow-inspector UI at `/`. Management is lab static bearer; unauthenticated `GET /v1/flows` is 401. It never wraps Python mitmproxy.
+LabMITM is a laboratory HTTP(S) intercepting proxy in the LabDNS / LabMail /
+TacLab family. Systems under test send HTTP/1.1 absolute-form requests and
+CONNECT tunnels to it. LabMITM captures, optionally intercepts TLS with a
+lab CA, and exposes flows over native REST `/v1`, MCP `POST /mcp`, and the
+embedded flow inspector at `/`.
 
-If you want to run what exists today, stay on this page, then follow the [README](README.md). If you want to change it, read [AGENTS.md](AGENTS.md) before touching code.
+If you want to **run** what exists today, stay on this page, then follow the
+[README](README.md). If you want to **change** it, read [AGENTS.md](AGENTS.md)
+before touching code.
 
 ## Five-minute path
 
@@ -11,40 +17,88 @@ If you want to run what exists today, stay on this page, then follow the [README
 3. `./bin/labmitm version`
 4. `./bin/labmitm validate --config testdata/config/valid/defaults.yaml`
 5. `./bin/labmitm canonicalize --config testdata/config/valid/defaults.yaml --format yaml`
-6. `./bin/labmitm serve --config testdata/config/valid/defaults.yaml --proxy-listen 127.0.0.1:8888 --management-listen=off`
+6. Serve. Management is off unless you pass an address **and** a bearer token file:
 
-`serve` binds the HTTP/1.1 forward proxy. Management REST `/v1`, the flow-inspector SPA at `/`, and `POST /mcp` bind when `--management-listen` is an address and bearer auth has ≥1 token. `labmitm mcp-stdio --config … --token-file …` serves the same registry over stdio. `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/ready` probes readiness. Set `tls.intercept: true` to mint a lab CA and intercept HTTPS on listed ports. There is no `serve --token-file`. The hardened image is `ghcr.io/hilather/labmitm` (scratch, UID `65532`, system CA bundle). Compose smoke: `examples/compose.smoke.yaml`. `make test-container` requires Docker. `make web-build` (Node **22.14.0**) embeds the production SPA.
+```bash
+# Proxy only
+./bin/labmitm serve \
+  --config testdata/config/valid/defaults.yaml \
+  --proxy-listen 127.0.0.1:8888 \
+  --management-listen=off
 
-YAML field rules, revisions, and reset live in [docs/06-state-and-configuration.md](docs/06-state-and-configuration.md). Proxy accept/reject tables live in [docs/02-proxy-semantics.md](docs/02-proxy-semantics.md). REST and MCP twins are in [docs/08-rest-api.md](docs/08-rest-api.md) and [docs/09-mcp-api.md](docs/09-mcp-api.md).
+# Proxy + REST / MCP / UI
+./bin/labmitm serve \
+  --config testdata/config/valid/rules-and-token.yaml \
+  --proxy-listen 127.0.0.1:8888 \
+  --management-listen 127.0.0.1:8088
+```
+
+YAML field rules, revisions, and the REST/MCP state APIs
+(`GET /v1/state`, `:validate`, `:plan`, `:apply`, `:export`, `:reset`) live in
+the [README state-loading section](README.md#state-loading-apis) and
+[docs/06-state-and-configuration.md](docs/06-state-and-configuration.md).
+Proxy accept/reject tables:
+[docs/02-proxy-semantics.md](docs/02-proxy-semantics.md). REST and MCP twins:
+[docs/08-rest-api.md](docs/08-rest-api.md) and
+[docs/09-mcp-api.md](docs/09-mcp-api.md).
+
+`labmitm mcp-stdio --config … --token-file …` serves the same registry over
+stdio. `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/ready`
+probes readiness. Set `tls.intercept: true` to mint a lab CA and intercept
+HTTPS on listed ports. The hardened image is `ghcr.io/hilather/labmitm`
+(scratch, UID `65532`, system CA bundle). Compose smoke:
+`examples/compose.smoke.yaml`. `make web-build` (Node **22.14.0**) embeds the
+production SPA.
 
 ## What to read next
 
 | If you are… | Read |
 |---|---|
-| Running a lab (later) | [README.md](README.md), [docs/13-deployment.md](docs/13-deployment.md), [docs/14-integration-lab.md](docs/14-integration-lab.md) |
-| Writing YAML | [docs/06-state-and-configuration.md](docs/06-state-and-configuration.md) |
+| Running a lab | [README.md](README.md), [docs/13-deployment.md](docs/13-deployment.md), [docs/14-integration-lab.md](docs/14-integration-lab.md) |
+| Writing YAML or calling state APIs | [docs/06-state-and-configuration.md](docs/06-state-and-configuration.md), [README.md](README.md#state-loading-apis) |
 | Implementing the proxy | [docs/02-proxy-semantics.md](docs/02-proxy-semantics.md), [docs/adr/0002-in-tree-http-forward-proxy.md](docs/adr/0002-in-tree-http-forward-proxy.md) |
 | Implementing TLS intercept | [docs/03-tls-interception.md](docs/03-tls-interception.md) |
 | Wiring an agent | [docs/07-control-plane-and-parity.md](docs/07-control-plane-and-parity.md), [docs/09-mcp-api.md](docs/09-mcp-api.md) |
 | Changing behavior | [AGENTS.md](AGENTS.md), then the normative doc for that area |
 
-The full catalog — architecture, ADRs, task lists — is in [docs/README.md](docs/README.md) and linked from the [README documentation map](README.md#documentation).
+The full catalog — architecture, ADRs, task lists — is in
+[docs/README.md](docs/README.md) and linked from the
+[README documentation map](README.md#documentation).
 
 ## For contributors and agents
 
 Before changing code:
 
 1. Read [AGENTS.md](AGENTS.md) completely.
-2. Read architecture, proxy semantics, TLS, store, rules, state, control-plane parity, security, and testing: [docs/01-architecture.md](docs/01-architecture.md), [docs/02-proxy-semantics.md](docs/02-proxy-semantics.md), [docs/03-tls-interception.md](docs/03-tls-interception.md), [docs/04-flow-store.md](docs/04-flow-store.md), [docs/05-rules.md](docs/05-rules.md), [docs/06-state-and-configuration.md](docs/06-state-and-configuration.md), [docs/07-control-plane-and-parity.md](docs/07-control-plane-and-parity.md), [docs/10-security-architecture.md](docs/10-security-architecture.md), [docs/12-testing-strategy.md](docs/12-testing-strategy.md).
+2. Read architecture, proxy semantics, TLS, store, rules, state, control-plane
+   parity, security, and testing:
+   [docs/01-architecture.md](docs/01-architecture.md),
+   [docs/02-proxy-semantics.md](docs/02-proxy-semantics.md),
+   [docs/03-tls-interception.md](docs/03-tls-interception.md),
+   [docs/04-flow-store.md](docs/04-flow-store.md),
+   [docs/05-rules.md](docs/05-rules.md),
+   [docs/06-state-and-configuration.md](docs/06-state-and-configuration.md),
+   [docs/07-control-plane-and-parity.md](docs/07-control-plane-and-parity.md),
+   [docs/10-security-architecture.md](docs/10-security-architecture.md),
+   [docs/12-testing-strategy.md](docs/12-testing-strategy.md).
 3. Read every ADR that affects the task (`docs/adr/`).
-4. Take one work package from [tasks/00-program-board.md](tasks/00-program-board.md) whose dependencies are complete.
+4. Take one work package from [tasks/00-program-board.md](tasks/00-program-board.md)
+   whose dependencies are complete.
 5. Add or update tests before declaring the task done.
 6. Update every affected document in the same change.
-7. Run every required local verification target (`make test`, `make test-docs`, and the rest listed in [AGENTS.md](AGENTS.md)).
+7. Run every required local verification target (`make test`, `make test-docs`,
+   and the rest listed in [AGENTS.md](AGENTS.md)).
 
-Do not implement REST, MCP, proxy, TLS, configuration, or the store from a task summary when a normative design document exists. The numbered pack is the source of truth. If an invariant must change, write an ADR and update the normative documentation first.
+Do not implement REST, MCP, proxy, TLS, configuration, or the store from a
+task summary when a normative design document exists. The numbered pack is
+the source of truth. If an invariant must change, write an ADR and update
+the normative documentation first.
 
-Coordinators allocate work with [tasks/00-program-board.md](tasks/00-program-board.md). Parallel work is safe only when package ownership and schema ownership do not overlap. Integration changes to shared domain types, generated schemas, or the capability registry must be serialized.
+Coordinators allocate work with
+[tasks/00-program-board.md](tasks/00-program-board.md). Parallel work is
+safe only when package ownership and schema ownership do not overlap.
+Integration changes to shared domain types, generated schemas, or the
+capability registry must be serialized.
 
 ### Definition of done
 
@@ -54,10 +108,17 @@ A task is not done until:
 - Unit and regression tests cover all changed behavior.
 - Protocol changes have integration and compatibility tests.
 - Configuration changes have positive and negative validation tests.
-- REST and MCP parity checks pass (once those targets exist).
+- REST and MCP parity checks pass.
 - Race, fuzz, lint, generation, documentation, and relevant end-to-end checks pass.
 - All affected documentation is current.
 - No CI check is ignored, bypassed, or marked optional to get a merge.
 - User-visible and operator-visible changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
-GA / 1.0 is not done without the embedded flow-inspector UI (PR 13). LabMITM is a lab intercepting proxy, not a public MITM product and not an attack tool. Catalog id is **`labmitm`** (D18). Lab pin is vendor tag **v1.1.0** + `labmitm:local`. Residuals: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). Current tag notes: [docs/releases/v1.1.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.1.md). Untagged 1.0 notes: [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md).
+LabMITM is a lab intercepting proxy, not a public MITM product and not an
+attack tool. Catalog id is **`labmitm`**. Lab pin is vendor tag **v1.1.0** +
+`labmitm:local`. Residuals:
+[docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md).
+Current tag notes:
+[docs/releases/v1.1.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.1.md).
+Untagged 1.0 notes:
+[docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md).

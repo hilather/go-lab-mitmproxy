@@ -1,8 +1,12 @@
 # Documentation
 
-Operator front door: [README.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/README.md). Onboarding: [START-HERE.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/START-HERE.md). Agent rules: [AGENTS.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/AGENTS.md).
+Operator front door: [README.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/README.md)
+(product page, YAML bootstrap, REST/MCP state-loading APIs). Onboarding:
+[START-HERE.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/START-HERE.md).
+Agent rules: [AGENTS.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/AGENTS.md).
 
-This page is the catalog. Normative design documents win over task summaries. After FND-001 the numbered pack is the source of truth.
+This page is the catalog. Normative design documents win over task summaries.
+The numbered pack is the source of truth.
 
 ## Root
 

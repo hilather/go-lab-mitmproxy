@@ -10,7 +10,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- None.
+- README and START-HERE: family-style product page with header art, YAML bootstrap walkthrough, and REST/MCP state-loading quick start. Architecture pack, ADRs, and the program board stay linked from the documentation map. GitHub About/topics describe the appliance.
 
 ### Fixed
 
