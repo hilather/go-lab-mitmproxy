@@ -53,3 +53,11 @@ Flags default off. The D42 accept mux peeks in a per-conn goroutine and SOCKS-cl
 ## Review triggers
 
 Review when BIND/UDP ASSOCIATE is proposed, when a non-Linux orig-dest path is requested, or when TPROXY is reconsidered (it would need a new ADR and must not land in the default image).
+
+## Notes (1.2)
+
+[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) supersedes **D29 CONNECT-only / NO AUTH-only** for BIND (`listeners.proxy.acceptBind`), UDP ASSOCIATE (`listeners.proxy.acceptUDPAssociate`), and username/password (`listeners.proxy.acceptUserPass`). GSSAPI stays out.
+
+D29 cited architecture [D17](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md) as the reason username/password stayed out. ADR 0012 D60 supersedes that D17 sentence **for SOCKS only**. HTTP hop stays unauthenticated (no `Proxy-Authorization`). Management stays bearer (D6).
+
+**TPROXY stays rejected.** Reverse-proxy stays rejected. **D7 stands.**

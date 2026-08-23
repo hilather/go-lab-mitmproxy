@@ -50,3 +50,9 @@ Review this decision when PR 3–4 interop is still red at rc, HTTP/2 intercept 
 [ADR 0010](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md) supersedes the sentence “Reverse-proxy, TPROXY, and SOCKS are 1.1+” insofar as SOCKS5 CONNECT and Linux original-destination REDIRECT become 1.1 opt-in. **TPROXY stays rejected.** Reverse-proxy stays rejected.
 
 **D7 stands.** The proxy remains in-tree. Third-party MITM/proxy libraries stay forbidden. CONNECT still Hijacks (D19). D16, D20, and D21 stand.
+
+## Notes (1.2)
+
+[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) further expands the **D8 hop list** already scoped by ADR 0009: the client-facing cleartext proxy hop may be h2c when `protocols.http2.clientCleartext` (D61). Flag-off keeps the 1.0/1.1 PRI hard close.
+
+**D7 stands.** The proxy remains in-tree. Third-party MITM/proxy libraries stay forbidden. CONNECT still Hijacks (D19). D16, D20, and D21 stand.
