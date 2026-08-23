@@ -44,9 +44,26 @@ func TestLabOverlayExample(t *testing.T) {
 	if !found {
 		t.Fatal("missing admin token at /run/secrets/labmitm-token")
 	}
-	wantHosts := []string{"*.lab", "labdns", "labldap", "labtacacs", "labinfo", "maildev", "mcpjungle"}
+	wantHosts := []string{"*.lab", "labdns", "labinfo", "maildev", "mcpjungle", "control", "taclab"}
 	if !slices.Equal(st.Spec.Proxy.Targets.AllowHosts, wantHosts) {
 		t.Fatalf("allowHosts=%v want %v", st.Spec.Proxy.Targets.AllowHosts, wantHosts)
+	}
+	for _, o := range st.Spec.Management.OriginAllowlist {
+		if o == "*" || o == "private" {
+			t.Fatalf("originAllowlist must not contain %q", o)
+		}
+	}
+	if st.Spec.Protocols.HTTP2.Enabled {
+		t.Fatal("protocols.http2.enabled must stay false")
+	}
+	if st.Spec.Listeners.Proxy.AcceptSOCKS5 || st.Spec.Listeners.Proxy.AcceptSOCKS4 {
+		t.Fatal("acceptSOCKS5/acceptSOCKS4 must stay false")
+	}
+	if st.Spec.Listeners.OriginalDestination.Enabled {
+		t.Fatal("originalDestination.enabled must stay false")
+	}
+	if st.Spec.Compat.FlowREST.Enabled {
+		t.Fatal("compat.flowREST.enabled must stay false")
 	}
 }
 

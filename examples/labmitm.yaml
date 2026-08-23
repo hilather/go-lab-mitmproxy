@@ -42,11 +42,16 @@ spec:
       allowHosts:
         - "*.lab"
         - labdns
-        - labldap
-        - labtacacs
         - labinfo
         - maildev
         - mcpjungle
+        - control
+        - taclab
+        # Optional CONNECT-tunnel names (not HTTP origins; do not uncomment
+        # without accepting unauthenticated TCP to these listeners).
+        # These lines must stay inside allowHosts so uncommenting is valid YAML.
+        # - nfs         # NFSv3 :20490 on default; HTTP_PROXY cannot mount it
+        # - directory   # LDAP :3389 / LDAPS :3636 on shared
       denyHosts: []
 
   tls:
@@ -87,6 +92,12 @@ spec:
           scopes: [mitm.read, mitm.write, mitm.admin, mitm.audit.read]
     mcp:
       allowLegacyClients: true
+    # Exact http(s)://host[:port] Origins. Loopback Origins are already
+    # allowed (any port). Missing Origin is allowed (MCPJungle, curl).
+    # There is no "*" / "private" sentinel — LabMail's hatch does not
+    # apply here. When LAB_PUBLIC_HOST is not localhost, add
+    # http://<LAB_PUBLIC_HOST>:18088 (or the profile's LABMITM_WEB_PORT)
+    # and reload. LabMITM YAML does not interpolate ${VAR}.
     originAllowlist: []
     bodyLimit: 1MiB
     requestsPerSecond: 32
