@@ -10,8 +10,7 @@ LabMITM is a **lab appliance**, not a public edge proxy and not an attack framew
 [![Go](https://img.shields.io/github/go-mod/go-version/hilather/go-lab-mitmproxy?label=Go)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/hilather/go-lab-mitmproxy/blob/main/LICENSE)
 
-Status: **HTTP/1.1 forward proxy plus optional TLS intercept, a bounded in-memory flow store, native REST `/v1`, MCP `POST /mcp`, lab static bearer, and a hardened scratch image**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). Management REST/MCP bind only with a usable bearer token (or `--management-listen=off`). Unauthenticated `GET /v1/flows` is 401. REST cookie `labmitm_session` + CSRF. Production UI is UI-001.
-Status: **HTTP/1.1 forward proxy plus optional TLS intercept, a bounded in-memory flow store, native REST `/v1`, MCP `POST /mcp`, lab static bearer, and the embedded flow-inspector UI**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). Management REST/MCP bind only with a usable bearer token (or `--management-listen=off`). Unauthenticated `GET /v1/flows` is 401. REST cookie `labmitm_session` + CSRF. The SPA at `/` talks REST only. The container image is a later PR.
+Status: **HTTP/1.1 forward proxy plus optional TLS intercept, a bounded in-memory flow store, native REST `/v1`, MCP `POST /mcp`, lab static bearer, the embedded flow-inspector UI, and a hardened scratch image**. `labmitm serve --config …` binds `spec.listeners.proxy.address` (absolute-form + CONNECT) and captures completed flows. `tls.intercept: true` mints a lab CA and intercepts listed ports (default `{443}`). Management REST/MCP bind only with a usable bearer token (or `--management-listen=off`). Unauthenticated `GET /v1/flows` is 401. REST cookie `labmitm_session` + CSRF. The SPA at `/` talks REST only.
 
 Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-lab-mitmproxy) · Binary `labmitm` · Image `ghcr.io/hilather/labmitm` · YAML `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`
 
@@ -64,14 +63,11 @@ make verify-generated
 make test
 make test-race
 make test-fuzz-smoke
+make test-parity
 make test-config-compat
 make test-docs
-make test-parity
 make test-container
-make build
-```
-
-Required CI jobs: format, lint, unit, documentation, config-compat, generated-file, parity, container-test. There is no optional or bypassable job. `make test-container` needs Docker.
+make security-scan
 make test-changelog
 make web-test
 make web-build
@@ -79,7 +75,6 @@ make build
 ```
 
 Required CI jobs: format, lint, unit, race, fuzz-smoke, generated-file, documentation, security-scan, changelog, parity, config-compat, container-test, web. There is no optional or bypassable job. Tag creation is gated by `.github/workflows/release.yml` (`tag-gate`). `make test-container` needs Docker. Soak: `go test ./internal/perf` (CI N=8).
-
 
 ## Documentation
 
