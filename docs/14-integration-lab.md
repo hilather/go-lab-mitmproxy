@@ -5,9 +5,9 @@ Owners: Integration, Platform
 Last reviewed: 2026-08-23
 Related ADRs: 0005, 0006, 0007
 
-This document is the bill of materials for adding LabMITM to `mcp-integration-lab`. SWAP-001 lands the overlay in **this** repo. The first Git tag is **v1.1.0**. Compose-in is still a **follow-on lab PR** (D18).
+This document is the bill of materials for LabMITM in `mcp-integration-lab`. SWAP-001 lands the overlay in **this** repo. The first Git tag is **v1.1.0**. Lab PRs L1–L3 compose LabMITM: vendor tag **v1.1.0** + local image `labmitm:local` (not a GHCR digest).
 
-There is **no** predecessor service. Catalog id is **`labmitm`**. Do **not** claim the lab already runs LabMITM. v1.1.0 is the pin; lab compose-in is a follow-on.
+There is **no** predecessor service. Catalog id is **`labmitm`** (D18). A later appliance tag will align vendored `examples/` with the lab-owned copy; do not bump the lab pin off **v1.1.0** for comments.
 
 ## Overlay files in this repo
 
@@ -25,9 +25,9 @@ Acceptance twin in this repo: `TestLabOverlayExample` / `TestLabMCPJungleExample
 
 ## Current HTTP intercept contract
 
-`mcp-integration-lab` today has **no** mitmproxy service and **no** mitmproxy HTTP API consumer. Lab HTTP debugging is either “hope the app logs” or “run community mitmproxy next to the family,” which breaks the GitOps / MCP / hardened-container contract (`mcp-integration-lab` `AGENTS.md` rule 8: new services expose MCP, take YAML, run unprivileged).
+`mcp-integration-lab` composes LabMITM as the HTTP(S) intercepting forward proxy. There is **no** predecessor mitmproxy service and **no** mitmproxy HTTP API consumer. Catalog id is **`labmitm`**. Community mitmproxy next to the family would still break the GitOps / MCP / hardened-container contract (`mcp-integration-lab` `AGENTS.md` rule 8: new services expose MCP, take YAML, run unprivileged).
 
-## Proposed compose fragment (follow-on lab PR)
+## Compose fragment
 
 Service name is `labmitm`. Host ports `${LABMITM_PROXY_PORT:-18888}:8888` and `${LABMITM_WEB_PORT:-18088}:8088`. Overlay YAML sets `listeners.*.address: ":8888"` / `":8088"`, `allowLegacyClients: true`, recommended `allowHosts` (`*.lab`, `labdns`, `labinfo`, `maildev`, `mcpjungle`, `control`, `taclab`), `tls.intercept` as the profile chooses.
 
@@ -72,13 +72,13 @@ Networks are **`[default, shared]`**. Dual-network is reachability, not TLS inte
 
 `mcp-integration-lab` `AGENTS.md` rule 5: composed services publish on all interfaces. Standalone defaults stay loopback (D10). The lab overlay is the place that binds `:8888`/`:8088`. Bind-mounted secrets must be **0o644** (UID 65532).
 
-Dockerfile and hardened image contract land in DEP-001 (this repo). The lab compose-in pin is the follow-on PR (D18). This fragment is the compose contract.
+Dockerfile and hardened image contract land in DEP-001 (this repo). The lab pin is vendor tag **v1.1.0** + `labmitm:local`. This fragment is the compose contract.
 
 ## Bill of materials
 
 PR-L2 is not “add a JSON file”; token + tool-group registration are mandatory and must land **before** smoke (`mitm_flows_wait` requires registration).
 
-Pin strategy: lab `vendor.go` Git tag **v1.1.0** + local build. Not a GHCR digest. `allowHosts` is the HTTP-useful compose DNS list (`*.lab`, `labdns`, `labinfo`, `maildev`, `mcpjungle`, `control`, `taclab`). `nfs` / `directory` stay comments only. Origin allowlist is exact Origins — no `"*"`. Loopback Origins are already allowed (any port). Missing Origin is allowed (MCPJungle, curl). Remote inspector needs `http://<LAB_PUBLIC_HOST>:${LABMITM_WEB_PORT}` in bootstrap; LabMITM YAML does not interpolate `${VAR}`.
+Lab L1–L3 land this BOM. Pin strategy: lab `vendor.go` Git tag **v1.1.0** + local build. Not a GHCR digest. A later appliance tag will align vendored `examples/` with the lab-owned copy; do not bump the lab pin off **v1.1.0** for comments. `allowHosts` is the HTTP-useful compose DNS list (`*.lab`, `labdns`, `labinfo`, `maildev`, `mcpjungle`, `control`, `taclab`). `nfs` / `directory` stay comments only. Origin allowlist is exact Origins — no `"*"`. Loopback Origins are already allowed (any port). Missing Origin is allowed (MCPJungle, curl). Remote inspector needs `http://<LAB_PUBLIC_HOST>:${LABMITM_WEB_PORT}` in bootstrap; LabMITM YAML does not interpolate `${VAR}`.
 
 | File / surface | Today | Swap must |
 |---|---|---|
@@ -104,7 +104,7 @@ Copy from [examples/labinfo/services-labmitm.yaml](https://github.com/hilather/g
 services:
   - id: labmitm
     name: HTTP intercept (LabMITM)
-    description: Laboratory HTTP(S) intercepting forward proxy with a flow-inspector UI, native /v1 REST, and MCP. Captured flows are wiped on restart. Compose-in is a follow-on lab PR.
+    description: Laboratory HTTP(S) intercepting forward proxy with a flow-inspector UI, native /v1 REST, and MCP. Captured flows are wiped on restart.
     urls:
       - name: Web UI
         url: http://${LAB_PUBLIC_HOST}:${LABMITM_WEB_PORT}/
@@ -148,7 +148,7 @@ Copy from [examples/mcpjungle/servers/labmitm.json](https://github.com/hilather/
 {
   "name": "labmitm",
   "transport": "streamable_http",
-  "description": "Laboratory HTTP(S) intercepting proxy (LabMITM): captured flows over REST /v1, wait/resume/drop/replay, plan/apply/reset. Compose-in is a follow-on lab PR.",
+  "description": "Laboratory HTTP(S) intercepting proxy (LabMITM): captured flows over REST /v1, wait/resume/drop/replay, plan/apply/reset.",
   "url": "http://labmitm:8088/mcp",
   "bearer_token": "${LABMITM_TOKEN}"
 }
@@ -167,7 +167,7 @@ Copy from [examples/mcpjungle/servers/labmitm.json](https://github.com/hilather/
 
 ## Rollout in mcp-integration-lab
 
-Feature flag is the vendor pin + compose service, not a runtime flag. Smoke is **after** MCP: `mitm_flows_wait` requires MCPJungle registration. Lockstep L1→L2→L3 (unlike the original optional pre-MCP smoke row).
+Lab PRs L1–L3 land this sequence. Feature flag is the vendor pin + compose service, not a runtime flag. Smoke is **after** MCP: `mitm_flows_wait` requires MCPJungle registration. Lockstep L1→L2→L3 (unlike the original optional pre-MCP smoke row).
 
 | Stage | Action | Rollback |
 |---|---|---|
@@ -190,7 +190,7 @@ Must name:
 - overlay `allowLegacyClients: true` + published binds + recommended `allowHosts`
 - healthcheck exec form against `GET /v1/health/ready`
 - `--management-listen=:8088` on the lab command (binary default is `off`)
-- do **not** claim the lab already runs LabMITM
+- pin is vendor tag **v1.1.0** + `labmitm:local` (not a GHCR digest)
 
 Shipped here:
 
@@ -198,6 +198,6 @@ Shipped here:
 - `examples/labmitm.yaml` with published binds, `allowLegacyClients: true`, recommended `allowHosts`
 - labinfo snippet (`examples/labinfo/services-labmitm.yaml`)
 - `examples/mcpjungle/servers/labmitm.json` + group append
-- D18 (catalog id `labmitm`; compose-in is a follow-on) recorded
+- D18 catalog id `labmitm`
 
-Not in this PR: the mcp-integration-lab pin change (lab follow-up).
+Lab pin (mcp-integration-lab L1–L3): `vendor.go` Git tag **v1.1.0** + compose image `labmitm:local`. A later appliance tag will align vendored `examples/` with the lab-owned copy; do not bump the lab pin off **v1.1.0** for comments.

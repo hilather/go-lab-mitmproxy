@@ -2,7 +2,7 @@
 
 Honest residual for LabMITM after the 1.1 opt-in workstreams (HTTP/2 inner+origin, SOCKS5/4 CONNECT, Linux original-destination REDIRECT, compat flow REST, inspector metadata). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-19 (1.1 docs overlay)
+Last reviewed: 2026-08-23
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.1.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path).
 
@@ -34,9 +34,9 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocol
 |---|---|
 | Opt-in HTTP/2 inner+origin, SOCKS5/4 CONNECT, Linux orig-dest REDIRECT, compat flow REST, inspector metadata | HTTP/3 / QUIC; TPROXY appliance; reverse-proxy; Python mitmproxy |
 | First-party flow-inspector SPA | mitmproxy mitmweb / Python addon UI |
-| Overlay examples in this repo | mcp-integration-lab compose/image pin |
+| Overlay examples in this repo | mcp-integration-lab compose pin lives in that repo (vendor **v1.1.0** + `labmitm:local`; not a GHCR digest) |
 
-**1.0 ships the appliance; lab compose-in is a follow-on (D18).** Do not claim `mcp-integration-lab` already runs LabMITM.
+**Catalog id is `labmitm` (D18).** Lab compose-in is vendor tag **v1.1.0** + image `labmitm:local`. A later appliance tag will align vendored `examples/` with the lab-owned copy; do not bump the lab pin off **v1.1.0** for comments.
 
 ## Still out of 1.1 (non-goals)
 
@@ -113,4 +113,4 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 - Healthcheck plane is HTTP `/v1/health/ready`. Ready still requires the proxy listener bound. Orig-dest ready is `OrigDestBound || OrigDestOff` (1.0 default is off).
 - Dockerfile and `make test-container` are in-tree. The default image is not granted `NET_ADMIN`. This candidate does not publish a `ghcr.io/hilather/labmitm` digest, SBOM, or provenance.
 - Application binaries built without ldflags report version `dev`.
-- Overlay examples live in this repo. Compose/image pin in mcp-integration-lab is a follow-on (D18).
+- Overlay examples live in this repo. The lab pin is vendor tag **v1.1.0** + `labmitm:local` (not a GHCR digest). A later appliance tag will align vendored `examples/` with the lab-owned copy; do not bump the lab pin off **v1.1.0** for comments. Catalog id is **`labmitm`** (D18).

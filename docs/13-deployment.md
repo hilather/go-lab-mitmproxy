@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-08-19 (1.1 residuals; D50 overlay; 1.0 defaults)
+Last reviewed: 2026-08-23
 Related ADRs: 0001, 0003, 0010
 
 DEP-001 shipped the hardened image, `examples/compose.smoke.yaml`, and `scripts/test-container.sh`. Ports and image posture stay frozen here. A `v*` tag is refused unless [`.github/workflows/release.yml`](https://github.com/hilather/go-lab-mitmproxy/blob/main/.github/workflows/release.yml) `tag-gate` sees required CI green on that SHA. Current notes: [docs/releases/v1.1.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md). The lab overlay YAML is [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) (SWAP-001; published binds, `allowLegacyClients: true`). Do not mount that overlay as the smoke config without a 0o644 `labmitm-token`.
@@ -124,4 +124,4 @@ Residuals (HTTP/3, no Python VM, no TPROXY in the appliance, Linux-only orig-des
 
 ## Compatibility promise
 
-Standalone **1.0 defaults remain the process defaults**: loopback `127.0.0.1:8888` / `127.0.0.1:8088`, HTTP/1.1 hops, SOCKS peek-close, orig-dest off, no `/compat` until enabled. Lab overlay publishes `:8888` / `:8088`. Host ports when composed later: `18888` / `18088`. Soak: `go test ./internal/perf` (CI default N=8; local lab target 100 flows/s for 30s). Compose-in to mcp-integration-lab remains a follow-on (D18). Do not claim the lab already runs LabMITM.
+Standalone **1.0 defaults remain the process defaults**: loopback `127.0.0.1:8888` / `127.0.0.1:8088`, HTTP/1.1 hops, SOCKS peek-close, orig-dest off, no `/compat` until enabled. Lab overlay publishes `:8888` / `:8088`. Host ports when composed: `18888` / `18088`. Soak: `go test ./internal/perf` (CI default N=8; local lab target 100 flows/s for 30s). Lab pin is vendor tag **v1.1.0** + `labmitm:local` (not a GHCR digest). Catalog id is **`labmitm`** (D18).
