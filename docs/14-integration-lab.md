@@ -172,7 +172,7 @@ Feature flag is the vendor pin + compose service, not a runtime flag. Smoke is *
 | Stage | Action | Rollback |
 |---|---|---|
 | 0 | LabMITM v1.1.0 exists; lab has no intercept service | n/a |
-| 1 (PR-L1) | Vendor pin v1.1.0 + compose service + secrets/labmitm-token 0o644 + published ports | delete service, secret, vendor dest |
+| 1 (PR-L1) | Vendor pin v1.1.0 + `profiles/default/labmitm/bootstrap.yaml` + compose service + secrets/labmitm-token 0o644 + published ports | delete service, secret, vendor dest, overlay copy |
 | 2 (PR-L2) | MCPJungle servers/labmitm.json AND groups/integration.json + LABMITM_TOKEN + labinfo catalog | un-register server JSON, drop group entry |
 | 3 (PR-L3) | make smoke labmitmScenario (401 + bearer list + host :18888 proxy GET + mitm_flows_wait) + reload + AGENTS/architecture/CHANGELOG/Pages | revert |
 

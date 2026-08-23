@@ -48,10 +48,9 @@ go build -o bin/labmitm ./cmd/labmitm
 ./bin/labmitm serve --config testdata/config/valid/defaults.yaml --proxy-listen 127.0.0.1:8888 --management-listen=off
 ```
 
-`serve --management-listen=off` binds the proxy only. Binding management requires `spec.management.auth.mode: bearer` with ≥1 token file (allow-all is not a 1.0 posture). Empty `spec: {}` materializes loopback defaults `127.0.0.1:8888` / `127.0.0.1:8088`. `tls.intercept: true` mints a lab CA and intercepts CONNECT on listed ports (default `443`); handshake failure does not fall back to a blind tunnel. The CA certificate is `GET /v1/ca` (PEM cert only, authenticated; never the key; not on `:8888`). There is no `serve --token-file`.
-
 Hardened image: non-root UID `65532`, scratch, read-only root, `cap_drop: ALL`, system CA bundle copied so `x509.SystemCertPool()` is non-empty. Healthcheck is HTTP ready (exec form). Compose smoke: [examples/compose.smoke.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.smoke.yaml).
-`serve --management-listen=off` binds the proxy only. Binding management requires `spec.management.auth.mode: bearer` with ≥1 token file (allow-all is not a 1.0 posture). Empty `spec: {}` materializes loopback defaults `127.0.0.1:8888` / `127.0.0.1:8088`. `tls.intercept: true` mints a lab CA and intercepts CONNECT on listed ports (default `443`); handshake failure does not fall back to a blind tunnel. The CA certificate is `GET /v1/ca` (PEM cert only, authenticated; never the key; not on `:8888`). Production UI assets: `make web-build` (Node **22.14.0**) copies `web/dist` into `internal/web/dist`. `spec.ui.enabled: false` 404s `/` and keeps REST/MCP.
+
+`serve --management-listen=off` binds the proxy only. Binding management requires `spec.management.auth.mode: bearer` with ≥1 token file (allow-all is not a 1.0 posture). Empty `spec: {}` materializes loopback defaults `127.0.0.1:8888` / `127.0.0.1:8088`. `tls.intercept: true` mints a lab CA and intercepts CONNECT on listed ports (default `443`); handshake failure does not fall back to a blind tunnel. The CA certificate is `GET /v1/ca` (PEM cert only, authenticated; never the key; not on `:8888`). There is no `serve --token-file`. Production UI assets: `make web-build` (Node **22.14.0**) copies `web/dist` into `internal/web/dist`. `spec.ui.enabled: false` 404s `/` and keeps REST/MCP.
 
 ## Build and test
 
