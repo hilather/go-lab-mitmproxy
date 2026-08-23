@@ -80,7 +80,7 @@ Work packages match LabMITM 1.0 design PRs 1–14. The numbered pack under `docs
 | D6 | Bearer only; no HTTP Basic. |
 | D10 | Default binds `127.0.0.1:8888` / `127.0.0.1:8088`. |
 | D13 | 1.0 includes the flow-inspector UI; GA is not done without PR 13. |
-| D18 | Catalog id `labmitm`; compose-in is a follow-on lab PR. |
+| D18 | Catalog id `labmitm`. Lab pin is vendor tag v1.1.0 + `labmitm:local` (not a GHCR digest). |
 
 ## Cross-cutting blockers
 

@@ -134,7 +134,13 @@ func TestLabinfoSnippetKeepsCatalogID(t *testing.T) {
 	if !strings.Contains(text, "labmitm-token") {
 		t.Fatal("snippet must add bearer credential file")
 	}
-	if !strings.Contains(text, "follow-on") {
-		t.Fatal("snippet must not claim the lab already runs LabMITM")
+	if strings.Contains(text, "follow-on") {
+		t.Fatal("snippet must not say compose-in is a follow-on")
+	}
+	if !strings.Contains(text, "v1.1.0") || !strings.Contains(text, "labmitm:local") {
+		t.Fatal("snippet must name the lab pin (vendor v1.1.0 + labmitm:local)")
+	}
+	if strings.Contains(text, "ghcr.io") {
+		t.Fatal("snippet must not claim a fictional GHCR digest")
 	}
 }

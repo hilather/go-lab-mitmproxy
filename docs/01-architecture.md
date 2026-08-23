@@ -2,12 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-19 (1.1 docs overlay)
+Last reviewed: 2026-08-23
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011
 
 ## Problem statement
 
-Laboratory systems under test need a first-party **HTTP(S) intercepting forward proxy** that captures every request and response, can mint a lab CA and per-host leaves to decrypt TLS, and exposes the same authorized operations over native REST `/v1` and MCP `POST /mcp`. Off-the-shelf mitmproxy is a Python attack/research tool: it has a plugin VM, no versioned YAML desired state, no family capability registry, no REST/MCP parity, and no hardened scratch image. `mcp-integration-lab` today has **no** mitmproxy service and **no** mitmproxy HTTP API consumer.
+Laboratory systems under test need a first-party **HTTP(S) intercepting forward proxy** that captures every request and response, can mint a lab CA and per-host leaves to decrypt TLS, and exposes the same authorized operations over native REST `/v1` and MCP `POST /mcp`. Off-the-shelf mitmproxy is a Python attack/research tool: it has a plugin VM, no versioned YAML desired state, no family capability registry, no REST/MCP parity, and no hardened scratch image. `mcp-integration-lab` composes LabMITM (vendor **v1.1.0** + `labmitm:local`). There is **no** predecessor mitmproxy service and **no** mitmproxy HTTP API consumer. Catalog id is **`labmitm`**.
 
 **LabMITM** is a single-process Go lab appliance in the LabDNS / LabMail / TacLab family. Systems under test send HTTP/1.1 absolute-form requests and CONNECT tunnels to a localhost-default proxy bind. Desired state is a fail-closed `labmitm.dev/v1alpha1` YAML file. Captured flows are ephemeral: restart or reset returns the process to the mounted bootstrap and an empty flow store. TLS interception uses an in-process lab CA (generate-in-memory or load PEM files). Rewrite and breakpoint rules are deterministic and default-off. There is no Python addon VM, no public CA, and no LabDNS-style random chaos engine.
 
@@ -118,7 +118,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D15** | **`allowLegacyClients` default false; lab overlay sets true.** `subscriptions/listen` stays 2026-07-28. | So MCPJungle can register without a LabMITM patch. |
 | **D16** | **Data-plane Dial is required, isolated, and resolve-then-guard.** Dial only in `internal/proxy`. | Hostname-only guards miss CNAME→IMDS. |
 | **D17** | **Proxy data plane is unauthenticated in 1.0.** No `Proxy-Authorization`. | Lab clients (`curl --proxy`) must keep working. Binding localhost is the 1.0 access control. |
-| **D18** | **1.0 ships the appliance; mcp-integration-lab compose-in is a follow-on lab PR.** Catalog id **`labmitm`**. | No predecessor to preserve. |
+| **D18** | **Catalog id is `labmitm`.** Lab pin is vendor tag **v1.1.0** + `labmitm:local` (not a GHCR digest). | No predecessor to preserve. |
 | **D19** | **CONNECT Hijack + inner HTTP/1.1 session.** Never return that conn to `http.Server`. | Returning after 200 makes keep-alive parse the TLS ClientHello as a request. |
 | **D20** | **`intercept: true` does not silently tunnel.** Handshake failure closes both sides. | Silent fallback would hide a failed MITM. |
 | **D21** | **`Transport.RoundTrip` only; no `http.Client`.** Replay Dials the origin, ignores `HTTP_PROXY`, never hairpins. | `Client.Do` follows redirects and would merge hops. |
@@ -348,7 +348,7 @@ See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blo
 - Not a general attack tool.
 - Worst-case RSS ≈ 256 + 64 + 4 + 64 = **388 MiB**.
 - Default soak in CI is 8 flows; local lab target is 100 flows/s for 30s. Absolute QPS is not a CI gate.
-- Overlay examples live in this repo; mcp-integration-lab compose-in is a follow-on (D18). Do not claim the lab already runs LabMITM.
+- Overlay examples live in this repo. Lab pin is vendor tag **v1.1.0** + `labmitm:local` (not a GHCR digest). Catalog id is **`labmitm`** (D18).
 
 ## Related documents
 

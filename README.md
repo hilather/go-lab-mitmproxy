@@ -16,7 +16,7 @@ Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-l
 
 New here? Start with [START-HERE.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/START-HERE.md). Architecture, ADRs, and the program board are indexed in [Documentation](#documentation).
 
-This repository will become the first-party HTTP(S) intercept appliance for [mcp-integration-lab](https://github.com/hilather/mcp-integration-lab). There is no off-the-shelf mitmproxy service in that lab today. Family siblings:
+This repository is the first-party HTTP(S) intercept appliance for [mcp-integration-lab](https://github.com/hilather/mcp-integration-lab). There is no predecessor mitmproxy service. Family siblings:
 
 - [LabDNS](https://github.com/hilather/go-lab-dns)
 - [LabMail](https://github.com/hilather/go-lab-maildev)
@@ -25,15 +25,15 @@ This repository will become the first-party HTTP(S) intercept appliance for [mcp
 
 ## Intended lab role
 
-Standalone defaults bind loopback (an intercepting proxy is an open-proxy loaded gun). The later lab overlay publishes container ports.
+Standalone defaults bind loopback (an intercepting proxy is an open-proxy loaded gun). The lab overlay publishes container ports.
 
-| Plane | Standalone default | Lab / compose (later) | Role |
+| Plane | Standalone default | Lab / compose | Role |
 |---|---|---|---|
 | HTTP/1.1 forward proxy | `127.0.0.1:8888` | `:8888` (host `18888`) | absolute-form + CONNECT |
 | Management / UI / REST / MCP | `127.0.0.1:8088` | `:8088` (host `18088`) | inspect captured flows |
 | Metrics | `127.0.0.1:9090` | loopback-per-container | hand-rolled OpenMetrics |
 
-The labinfo catalog id is **`labmitm`** (no legacy id to preserve). Overlay examples land in this repo (`examples/labmitm.yaml`, MCPJungle JSON, labinfo snippet). Compose-in to mcp-integration-lab is a follow-on lab PR (D18). Do not claim the lab already runs LabMITM.
+The labinfo catalog id is **`labmitm`** (no legacy id to preserve). Overlay examples live in this repo (`examples/labmitm.yaml`, MCPJungle JSON, labinfo snippet). `mcp-integration-lab` composes LabMITM with vendor tag **v1.1.0** and image `labmitm:local` (not a GHCR digest). A later appliance tag will align vendored `examples/` with the lab-owned copy; do not bump the lab pin off **v1.1.0** for comments.
 
 ## Quick start
 
