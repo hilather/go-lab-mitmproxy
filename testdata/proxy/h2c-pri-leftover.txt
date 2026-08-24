@@ -1,0 +1,7 @@
+# Flag-on h2c leftover (D61). http.Server consumes PRI * HTTP/2.0\r\n\r\n.
+# Leftover SM\r\n\r\n plus SETTINGS stays in the bufio.ReadWriter.
+# ServeConn must not ReadFull the 24-byte ClientPreface from the raw conn after Hijack.
+C: PRI * HTTP/2.0
+C:
+C: SM
+C:

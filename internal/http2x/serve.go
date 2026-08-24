@@ -40,9 +40,21 @@ type streamState struct {
 // ServeClient runs an h2 server on client (already ALPN h2). It does not Dial.
 // Each request stream invokes h on a goroutine. StreamID is taken from the
 // opening HEADERS frame (not a FIFO of every HEADERS, including trailers).
+// tun is always nil → CONNECT / :protocol RST via StreamHandler (D48).
 func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 	if client == nil {
 		return errors.New("http2x: nil client conn")
+	}
+	return ServeConn(ctx, client, nil, ServeOpts{Preface: PrefaceFull}, h, nil)
+}
+
+// ServeConn runs an h2 server on c. leftover may be nil when PrefaceFull.
+// PrefaceTail must not ReadFull ClientPreface from the raw conn (D61):
+// http.Server already consumed PRI * HTTP/2.0\r\n\r\n; leftover starts at
+// SM\r\n\r\n plus SETTINGS. Does not Dial. http2x must not import internal/proxy.
+func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts ServeOpts, h StreamHandler, tun TunnelHandler) error {
+	if c == nil {
+		return errors.New("http2x: nil conn")
 	}
 	if h == nil {
 		return errors.New("http2x: nil StreamHandler")
@@ -54,22 +66,26 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 	defer cancel()
 	go func() {
 		<-ctx.Done()
-		_ = client.Close()
+		_ = c.Close()
 	}()
 
-	br := bufio.NewReader(client)
-	preface := make([]byte, len(http2.ClientPreface))
-	if _, err := io.ReadFull(br, preface); err != nil {
+	br, err := prefaceReader(c, leftover, opts.Preface)
+	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		return err
 	}
-	if string(preface) != http2.ClientPreface {
-		return fmt.Errorf("http2x: bad client preface")
+	if leftover != nil {
+		_ = leftover.Flush()
 	}
 
-	fr := http2.NewFramer(client, br)
+	maxOpen := maxConcurrentStreams
+	if opts.MaxConcurrentStreams > 0 {
+		maxOpen = int(opts.MaxConcurrentStreams)
+	}
+
+	fr := http2.NewFramer(c, br)
 	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
 	fr.MaxHeaderListSize = 1 << 20
 
@@ -82,12 +98,21 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 		return fn()
 	}
 
+	pushVal := uint32(0)
+	if opts.EnablePush {
+		pushVal = 1
+	}
+	settings := []http2.Setting{
+		{ID: http2.SettingMaxConcurrentStreams, Val: uint32(maxOpen)},
+		{ID: http2.SettingInitialWindowSize, Val: initialWindow},
+		{ID: http2.SettingEnablePush, Val: pushVal},
+	}
+	if opts.EnableConnectProtocol {
+		settings = append(settings, http2.Setting{ID: SettingEnableConnectProtocol, Val: 1})
+	}
+
 	if err := write(func() error {
-		if err := fr.WriteSettings(
-			http2.Setting{ID: http2.SettingMaxConcurrentStreams, Val: maxConcurrentStreams},
-			http2.Setting{ID: http2.SettingInitialWindowSize, Val: initialWindow},
-			http2.Setting{ID: http2.SettingEnablePush, Val: 0},
-		); err != nil {
+		if err := fr.WriteSettings(settings...); err != nil {
 			return err
 		}
 		incr := uint32(initialWindow - 65535)
@@ -237,7 +262,7 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 				_ = write(func() error { return fr.WriteRSTStream(id, http2.ErrCodeProtocol) })
 				continue
 			}
-			if open >= maxConcurrentStreams {
+			if open >= maxOpen {
 				mu.Unlock()
 				_ = write(func() error { return fr.WriteRSTStream(id, http2.ErrCodeRefusedStream) })
 				continue
@@ -253,7 +278,19 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 			out.open(id)
 
 			in := streamFromMeta(id, f, body)
-			go serveStream(ctx, h, in, func(resp *http.Response, trailers []model.Header, herr error) {
+			handler := h
+			if tun != nil && strings.EqualFold(in.Method, http.MethodConnect) {
+				// RFC 9113 CONNECT splice is PR 9; call tun then RST.
+				tunn := tun
+				handler = func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
+					_, err := tunn(ctx, in)
+					if err != nil {
+						return nil, nil, err
+					}
+					return nil, nil, ErrInnerCONNECT
+				}
+			}
+			go serveStream(ctx, handler, in, func(resp *http.Response, trailers []model.Header, herr error) {
 				defer finish(id)
 				mu.Lock()
 				gone := closed
@@ -279,6 +316,31 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 			})
 		}
 	}
+}
+
+// prefaceReader never ReadFulls ClientPreface from the raw conn on
+// PrefaceTail (D61 leftover). leftover.Reader starts at SM\r\n\r\n.
+func prefaceReader(c net.Conn, leftover *bufio.ReadWriter, mode PrefaceMode) (io.Reader, error) {
+	var r io.Reader
+	if leftover != nil && leftover.Reader != nil {
+		r = leftover.Reader
+	} else {
+		if mode == PrefaceTail {
+			return nil, errors.New("http2x: PrefaceTail requires leftover")
+		}
+		r = bufio.NewReader(c)
+	}
+	if mode == PrefaceTail {
+		r = io.MultiReader(strings.NewReader(prefaceHead), r)
+	}
+	preface := make([]byte, len(http2.ClientPreface))
+	if _, err := io.ReadFull(r, preface); err != nil {
+		return nil, err
+	}
+	if string(preface) != http2.ClientPreface {
+		return nil, fmt.Errorf("http2x: bad client preface")
+	}
+	return r, nil
 }
 
 func serveStream(ctx context.Context, h StreamHandler, in Stream, done func(*http.Response, []model.Header, error)) {

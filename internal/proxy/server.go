@@ -257,7 +257,7 @@ func http1Only() *http.Protocols {
 	var p http.Protocols
 	p.SetHTTP1(true)
 	p.SetHTTP2(false)
-	p.SetUnencryptedHTTP2(false)
+	p.SetUnencryptedHTTP2(false) // D61: h2c is ServeConn after PRI Hijack, not stdlib
 	return &p
 }
 

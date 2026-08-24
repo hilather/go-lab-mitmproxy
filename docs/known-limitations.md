@@ -14,7 +14,7 @@ New public fields are additive `labmitm.dev/v1alpha1` and **default off**. An em
 
 | Surface | Default (1.0) | Opt-in (1.1, Reset-only except as noted) |
 |---|---|---|
-| Client-facing proxy hop (`:8888`) | HTTP/1.1 absolute-form + CONNECT. `PRI * HTTP/2.0` hard close | **Unchanged.** No h2c on the cleartext proxy port |
+| Client-facing proxy hop (`:8888`) | HTTP/1.1 absolute-form + CONNECT. `PRI * HTTP/2.0` hard close | `protocols.http2.clientCleartext` (default off, Reset-only) |
 | Inner + origin ALPN | `http/1.1` only. Inner `PRI` → `Error=http2_inner` | `protocols.http2.enabled: true` (inner + origin only) |
 | SOCKS on `listeners.proxy` | Peek `0x04`/`0x05` → close | `acceptSOCKS5` / `acceptSOCKS4` |
 | Original destination | Unbound. Ready bit `OrigDestOff` | `listeners.originalDestination.enabled` (Linux REDIRECT) |
@@ -46,8 +46,7 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocol
 - **Reverse-proxy / ingress.** `reverseproxy` stays reserved. LabMITM is a forward proxy (+ optional orig-dest).
 - **Windows / macOS original-destination.** Linux-only (`SO_ORIGINAL_DST` / `IP6T_SO_ORIGINAL_DST`). Non-linux `enabled: true` fails `Start` closed and binds nothing.
 - **Compat subset, not mitmproxy 11.** List/get/delete/clear/replay + raw content only. Out: mitmweb, dumpfile, CLI flags, addon, HTTP Basic, PUT mutate, UUID ids, filter DSL, HAR export. Headline: “LabMITM compat flow REST (mitmproxy-inspired subset).” Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md).
-- **HTTP/2 or h2c on the client-facing cleartext proxy port.** `PRI * HTTP/2.0` on `:8888` **and** on `:8890` is a hard close.
-- **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) and Extended CONNECT (RFC 8441), including on the inner hop. Inner `:method=CONNECT` / `:protocol` is RST `PROTOCOL_ERROR`, no flow.
+- **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) and Extended CONNECT (RFC 8441), including on the inner hop. Inner `:method=CONNECT` / `:protocol` is RST `PROTOCOL_ERROR`, no flow. Client-facing h2c regular GET/POST is allowed when `clientCleartext` is on; CONNECT streams still RST until that PR. Flag-off `PRI` remains a hard close.
 - **gRPC protobuf codec.** gRPC is HTTP/2 headers + DATA only.
 - **SOCKS UDP ASSOCIATE, GSSAPI.** BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`. Username/password is opt-in `acceptUserPass` (D60); flag-off stays NO AUTH (`0x00`). GSSAPI (method `0x01`) is never selected.
 - **WebSocket frame inspect.** `101` + bidirectional copy. Websocket Upgrade on an h2 inner session is rejected.
