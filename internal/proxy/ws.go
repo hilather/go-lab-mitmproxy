@@ -107,9 +107,9 @@ func (st *wsInspect) pump(src io.Reader, dst io.Writer, srcConn net.Conn, dir st
 		if rc, ok := src.(interface{ SetReadDeadline(time.Time) error }); ok {
 			_ = rc.SetReadDeadline(dl)
 		}
-		fr, err := wsx.ReadFrame(src, 0)
+		h, err := wsx.ReadHeader(src)
 		if err != nil {
-			if errors.Is(err, wsx.ErrProtocol) || errors.Is(err, wsx.ErrTooLarge) {
+			if errors.Is(err, wsx.ErrProtocol) {
 				st.protocolError()
 			}
 			return
@@ -117,10 +117,35 @@ func (st *wsInspect) pump(src io.Reader, dst io.Writer, srcConn net.Conn, dir st
 		if wc, ok := dst.(interface{ SetWriteDeadline(time.Time) error }); ok {
 			_ = wc.SetWriteDeadline(dl)
 		}
-		if err := wsx.WriteFrame(dst, fr); err != nil {
+		if err := wsx.WriteHeader(dst, h); err != nil {
+			if errors.Is(err, wsx.ErrProtocol) {
+				st.protocolError()
+			}
 			return
 		}
-		st.captureFrame(dir, fr)
+		storeMax := st.storeRemain()
+		stored, err := wsx.TeePayload(dst, src, h.Length, h.Masked, h.MaskKey, storeMax)
+		if err != nil {
+			return
+		}
+		fr := wsx.Frame{
+			Fin:     h.Fin,
+			RSV1:    h.RSV1,
+			RSV2:    h.RSV2,
+			RSV3:    h.RSV3,
+			Opcode:  h.Opcode,
+			Masked:  h.Masked,
+			MaskKey: h.MaskKey,
+			Payload: stored,
+		}
+		if h.Opcode == wsx.OpcodeClose && h.Length == 1 {
+			st.protocolError()
+			return
+		}
+		if h.Opcode == wsx.OpcodeClose && len(stored) >= 2 {
+			fr.CloseCode = int(stored[0])<<8 | int(stored[1])
+		}
+		st.captureFrame(dir, fr, h.Length)
 		if fr.Opcode == wsx.OpcodeClose {
 			return
 		}
@@ -140,7 +165,23 @@ func (st *wsInspect) protocolError() {
 	}
 }
 
-func (st *wsInspect) captureFrame(dir string, fr wsx.Frame) {
+func (st *wsInspect) storeRemain() int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.stopCap {
+		return 0
+	}
+	if st.max <= 0 {
+		return 1 << 20
+	}
+	remain := st.max - st.stored
+	if remain < 0 {
+		return 0
+	}
+	return remain
+}
+
+func (st *wsInspect) captureFrame(dir string, fr wsx.Frame, declared uint64) {
 	name := wsx.OpcodeName(fr.Opcode)
 	st.s.metrics.wsFrame(name)
 	st.mu.Lock()
@@ -153,7 +194,7 @@ func (st *wsInspect) captureFrame(dir string, fr wsx.Frame) {
 		return
 	}
 	stored := fr.Payload
-	trunc := false
+	trunc := declared > uint64(len(stored))
 	if st.max > 0 {
 		remain := st.max - st.stored
 		if remain <= 0 {
@@ -171,6 +212,10 @@ func (st *wsInspect) captureFrame(dir string, fr wsx.Frame) {
 		}
 	} else {
 		stored = append([]byte(nil), stored...)
+	}
+	if trunc {
+		ws.Truncated = true
+		st.stopCap = true
 	}
 	st.stored += len(stored)
 	ws.Frames = append(ws.Frames, model.WebSocketFrame{

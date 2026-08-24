@@ -82,6 +82,7 @@ describe("FlowPage", () => {
     );
     expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Frames/i })).toBeNull();
 
     const createObjectURL = vi.fn(() => "blob:lab-invalid/flow-body");
     const revokeObjectURL = vi.fn();

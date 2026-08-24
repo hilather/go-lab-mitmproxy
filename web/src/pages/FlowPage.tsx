@@ -116,7 +116,7 @@ function FramePayload({ frame }: { frame: WebSocketFrame }) {
 function FramesPanel({ flow }: { flow: Flow }) {
   const frames = flow.websocket?.frames ?? [];
   if (flow.websocket == null) {
-    return <p>No WebSocket frames. Enable protocols.websocket.inspectFrames (Reset-only) to capture them.</p>;
+    return <p>No WebSocket frames.</p>;
   }
   if (frames.length === 0) {
     return (
@@ -242,8 +242,10 @@ export function FlowPage() {
     { id: "response", label: "Response" },
     { id: "trailers", label: "Trailers" },
     { id: "tls", label: "TLS" },
-    { id: "frames", label: "Frames" },
   ];
+  if (flow.websocket != null) {
+    tabs.push({ id: "frames", label: "Frames" });
+  }
 
   return (
     <main className="page">
