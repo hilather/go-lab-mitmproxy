@@ -28,6 +28,7 @@ const (
 	WSMaxFrames     = 4096
 	WSFrameOverhead = 64
 	WSErrorProtocol = "websocket"
+	SOCKSCmdUDP     = "udp"
 )
 
 // Flow is one captured HTTP exchange (or CONNECT metadata).
@@ -73,7 +74,7 @@ type HTTP2Info struct {
 	StreamID uint32
 }
 
-// SOCKSInfo is captured SOCKS CONNECT/BIND metadata.
+// SOCKSInfo is captured SOCKS CONNECT/BIND/UDP metadata.
 type SOCKSInfo struct {
 	Version int
 	ATYP    string
@@ -103,6 +104,13 @@ type WebSocketFrame struct {
 	Payload   []byte
 	Size      int
 	Truncated bool
+	Version   int
+	ATYP      string
+	Dest      string
+	Command   string
+	BND       string
+	LastDest  string
+	Datagrams int
 }
 
 // Header is an ordered, case-preserving HTTP header.

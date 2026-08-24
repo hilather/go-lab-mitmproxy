@@ -28,6 +28,7 @@ const (
 	socks5UserPassFail   = 0x01
 	socks5CmdConnect     = 0x01
 	socks5CmdBind        = 0x02
+	socks5CmdUDP         = 0x03
 	socks5ATYPIPv4       = 0x01
 	socks5ATYPDomain     = 0x03
 	socks5ATYPIPv6       = 0x04
@@ -120,7 +121,8 @@ func (s *Server) serveSOCKS5(c net.Conn) {
 		return
 	}
 	bind := hdr[1] == socks5CmdBind && s.socksAcceptBind()
-	if hdr[1] != socks5CmdConnect && !bind {
+	udp := hdr[1] == socks5CmdUDP && s.socksAcceptUDPAssociate()
+	if hdr[1] != socks5CmdConnect && !bind && !udp {
 		_ = writeSOCKS5Reply(c, socks5RepCommand, socks5ATYPIPv4)
 		s.metrics.reject("socks_command")
 		s.metrics.socks("command")
@@ -146,6 +148,10 @@ func (s *Server) serveSOCKS5(c net.Conn) {
 	}
 	if bind {
 		s.serveSOCKSBind(c, br, dest)
+		return
+	}
+	if udp {
+		s.serveSOCKSUDP(c, br, dest)
 		return
 	}
 	s.serveSOCKSConnect(c, br, dest)

@@ -381,6 +381,13 @@ type webSocketFrameJSON struct {
 	Payload   string `json:"payload,omitempty"`
 	Size      int    `json:"size"`
 	Truncated bool   `json:"truncated"`
+	Version   int    `json:"version,omitempty"`
+	ATYP      string `json:"atyp,omitempty"`
+	Dest      string `json:"dest,omitempty"`
+	Command   string `json:"command,omitempty"`
+	BND       string `json:"bnd,omitempty"`
+	LastDest  string `json:"lastDest,omitempty"`
+	Datagrams int    `json:"datagrams,omitempty"`
 }
 
 type headerJSON struct {
@@ -657,6 +664,7 @@ func fromWebSocket(ws *model.WebSocketInfo, listItem bool) *webSocketInfoJSON {
 			Size:      size,
 			Truncated: fr.Truncated,
 		}
+		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command, BND: f.SOCKS.BND, LastDest: f.SOCKS.LastDest, Datagrams: f.SOCKS.Datagrams}
 	}
 	return out
 }

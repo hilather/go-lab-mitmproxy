@@ -12,8 +12,9 @@ import (
 )
 
 // TestDialIsolation walks production internal/* files. Dial / DialTimeout /
-// DialContext / net.Dialer are allowed only in internal/proxy and
-// internal/proxytest (D16).
+// DialContext / net.Dialer / DialUDP / ListenUDP / ListenPacket are allowed
+// only in internal/proxy and internal/proxytest (D16, D68). net.Listen is
+// not forbidden (control-plane binds).
 func TestDialIsolation(t *testing.T) {
 	root := moduleRoot(t)
 	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d fs.DirEntry, err error) error {
@@ -82,6 +83,9 @@ func outboundCallName(n ast.Node) (string, bool) {
 
 var callSelectors = map[string]bool{
 	"Dial": true, "DialTimeout": true, "DialContext": true,
+	// D68: UDP Dial/listen stay in internal/proxy. Do not forbid net.Listen
+	// (management REST and metrics already bind in production).
+	"ListenPacket": true, "ListenUDP": true, "DialUDP": true,
 }
 
 func mustRel(root, path string) string {

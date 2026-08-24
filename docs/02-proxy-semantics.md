@@ -42,7 +42,7 @@ SOCKS detection is **not** possible in the Handler and **must not** run on the A
 
 When `listeners.originalDestination.enabled` is true (Linux only; default off), `Start` binds a **second** listener (empty address → `127.0.0.1:8890`, D38) and `http.Server.ConnContext` tags recovered dest. Non-linux `enabled: true` fails closed and binds **nothing**. iptables/nft REDIRECT is sidecar/host only; the default image stays UID 65532 without `NET_ADMIN` (D30, D50). Publishing `8890` is not transparent.
 
-Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → closeBinds → wait dispatch goroutines → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
+Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → closeBinds (BIND listens and UDP ASSOCIATE sockets) → wait dispatch goroutines → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
 
 ## Request classification
 
@@ -58,6 +58,7 @@ Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest li
 | `PRI * HTTP/2.0` on `:8888` **or** orig-dest | Flag-off (`protocols.http2.clientCleartext` false): close. Metric `reason="http2"`. **Before** `gate.acquire`. Flag-on: Hijack (D19) with no Write; leftover `SM\r\n\r\n` plus SETTINGS in `bufio.ReadWriter`; `gate.acquire` **once per TCP**; `http2x.ServeConn(..., PrefaceTail)`. Never return the conn to `http.Server`. |
 | First byte `0x05` / `0x04` (per-conn peek; `acceptSOCKS5`/`acceptSOCKS4` off) | Close. Metric `reason="socks"`. |
 | First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT. Peeked `0x05` is replayed. Method select: `acceptUserPass` false → NO AUTH (`0x00`) only; `acceptUserPass` true → RFC 1929 (`0x02`) only (never `0x00` even if offered). GSSAPI (`0x01`) is never selected. BIND if `acceptBind`; else CMD `05 07`. UDP still `05 07`. |
+| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT, NO AUTH. Peeked `0x05` is replayed. BIND if `acceptBind`; UDP ASSOCIATE if `acceptUDPAssociate`; else CMD `05 07`. |
 | First byte `0x04` and `acceptSOCKS4: true` | SOCKS4/4a CONNECT. USERID discarded. BIND if `acceptBind` and CD=2; else CD≠1 → `91`. |
 | HTTP/1.0 | Accept if absolute-form `http://` or CONNECT with port; respond HTTP/1.1. |
 
@@ -92,6 +93,7 @@ acceptUserPass false
   → existing NO AUTH only
 GSSAPI (0x01) is never selected
 ```
+Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`, `SOCKS.Command="connect"`. Intercepted inner flows copy `Via`/`SOCKS`. Username/password and GSSAPI are never selected. UDP ASSOCIATE is a separate flag (`acceptUDPAssociate`); flag-off stays `05 07`.
 
 ## SOCKS BIND (1.2, opt-in)
 
@@ -121,6 +123,44 @@ Tests live in `internal/proxy/socks_test.go` (second inbound TCP). `proxytest.Pl
 Shutdown `closeBinds` unblocks BIND `Accept` before waiting dispatch/hijack goroutines (D42); BIND must not wait out `sessionTimeout` on process stop.
 
 See [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D58.
+
+## SOCKS UDP ASSOCIATE (1.2, opt-in)
+
+Requires `listeners.proxy.acceptUDPAssociate` (default false, Reset-only, D59) **and** `acceptSOCKS5`. Datagram relay is a different threat than TCP CONNECT; a 1.1 CONNECT-only config must not grow a UDP socket on upgrade. Flag-off keeps today: SOCKS5 UDP ASSOCIATE → `05 07` (`TestSOCKS5UDPCommand`). `acceptSOCKS5` false is peek-close `reason=socks` with **no** reply. SOCKS4 has no UDP ASSOCIATE.
+
+RFC 1928 CMD `0x03`. No TLS intercept, no QUIC, no orig-dest UDP. Production `ListenUDP` / `DialUDP` live in `internal/proxy` only (D68). Overlay examples stay flags-off.
+
+```text
+1. Parse DST in the ASSOCIATE request (often 0.0.0.0:0). That DST is NOT the only
+   future dest; unspecified ASSOCIATE DST is legal (unlike BIND).
+2. gate.acquire (control conn is one session; datagrams do not each acquire).
+   listenUDP on control LocalAddr IP + port 0 (never 0.0.0.0/::). Track in the
+   live hairpin set (same set BIND uses).
+3. Reply BND = controlIP : udpPort (same advertisement rules as BIND).
+4. First client datagram pins the client UDP source; later packets from any
+   other source are dropped. The RFC ASSOCIATE request UDP port is not a
+   second allowed source.
+5. While control TCP is open:
+     parse RSV RSV FRAG ATYP DST.ADDR DST.PORT DATA
+     FRAG≠0 → drop (no reassembly)
+     if ATYP domain: pin selected IP for this dest on first use (LookupIP +
+       deny every A/AAAA once); reuse pin; no second resolve
+     if ATYP literal: denyIP only
+     hairpin / CIDR deny → drop, metric reason=target_denied, no Write
+     write DATA to selected:port from the associate socket
+     inbound origin→client: encapsulate; count toward inbound cap; drop when over
+6. Control TCP close / sessionTimeout / idleTimeout (refreshed both ways) → close UDP.
+```
+
+Admission: max payload 64 KiB per datagram. Inbound cap 4096 datagrams or `maxInFlightBytes` whichever first, then drop + `Truncated`. We never spoof. We do not claim 1:1 origin packets per client packet.
+
+Capture: one metadata flow `Protocol=socks5`, `SOCKS.Command="udp"`, `intercepted=false`. Do not store every datagram. Last dest + datagram count on `SOCKSInfo`.
+
+Tests live in `internal/proxy/socks_test.go` (two sockets). `proxytest.PlayTranscript` cannot drive the UDP relay — do not use it for ASSOCIATE success. Required: echo associate; domain dest LookupIP once then pin; IMDS datagram dropped; FRAG dropped; inbound flood cap; control-close tears down; `acceptSOCKS5` on + `acceptUDPAssociate` off still `05 07`.
+
+Shutdown `closeBinds` closes live UDP associate sockets so `ReadFrom` unblocks (D42).
+
+See [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D59 / D68.
 
 ## CONNECT Hijack and inner session
 

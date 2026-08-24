@@ -38,6 +38,8 @@ type Options struct {
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 	// ListenTCP, when set, replaces listenEphemeralTCP (tests record BIND listens).
 	ListenTCP func(controlIP net.IP) (net.Listener, error)
+	// ListenUDP, when set, replaces listenEphemeralUDP (tests record UDP ASSOCIATE listens).
+	ListenUDP func(controlIP net.IP) (net.PacketConn, error)
 	// OrigDestAddress overrides spec.listeners.originalDestination.address.
 	OrigDestAddress string
 	// OriginalDst, when set, replaces SO_ORIGINAL_DST (tests: mocked dest).
@@ -56,18 +58,19 @@ type Options struct {
 
 // Server is the HTTP/1.1 forward-proxy listener.
 type Server struct {
-	addr     string
-	spec     atomic.Pointer[model.Spec]
-	sink     Sink
-	inbox    store.Store
-	resolver Resolver
-	dialFn   func(ctx context.Context, network, addr string) (net.Conn, error)
-	listenFn func(controlIP net.IP) (net.Listener, error)
-	auth     *tlsmitm.Authority
-	snaps    *snapshot.Store
-	gate     *gate
-	metrics  *Metrics
-	tr       *http.Transport
+	addr        string
+	spec        atomic.Pointer[model.Spec]
+	sink        Sink
+	inbox       store.Store
+	resolver    Resolver
+	dialFn      func(ctx context.Context, network, addr string) (net.Conn, error)
+	listenFn    func(controlIP net.IP) (net.Listener, error)
+	listenUDPFn func(controlIP net.IP) (net.PacketConn, error)
+	auth        *tlsmitm.Authority
+	snaps       *snapshot.Store
+	gate        *gate
+	metrics     *Metrics
+	tr          *http.Transport
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -83,6 +86,7 @@ type Server struct {
 	hijacked    map[net.Conn]struct{}
 	dispatching map[net.Conn]struct{}
 	binds       map[string]net.Listener
+	udps        map[string]net.PacketConn
 	hijackWG    sync.WaitGroup
 	acceptWG    sync.WaitGroup
 	dispatchWG  sync.WaitGroup
@@ -113,6 +117,7 @@ func New(opts Options) (*Server, error) {
 		resolver:     res,
 		dialFn:       opts.DialContext,
 		listenFn:     opts.ListenTCP,
+		listenUDPFn:  opts.ListenUDP,
 		origDestBind: opts.OrigDestAddress,
 		origDestFn:   opts.OriginalDst,
 		snaps:        opts.Snapshots,
@@ -123,6 +128,7 @@ func New(opts Options) (*Server, error) {
 		hijacked:     make(map[net.Conn]struct{}),
 		dispatching:  make(map[net.Conn]struct{}),
 		binds:        make(map[string]net.Listener),
+		udps:         make(map[string]net.PacketConn),
 	}
 	s.metrics.attach(opts.Metrics, opts.Logger)
 	if s.inbox == nil {
