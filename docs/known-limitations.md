@@ -101,7 +101,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 - Generate-mode CA rotates on every restart/reset. Operators who need a stable CA use `tls.ca.mode: files`.
 - Default metadata CIDRs are AWS/GCP IPv4 + AWS IPv6 IMDS. Alibaba `100.100.100.200/32` and RFC1918 are **not** default-deny (lab SUTs).
 - HTML preview of captured pages is escaped text (optional sandboxed iframe is off by default).
-- No WebSocket **frame** inspect (101 + bidirectional copy only).
+- WebSocket frames: flag-off is 101 + copy; flag-on is `protocols.websocket.inspectFrames` (D67). Extended CONNECT / websocket-on-h2 is still out.
 
 ## Store and control plane (unchanged)
 

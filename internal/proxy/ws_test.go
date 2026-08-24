@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -210,6 +211,112 @@ func TestWebSocketInspectCapturesFrames(t *testing.T) {
 	}
 	if px.Metrics().WSFrames("text") < 1 {
 		t.Fatal("expected ws_frames_total text")
+	}
+}
+
+func TestWebSocketInspectPreservesRSV1(t *testing.T) {
+	var originRSV1 atomic.Bool
+	origin, _ := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			return
+		}
+		c, bufrw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_, _ = io.WriteString(bufrw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		_ = bufrw.Flush()
+		fr, err := wsx.ReadFrame(bufrw, 0)
+		if err != nil {
+			return
+		}
+		originRSV1.Store(fr.RSV1)
+		fr.Masked = false
+		fr.MaskKey = [4]byte{}
+		_ = wsx.WriteFrame(bufrw, fr)
+		_ = bufrw.Flush()
+		fr, err = wsx.ReadFrame(bufrw, 0)
+		if err != nil {
+			return
+		}
+		fr.Masked = false
+		fr.MaskKey = [4]byte{}
+		_ = wsx.WriteFrame(bufrw, fr)
+		_ = bufrw.Flush()
+	}))
+	sink := NewNull()
+	px := startProxy(t, Options{Spec: inspectSpec(t), Sink: sink})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.WriteRequest(
+		"GET http://"+origin+"/ws HTTP/1.1",
+		"Host: "+origin,
+		"Upgrade: websocket",
+		"Connection: Upgrade",
+		"Sec-WebSocket-Version: 13",
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ReadResponse(); err != nil {
+		t.Fatal(err)
+	}
+	writeWS(t, c, wsx.Frame{Fin: true, RSV1: true, Opcode: wsx.OpcodeBinary, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: []byte("zz")})
+	got := readWS(t, c)
+	if !got.RSV1 {
+		t.Fatalf("client echo lost RSV1: %+v", got)
+	}
+	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeClose, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, CloseCode: 1000})
+	_ = readWS(t, c)
+	_ = c.Close()
+	_ = waitWSFlow(t, sink)
+	if !originRSV1.Load() {
+		t.Fatal("origin must still see RSV1 under inspectFrames")
+	}
+}
+
+func TestWebSocketInspectLargeDataNotProtocol(t *testing.T) {
+	origin := echoWSOrigin(t)
+	sink := NewNull()
+	spec := inspectSpec(t)
+	spec.Store.MaxBodyBytes = 4
+	px := startProxy(t, Options{Spec: spec, Sink: sink})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.WriteRequest(
+		"GET http://"+origin+"/ws HTTP/1.1",
+		"Host: "+origin,
+		"Upgrade: websocket",
+		"Connection: Upgrade",
+		"Sec-WebSocket-Version: 13",
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ReadResponse(); err != nil {
+		t.Fatal(err)
+	}
+	payload := bytes.Repeat([]byte("n"), 64<<10)
+	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeBinary, Masked: true, MaskKey: [4]byte{5, 6, 7, 8}, Payload: payload})
+	got := readWS(t, c)
+	if !bytes.Equal(got.Payload, payload) {
+		t.Fatalf("forwarded %d want %d", len(got.Payload), len(payload))
+	}
+	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeClose, Masked: true, MaskKey: [4]byte{5, 6, 7, 8}, CloseCode: 1000})
+	_ = readWS(t, c)
+	_ = c.Close()
+	f := waitWSFlow(t, sink)
+	if f.Error == model.WSErrorProtocol {
+		t.Fatal("large data frame must not be Error=websocket")
+	}
+	if f.WebSocket == nil || !f.WebSocket.Truncated || !f.Truncated {
+		t.Fatalf("want truncated capture, got %+v", f.WebSocket)
 	}
 }
 

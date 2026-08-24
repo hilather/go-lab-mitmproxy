@@ -339,7 +339,7 @@ See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blo
 - Compat flow REST is a mitmproxy-inspired **subset** (default off, Reset-only). Not mitmproxy 11 compatible.
 - SOCKS5/4 CONNECT is opt-in, NO AUTH, CONNECT only. BIND/UDP/GSSAPI/password are out.
 - 1.1 flags (`acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `protocols.http2`, `compat.flowREST`) are bootstrap + **Reset only** (D51).
-- No WebSocket frame inspect (101 + bidirectional copy only).
+- WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Extended CONNECT / websocket-on-h2 is still out.
 - Generate-mode CA rotates on every restart/reset.
 - Store-full still forwards (capture dropped).
 - Single replica; no shared flow store.

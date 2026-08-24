@@ -7,6 +7,56 @@ import (
 	"testing"
 )
 
+func TestRoundTripRSV1(t *testing.T) {
+	in := Frame{
+		Fin:     true,
+		RSV1:    true,
+		Opcode:  OpcodeBinary,
+		Masked:  true,
+		MaskKey: [4]byte{9, 8, 7, 6},
+		Payload: []byte("deflate-shaped"),
+	}
+	var buf bytes.Buffer
+	if err := WriteFrame(&buf, in); err != nil {
+		t.Fatal(err)
+	}
+	raw := buf.Bytes()
+	if raw[0]&0x40 == 0 {
+		t.Fatalf("wire missing RSV1: 0x%02x", raw[0])
+	}
+	got, err := ReadFrame(&buf, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.RSV1 || got.RSV2 || got.RSV3 || got.Opcode != OpcodeBinary || string(got.Payload) != "deflate-shaped" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestTeePayloadForwardsFullStoresPrefix(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), 200)
+	in := Frame{Fin: true, Opcode: OpcodeBinary, Payload: payload}
+	var wire bytes.Buffer
+	if err := WriteFrame(&wire, in); err != nil {
+		t.Fatal(err)
+	}
+	h, err := ReadHeader(&wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	stored, err := TeePayload(&out, &wire, h.Length, false, [4]byte{}, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != "xxxx" {
+		t.Fatalf("stored %q", stored)
+	}
+	if out.Len() != 200 {
+		t.Fatalf("forwarded %d", out.Len())
+	}
+}
+
 func TestRoundTripTextMasked(t *testing.T) {
 	in := Frame{
 		Fin:     true,
