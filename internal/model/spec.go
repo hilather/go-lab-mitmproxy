@@ -55,7 +55,7 @@ type ProxyListenerSpec struct {
 	UserPass           UserPassSpec `json:"userPass"`
 }
 
-// UserPassSpec is SOCKS5 username/password file refs. Empty when acceptUserPass is false.
+// UserPassSpec is SOCKS5 username/password file refs.
 type UserPassSpec struct {
 	Users []UserPassUserSpec `json:"users"`
 }
