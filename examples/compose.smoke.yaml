@@ -1,6 +1,7 @@
 # Minimal Compose smoke for the hardened image. Pin by digest in GitOps.
 # Healthcheck is HTTP ready (exec form). Token is a bind-mounted secret file.
 # Bind-mounted secrets must be readable by UID 65532 (0o644).
+# Bootstrap testdata/container/config.yaml keeps 1.2 protocol flags off.
 services:
   labmitm:
     image: ghcr.io/hilather/labmitm:local
