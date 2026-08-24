@@ -23,6 +23,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/proxytest"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
+	"github.com/hilather/go-lab-mitmproxy/internal/wsx"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 )
@@ -785,4 +786,303 @@ func TestH2InnerForbidden(t *testing.T) {
 	if h2InnerForbidden(http2x.Stream{Method: http.MethodGet, Path: "/ok"}) {
 		t.Fatal("ordinary GET")
 	}
+}
+
+func interceptH2ExtendedSpec(t *testing.T, originPort int) model.Spec {
+	t.Helper()
+	spec := interceptH2Spec(t, originPort)
+	spec.Protocols.HTTP2.ExtendedConnect = true
+	return spec
+}
+
+func echoTLSWebSocketOrigin(t *testing.T) (port int, upgrades *atomic.Int32) {
+	t.Helper()
+	upgrades = &atomic.Int32{}
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			t.Errorf("origin method=%s upgrade=%q", r.Method, r.Header.Get("Upgrade"))
+			http.Error(w, "no upgrade", 400)
+			return
+		}
+		if strings.EqualFold(r.Method, http.MethodConnect) {
+			t.Error("origin must see GET Upgrade, not CONNECT")
+		}
+		upgrades.Add(1)
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			return
+		}
+		c, bufrw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_, _ = io.WriteString(bufrw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		_ = bufrw.Flush()
+		for {
+			fr, err := wsx.ReadFrame(bufrw, 0)
+			if err != nil {
+				return
+			}
+			fr.Masked = false
+			fr.MaskKey = [4]byte{}
+			if err := wsx.WriteFrame(bufrw, fr); err != nil {
+				return
+			}
+			_ = bufrw.Flush()
+			if fr.Opcode == wsx.OpcodeClose {
+				return
+			}
+		}
+	}))
+	_, port = hostPort(t, origin)
+	return port, upgrades
+}
+
+func TestInterceptHTTP2ExtendedCONNECTRejectedFlagOff(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("origin must not see Extended CONNECT when flag off")
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptH2Spec(t, port)
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: "CONNECT"},
+		{Name: ":protocol", Value: "websocket"},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/ws"},
+	}, false)
+	expectRSTStream(t, fr, 1, http2.ErrCodeProtocol)
+	_ = tlsConn
+	if px.Metrics().Rejected("http2") < 1 {
+		t.Fatal("expected reject reason=http2")
+	}
+	assertNoH2ConnectFlow(t, sink)
+}
+
+func TestInterceptHTTP2InnerCONNECTRejectedExtendedConnectOn(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("origin must not see nested inner CONNECT")
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptH2ExtendedSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: "CONNECT"},
+		{Name: ":authority", Value: "app.lab:" + strconv.Itoa(port)},
+	}, false)
+	expectRSTStream(t, fr, 1, http2.ErrCodeProtocol)
+	_ = tlsConn
+	if px.Metrics().Rejected("http2") < 1 {
+		t.Fatal("expected reject reason=http2")
+	}
+	assertNoH2ConnectFlow(t, sink)
+}
+
+func TestInterceptHTTP2OtherProtocolRST(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("origin must not see :protocol=foo")
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptH2ExtendedSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: "CONNECT"},
+		{Name: ":protocol", Value: "foo"},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/x"},
+	}, false)
+	expectRSTStream(t, fr, 1, http2.ErrCodeProtocol)
+	_ = tlsConn
+	if px.Metrics().Rejected("http2") < 1 {
+		t.Fatal("expected reject reason=http2")
+	}
+	assertNoH2ConnectFlow(t, sink)
+}
+
+func TestInterceptHTTP2WebsocketUpgradeRejectedExtendedConnectOn(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("origin must not see h2 Upgrade: websocket")
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptH2ExtendedSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: "GET"},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/ws"},
+		{Name: "upgrade", Value: "websocket"},
+		{Name: "connection", Value: "Upgrade"},
+	}, true)
+	expectRSTStream(t, fr, 1, http2.ErrCodeProtocol)
+	_ = tlsConn
+	if px.Metrics().Rejected("http2") < 1 {
+		t.Fatal("expected reject reason=http2")
+	}
+	for _, f := range sink.Last() {
+		if f.Intercepted && f.Protocol == model.FlowProtocolHTTP2 {
+			t.Fatalf("websocket upgrade must not capture a flow: %+v", f)
+		}
+	}
+}
+
+func TestInterceptHTTP2ExtendedCONNECTWebsocket(t *testing.T) {
+	port, upgrades := echoTLSWebSocketOrigin(t)
+	sink := NewNull()
+	spec := interceptH2ExtendedSpec(t, port)
+	spec.Protocols.WebSocket.InspectFrames = true
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	_ = tlsConn.SetDeadline(time.Now().Add(8 * time.Second))
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: "CONNECT"},
+		{Name: ":protocol", Value: "websocket"},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/ws"},
+		{Name: "sec-websocket-version", Value: "13"},
+	}, false)
+	expectH2Status(t, fr, 1, "200")
+	var payload bytes.Buffer
+	if err := wsx.WriteFrame(&payload, wsx.Frame{
+		Fin: true, Opcode: wsx.OpcodeText, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: []byte("h2ws"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fr.WriteData(1, false, payload.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	echo := readH2WebSocketFrame(t, fr, 1)
+	if echo.Opcode != wsx.OpcodeText || string(echo.Payload) != "h2ws" {
+		t.Fatalf("echo %+v", echo)
+	}
+	payload.Reset()
+	if err := wsx.WriteFrame(&payload, wsx.Frame{
+		Fin: true, Opcode: wsx.OpcodeClose, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, CloseCode: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fr.WriteData(1, false, payload.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	_ = tlsConn
+	if upgrades.Load() != 1 {
+		t.Fatalf("origin upgrades %d", upgrades.Load())
+	}
+	f := waitWSFlow(t, sink)
+	if !f.Intercepted || f.Status != http.StatusOK {
+		t.Fatalf("flow %+v", f)
+	}
+	if f.HTTP2 == nil || f.HTTP2.StreamID == 0 {
+		t.Fatalf("missing StreamID: %+v", f.HTTP2)
+	}
+	if f.WebSocket == nil || f.WebSocket.FrameCount < 1 {
+		t.Fatalf("want frames, got %+v", f.WebSocket)
+	}
+}
+
+func TestInterceptHTTP2GETWithExtendedConnect(t *testing.T) {
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	_, port := hostPort(t, origin)
+	spec := interceptH2ExtendedSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	resp, err := httpsH2ViaProxy(t, px.Addr().String(), strconv.Itoa(port), "/ok", px.Authority().CertPool())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "ok" {
+		t.Fatalf("status %d body %q", resp.StatusCode, body)
+	}
+}
+
+func assertNoH2ConnectFlow(t *testing.T, sink *Null) {
+	t.Helper()
+	for _, f := range sink.Last() {
+		if f.Intercepted && f.Method == http.MethodConnect {
+			t.Fatalf("inner CONNECT must not capture a flow: %+v", f)
+		}
+		if f.Protocol == model.FlowProtocolWebSocket {
+			t.Fatalf("must not capture websocket flow: %+v", f)
+		}
+	}
+}
+
+func expectH2Status(t *testing.T, fr *http2.Framer, id uint32, want string) {
+	t.Helper()
+	dec := hpack.NewDecoder(4096, nil)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		switch hf := f.(type) {
+		case *http2.HeadersFrame:
+			if hf.StreamID != id {
+				continue
+			}
+			fields, err := dec.DecodeFull(hf.HeaderBlockFragment())
+			if err != nil {
+				t.Fatalf("hpack: %v", err)
+			}
+			for _, field := range fields {
+				if field.Name == ":status" {
+					if field.Value != want {
+						t.Fatalf(":status=%s want %s", field.Value, want)
+					}
+					return
+				}
+			}
+			t.Fatalf("no :status in %+v", fields)
+		case *http2.RSTStreamFrame:
+			if hf.StreamID == id {
+				t.Fatalf("RST %v", hf.ErrCode)
+			}
+		}
+	}
+	t.Fatal("no response HEADERS")
+}
+
+func readH2WebSocketFrame(t *testing.T, fr *http2.Framer, id uint32) wsx.Frame {
+	t.Helper()
+	var buf bytes.Buffer
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		switch df := f.(type) {
+		case *http2.DataFrame:
+			if df.StreamID != id {
+				continue
+			}
+			buf.Write(df.Data())
+			got, err := wsx.ReadFrame(bytes.NewReader(buf.Bytes()), 0)
+			if err == nil {
+				return got
+			}
+		case *http2.RSTStreamFrame:
+			if df.StreamID == id {
+				t.Fatalf("RST %v", df.ErrCode)
+			}
+		}
+	}
+	t.Fatal("no websocket DATA")
+	return wsx.Frame{}
 }

@@ -37,10 +37,9 @@ type streamState struct {
 	body *bodyBuf
 }
 
-// ServeClient runs an h2 server on client (already ALPN h2). It does not Dial.
-// Each request stream invokes h on a goroutine. StreamID is taken from the
-// opening HEADERS frame (not a FIFO of every HEADERS, including trailers).
-// tun is always nil → CONNECT / :protocol RST via StreamHandler (D48).
+// ServeClient is request/response-only (extendedConnect off). tun is always
+// nil, so CONNECT / :protocol stay on StreamHandler (D48). Inner RFC 8441
+// must call ServeConn with a non-nil TunnelHandler.
 func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 	if client == nil {
 		return errors.New("http2x: nil client conn")
@@ -48,13 +47,25 @@ func ServeClient(ctx context.Context, client *tls.Conn, h StreamHandler) error {
 	return ServeConn(ctx, client, nil, ServeOpts{Preface: PrefaceFull}, h, nil)
 }
 
-// ServeConn runs an h2 server on c. leftover may be nil when PrefaceFull.
-// PrefaceTail must not ReadFull ClientPreface from the raw conn (D61):
-// http.Server already consumed PRI * HTTP/2.0\r\n\r\n; leftover starts at
-// SM\r\n\r\n plus SETTINGS. Does not Dial. http2x must not import internal/proxy.
+func maxStreamsOf(opts ServeOpts) uint32 {
+	if opts.MaxConcurrentStreams == 0 {
+		return maxConcurrentStreams
+	}
+	return opts.MaxConcurrentStreams
+}
+
+func isTunnelStream(in Stream) bool {
+	if strings.EqualFold(in.Method, http.MethodConnect) {
+		return true
+	}
+	return in.Protocol != ""
+}
+
+// ServeConn runs an h2 server on c. It does not Dial. leftover may be nil
+// when PrefaceFull. Non-nil tun: CONNECT / :protocol skip StreamHandler.
 func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts ServeOpts, h StreamHandler, tun TunnelHandler) error {
 	if c == nil {
-		return errors.New("http2x: nil conn")
+		return errors.New("http2x: nil client conn")
 	}
 	if h == nil {
 		return errors.New("http2x: nil StreamHandler")
@@ -80,11 +91,6 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 		_ = leftover.Flush()
 	}
 
-	maxOpen := maxConcurrentStreams
-	if opts.MaxConcurrentStreams > 0 {
-		maxOpen = int(opts.MaxConcurrentStreams)
-	}
-
 	fr := http2.NewFramer(c, br)
 	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
 	fr.MaxHeaderListSize = 1 << 20
@@ -98,14 +104,11 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 		return fn()
 	}
 
-	pushVal := uint32(0)
-	if opts.EnablePush {
-		pushVal = 1
-	}
+	maxStreams := maxStreamsOf(opts)
 	settings := []http2.Setting{
-		{ID: http2.SettingMaxConcurrentStreams, Val: uint32(maxOpen)},
+		{ID: http2.SettingMaxConcurrentStreams, Val: maxStreams},
 		{ID: http2.SettingInitialWindowSize, Val: initialWindow},
-		{ID: http2.SettingEnablePush, Val: pushVal},
+		{ID: http2.SettingEnablePush, Val: 0},
 	}
 	if opts.EnableConnectProtocol {
 		settings = append(settings, http2.Setting{ID: SettingEnableConnectProtocol, Val: 1})
@@ -262,7 +265,7 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 				_ = write(func() error { return fr.WriteRSTStream(id, http2.ErrCodeProtocol) })
 				continue
 			}
-			if open >= maxOpen {
+			if open >= int(maxStreams) {
 				mu.Unlock()
 				_ = write(func() error { return fr.WriteRSTStream(id, http2.ErrCodeRefusedStream) })
 				continue
@@ -278,69 +281,38 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			out.open(id)
 
 			in := streamFromMeta(id, f, body)
-			handler := h
-			if tun != nil && strings.EqualFold(in.Method, http.MethodConnect) {
-				// D62 CONNECT splice is not wired: call tun then RST.
-				tunn := tun
-				handler = func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
-					_, err := tunn(ctx, in)
-					if err != nil {
-						return nil, nil, err
-					}
-					return nil, nil, ErrInnerCONNECT
-				}
-			}
-			go serveStream(ctx, handler, in, func(resp *http.Response, trailers []model.Header, herr error) {
-				defer finish(id)
-				mu.Lock()
-				gone := closed
-				mu.Unlock()
-				if gone {
-					if resp != nil && resp.Body != nil {
-						_ = resp.Body.Close()
-					}
+			go func() {
+				if tun != nil && isTunnelStream(in) {
+					serveTunnel(ctx, tun, in, c, fr, enc, encBuf, write, out, &mu, &closed, finish)
 					return
 				}
-				if herr != nil || resp == nil {
-					code := http2.ErrCodeInternal
-					if errors.Is(herr, ErrInnerCONNECT) {
-						code = http2.ErrCodeProtocol
+				serveStream(ctx, h, in, func(resp *http.Response, trailers []model.Header, herr error) {
+					defer finish(id)
+					mu.Lock()
+					gone := closed
+					mu.Unlock()
+					if gone {
+						if resp != nil && resp.Body != nil {
+							_ = resp.Body.Close()
+						}
+						return
 					}
-					if resp != nil && resp.Body != nil {
-						_ = resp.Body.Close()
+					if herr != nil || resp == nil {
+						code := http2.ErrCodeInternal
+						if errors.Is(herr, ErrInnerCONNECT) {
+							code = http2.ErrCodeProtocol
+						}
+						if resp != nil && resp.Body != nil {
+							_ = resp.Body.Close()
+						}
+						_ = write(func() error { return fr.WriteRSTStream(id, code) })
+						return
 					}
-					_ = write(func() error { return fr.WriteRSTStream(id, code) })
-					return
-				}
-				_ = writeResponse(fr, enc, encBuf, write, out, id, resp, trailers)
-			})
+					_ = writeResponse(fr, enc, encBuf, write, out, id, resp, trailers)
+				})
+			}()
 		}
 	}
-}
-
-// prefaceReader never ReadFulls ClientPreface from the raw conn on
-// PrefaceTail (D61 leftover). leftover.Reader starts at SM\r\n\r\n.
-func prefaceReader(c net.Conn, leftover *bufio.ReadWriter, mode PrefaceMode) (io.Reader, error) {
-	var r io.Reader
-	if leftover != nil && leftover.Reader != nil {
-		r = leftover.Reader
-	} else {
-		if mode == PrefaceTail {
-			return nil, errors.New("http2x: PrefaceTail requires leftover")
-		}
-		r = bufio.NewReader(c)
-	}
-	if mode == PrefaceTail {
-		r = io.MultiReader(strings.NewReader(prefaceHead), r)
-	}
-	preface := make([]byte, len(http2.ClientPreface))
-	if _, err := io.ReadFull(r, preface); err != nil {
-		return nil, err
-	}
-	if string(preface) != http2.ClientPreface {
-		return nil, fmt.Errorf("http2x: bad client preface")
-	}
-	return r, nil
 }
 
 func serveStream(ctx context.Context, h StreamHandler, in Stream, done func(*http.Response, []model.Header, error)) {
@@ -353,11 +325,62 @@ func serveStream(ctx context.Context, h StreamHandler, in Stream, done func(*htt
 	done(resp, trailers, err)
 }
 
+func serveTunnel(ctx context.Context, tun TunnelHandler, in Stream, parent net.Conn, fr *http2.Framer, enc *hpack.Encoder, encBuf *bytes.Buffer, write func(func() error) error, out *outFlow, mu *sync.Mutex, closed *bool, finish func(uint32)) {
+	defer finish(in.ID)
+	tunv, err := tun(ctx, in)
+	mu.Lock()
+	gone := *closed
+	mu.Unlock()
+	if gone {
+		if tunv.AfterAck != nil {
+			tunv.AfterAck(&framedStreamConn{parent: parent, id: in.ID, body: in.Body, out: out, fr: fr, write: write})
+		}
+		return
+	}
+	if err != nil {
+		code := http2.ErrCodeInternal
+		if errors.Is(err, ErrInnerCONNECT) {
+			code = http2.ErrCodeProtocol
+		}
+		_ = write(func() error { return fr.WriteRSTStream(in.ID, code) })
+		return
+	}
+	switch tunv.Kind {
+	case TunnelWebSocket, TunnelIntercept:
+		if tunv.AfterAck == nil {
+			_ = write(func() error { return fr.WriteRSTStream(in.ID, http2.ErrCodeInternal) })
+			return
+		}
+		_ = writeStatus(fr, enc, encBuf, write, in.ID, http.StatusOK, false)
+		tunv.AfterAck(&framedStreamConn{
+			parent: parent,
+			id:     in.ID,
+			body:   in.Body,
+			out:    out,
+			fr:     fr,
+			write:  write,
+		})
+	default:
+		_ = write(func() error { return fr.WriteRSTStream(in.ID, http2.ErrCodeInternal) })
+	}
+}
+
+func writeStatus(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, write func(func() error) error, id uint32, status int, endStream bool) error {
+	return write(func() error {
+		buf.Reset()
+		if err := enc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)}); err != nil {
+			return err
+		}
+		return writeHeaderBlock(fr, id, buf.Bytes(), endStream)
+	})
+}
+
 func streamFromMeta(id uint32, mh *http2.MetaHeadersFrame, body io.ReadCloser) Stream {
 	method := mh.PseudoValue("method")
 	scheme := mh.PseudoValue("scheme")
 	authority := mh.PseudoValue("authority")
 	path := mh.PseudoValue("path")
+	protocol := mh.PseudoValue("protocol")
 	pseudos := []model.Header{
 		{Name: ":method", Value: method},
 		{Name: ":scheme", Value: scheme},
@@ -381,6 +404,7 @@ func streamFromMeta(id uint32, mh *http2.MetaHeadersFrame, body io.ReadCloser) S
 		Scheme:    scheme,
 		Authority: authority,
 		Path:      path,
+		Protocol:  protocol,
 	}
 }
 
@@ -526,4 +550,30 @@ func isClosedConn(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "use of closed network connection") ||
 		strings.Contains(msg, "tls: failed to send closeNotify")
+}
+
+// prefaceReader consumes the 24-byte client preface then returns the remainder.
+// PrefaceTail (D61 leftover): leftover.Reader starts at SM\r\n\r\n.
+// Must not ReadFull ClientPreface from the raw conn.
+func prefaceReader(c net.Conn, leftover *bufio.ReadWriter, mode PrefaceMode) (io.Reader, error) {
+	var r io.Reader
+	if leftover != nil && leftover.Reader != nil {
+		r = leftover.Reader
+	} else {
+		if mode == PrefaceTail {
+			return nil, errors.New("http2x: PrefaceTail requires leftover")
+		}
+		r = bufio.NewReader(c)
+	}
+	if mode == PrefaceTail {
+		r = io.MultiReader(strings.NewReader(prefaceHead), r)
+	}
+	preface := make([]byte, len(http2.ClientPreface))
+	if _, err := io.ReadFull(r, preface); err != nil {
+		return nil, err
+	}
+	if string(preface) != http2.ClientPreface {
+		return nil, fmt.Errorf("http2x: bad client preface")
+	}
+	return r, nil
 }

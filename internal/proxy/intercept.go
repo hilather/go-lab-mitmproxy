@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
@@ -176,9 +178,21 @@ func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host,
 	defer tr.CloseIdleConnections()
 
 	if clientTLS.ConnectionState().NegotiatedProtocol == http2x.NextProtoH2 && s.specOf(sess).Protocols.HTTP2.Enabled {
-		_ = http2x.ServeClient(s.ctx, clientTLS, func(ctx context.Context, in http2x.Stream) (*http.Response, []model.Header, error) {
+		h := func(ctx context.Context, in http2x.Stream) (*http.Response, []model.Header, error) {
 			return s.roundTripInnerH2(ctx, tr, &originMu, upTLS, in, host, port, res, info, sess)
-		})
+		}
+		spec := s.specOf(sess)
+		if spec.Protocols.HTTP2.ExtendedConnect {
+			_ = http2x.ServeConn(s.ctx, clientTLS, nil, http2x.ServeOpts{
+				Preface:               http2x.PrefaceFull,
+				EnableConnectProtocol: true,
+				MaxConcurrentStreams:  uint32(spec.Proxy.Admission.MaxConcurrentStreams),
+			}, h, func(ctx context.Context, in http2x.Stream) (http2x.Tunnel, error) {
+				return s.innerH2Tunnel(ctx, tr, &originMu, upTLS, in, host, port, res, info, sess)
+			})
+			return
+		}
+		_ = http2x.ServeClient(s.ctx, clientTLS, h)
 		return
 	}
 
@@ -719,3 +733,144 @@ func (s *Server) roundTripInnerH2(ctx context.Context, tr *http.Transport, origi
 	}
 	return outResp, trailers, nil
 }
+
+func randomWebSocketKey() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "dGhlIHNhbXBsZSBub25jZQ=="
+	}
+	return base64.StdEncoding.EncodeToString(b[:])
+}
+
+// innerH2Tunnel handles inner CONNECT / :protocol when extendedConnect is on.
+// Nested CONNECT without :protocol and other :protocol values RST with no flow
+// (D48 remainder). :protocol=websocket transcodes to origin HTTP/1.1 Upgrade.
+func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu *sync.Mutex, upTLS *tls.Conn, in http2x.Stream, host, port string, res resolved, info *model.TLSInfo, pinned *ruleSession) (http2x.Tunnel, error) {
+	proto := strings.TrimSpace(in.Protocol)
+	if proto == "" || !strings.EqualFold(in.Method, http.MethodConnect) || !strings.EqualFold(proto, "websocket") {
+		s.metrics.reject("http2")
+		return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+	}
+	started := time.Now()
+	sess := pinned.fork()
+	inner := reconstructH2Request(in)
+	inner.Method = http.MethodGet
+	inner.Body = http.NoBody
+	inner.ContentLength = 0
+	if inner.Header == nil {
+		inner.Header = make(http.Header)
+	}
+	inner.Header.Set("Upgrade", "websocket")
+	inner.Header.Set("Connection", "Upgrade")
+	if inner.Header.Get("Sec-WebSocket-Version") == "" {
+		inner.Header.Set("Sec-WebSocket-Version", "13")
+	}
+	if inner.Header.Get("Sec-WebSocket-Key") == "" {
+		inner.Header.Set("Sec-WebSocket-Key", randomWebSocketKey())
+	}
+	inner = withH2Meta(inner, h2Meta{
+		streamID: in.ID,
+		protocol: model.FlowProtocolWebSocket,
+		pseudos:  append([]model.Header(nil), in.Pseudos...),
+	})
+	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
+	handled := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(*http.Response) {})
+	if handled {
+		s.metrics.reject("http2")
+		return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+	}
+
+	if originMu == nil {
+		originMu = &sync.Mutex{}
+	}
+	originMu.Lock()
+	unlock := sync.OnceFunc(originMu.Unlock)
+
+	upCtx, upCancel := s.upstreamCtxSess(ctx, sess)
+	out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap, sess)
+	if cap != nil {
+		sess.reqCap = cap
+	}
+	stripLeadingColonHeaders(out.Header)
+	key := out.Header.Get("Sec-WebSocket-Key")
+	if key == "" {
+		key = randomWebSocketKey()
+	}
+	upURL := ""
+	if out.URL != nil {
+		upURL = out.URL.String()
+	}
+	clean, err := http.NewRequestWithContext(upCtx, http.MethodGet, upURL, nil)
+	if err != nil {
+		upCancel()
+		unlock()
+		s.metrics.reject("http2")
+		return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+	}
+	clean.Host = out.Host
+	clean.Header.Set("Upgrade", "websocket")
+	clean.Header.Set("Connection", "Upgrade")
+	clean.Header.Set("Sec-WebSocket-Version", "13")
+	clean.Header.Set("Sec-WebSocket-Key", key)
+	if proto := out.Header.Get("Sec-WebSocket-Protocol"); proto != "" {
+		clean.Header.Set("Sec-WebSocket-Protocol", proto)
+	}
+	resp, err := tr.RoundTrip(clean)
+	upCancel()
+	if err != nil || resp == nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		unlock()
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		s.metrics.reject("http2")
+		return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+	}
+	fromUp := resp.Body
+	if hit := s.matchHit(sess, model.RulePhaseResponse, host, inner, resp.Header, false); hit != nil {
+		s.metrics.ruleHit(rules.ActionLateSkip)
+	}
+
+	inspect := s.specOf(sess).Protocols.WebSocket.InspectFrames
+	f := s.innerFlow(inner, host, port, http.StatusOK, "", started, info, sess.reqCap, nil)
+	f.Protocol = model.FlowProtocolWebSocket
+	f.Status = http.StatusOK
+	s.metrics.session("ok")
+	origin := wrapOriginUpgrade(upTLS, fromUp)
+	return http2x.Tunnel{
+		Kind: http2x.TunnelWebSocket,
+		AfterAck: func(client net.Conn) {
+			defer unlock()
+			defer func() {
+				if resp != nil && resp.Body != nil {
+					_ = resp.Body.Close()
+				}
+			}()
+			if client == nil {
+				return
+			}
+			if inspect {
+				s.inspectUpgrade(client, nil, origin, origin, sess, f)
+				s.capture(f, sess)
+				return
+			}
+			s.capture(f, sess)
+			s.tunnelUpgrade(client, nil, origin, origin, s.specOf(sess).Proxy.Admission)
+		},
+	}, nil
+}
+
+type upgradeBodyConn struct {
+	net.Conn
+	rw io.ReadWriter
+}
+
+func wrapOriginUpgrade(up net.Conn, body io.Reader) net.Conn {
+	rw, ok := body.(io.ReadWriter)
+	if !ok || up == nil {
+		return up
+	}
+	return &upgradeBodyConn{Conn: up, rw: rw}
+}
+
+func (c *upgradeBodyConn) Read(p []byte) (int, error)  { return c.rw.Read(p) }
+func (c *upgradeBodyConn) Write(p []byte) (int, error) { return c.rw.Write(p) }

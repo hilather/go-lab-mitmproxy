@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-23 (D61 client-facing h2c leftover)
+Last reviewed: 2026-08-23 (D61 h2c leftover + D63 inner Extended CONNECT)
 Related ADRs: 0002, 0009, 0010, 0012
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -187,8 +187,8 @@ Normative for every `CONNECT` (D19). Tests: two GETs on one CONNECT; “forgot t
 - One CONNECT = **one** upstream TCP + **one** upstream TLS conn. Do **not** put this conn in the cleartext `Transport` idle pool.
 - Handshake ALPN is taken from the session snapshot (D46). Default / flag-off is `http/1.1`. Flag-on advertises `h2` then `http/1.1` on the **leaf**; origin NextProtos stay `http/1.1` (h2 inner is transcoded onto that HTTP/1.1 origin conn). Captured `Protocol` is the **inner client** protocol (D47): `h2` when the leaf negotiated `h2`.
 - **HTTP/1.1 inner** (ALPN `http/1.1`, including flag-on when the client did not offer `h2`): serialized `http.ReadRequest` then `Transport.RoundTrip` with a one-shot `DialContext` that returns the already-handshaked upstream `tls.Conn`. Inner `PRI` → close both sides, `Error=http2_inner`. Inner `Upgrade: websocket` + `101` uses the same 101 path as cleartext (copy, or `wsx` pumps when `inspectFrames`). RoundTrip failure writes `502` and closes both TLS sides.
-- **HTTP/2 inner** (`protocols.http2.enabled` and leaf ALPN `h2`): `http2x.ServeClient` on the client TLS conn. Each request stream is **one flow** with `HTTP2.StreamID`. `roundTripInnerH2` returns `(resp, trailers, err)` to `ServeClient`; it must **not** write HTTP/1.1 to the client TLS conn and must **not** close CONNECT on a per-stream origin error (RST_STREAM / 502 DATA, not GOAWAY) (D53). Origin is still HTTP/1.1 (`MaxConnsPerHost: 1`): strip leading-`:` names on the origin request; hold the origin mutex across `RoundTrip` **and** full body drain so a second stream cannot Dial while `resp.Body` still owns the conn (D44); request- and response-phase `WaitPaused` stay **outside** the mutex so a paused stream does not block another stream (D37). h2→h1 request trailers are dropped toward origin, stored on the flow, and counted `labmitm_h2_trailer_dropped_total`.
-- Inner hop rejects `:method=CONNECT`, Extended CONNECT (`:protocol`), and websocket `Upgrade` on an h2 session: RST_STREAM `PROTOCOL_ERROR`, metric `reason="http2"`, no flow (D48).
+- **HTTP/2 inner** (`protocols.http2.enabled` and leaf ALPN `h2`): `extendedConnect` **off** keeps `http2x.ServeClient` (tun nil). `extendedConnect` **on** must call `http2x.ServeConn` with `PrefaceFull`, `EnableConnectProtocol`, snapshot `maxConcurrentStreams` (0 → 100), and a non-nil `TunnelHandler` — do **not** leave `ServeClient` as the only inner entry point. GET/POST stay on `roundTripInnerH2` (D53). Origin is still HTTP/1.1 (`MaxConnsPerHost: 1`): strip leading-`:` names on the origin request; hold the origin mutex across `RoundTrip` **and** full body drain so a second stream cannot Dial while `resp.Body` still owns the conn (D44); request- and response-phase `WaitPaused` stay **outside** the mutex so a paused stream does not block another stream (D37). h2→h1 request trailers are dropped toward origin, stored on the flow, and counted `labmitm_h2_trailer_dropped_total`.
+- Inner hop: nested `:method=CONNECT` without `:protocol` is RST_STREAM `PROTOCOL_ERROR`, metric `reason="http2"`, **no flow** (D48 remainder) even when `extendedConnect` is on. Other `:protocol` values RST, no flow. Illegal h2 `Upgrade: websocket` on regular headers RST, no flow. Flag-off (`ServeClient`) still RSTs CONNECT / `:protocol` / Upgrade websocket with no flow.
 - Client keep-alive on the inner TLS session is allowed. Each inner request / stream is **one flow**.
 
 ## Cleartext forward
@@ -235,7 +235,9 @@ If the request has `Upgrade: websocket` (case-insensitive) **and** `Connection` 
 5. Mutating rules do **not** apply after `101`.
 6. Replay of `Protocol=websocket` is rejected. Compat flow REST does not grow a frames array.
 
-If `Upgrade` is present without `Connection: Upgrade`, treat as a normal request. Extended CONNECT / websocket-on-h2 is still RST (D48; not this change).
+If `Upgrade` is present without `Connection: Upgrade`, treat as a normal request.
+
+**HTTP/2 inner Extended CONNECT (D63):** when `protocols.http2.extendedConnect` is on, inner `:method=CONNECT` + `:protocol=websocket` is accepted. SETTINGS `ENABLE_CONNECT_PROTOCOL=1`. The proxy transcodes onto origin HTTP/1.1 `Upgrade: websocket` on the pinned origin TCP (origin h2 multiplex is not this change). Success to the inner client is HEADERS `:status=200` (not 101); DATA then carries RFC 6455 frames into the same `wsx` path as HTTP/1.1 101 (`inspectFrames` off = copy; on = capped frames). Other `:protocol` values and nested CONNECT without `:protocol` stay RST, **no flow**.
 
 ## Target guards (D16) — resolve then Dial
 
