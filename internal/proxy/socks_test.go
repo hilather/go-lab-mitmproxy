@@ -424,6 +424,17 @@ func TestSOCKS5Intercept(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no intercepted socks flow: %+v", sink.Last())
+	deadline := time.Now().Add(time.Second)
+	for {
+		for _, f := range sink.Last() {
+			if f.Intercepted && f.Via == "socks5" && f.SOCKS != nil && strings.Contains(f.URL, "/hello") {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no intercepted socks flow: %+v", sink.Last())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

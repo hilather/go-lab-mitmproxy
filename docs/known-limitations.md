@@ -2,7 +2,7 @@
 
 Honest residual for LabMITM after the 1.1 opt-in workstreams (HTTP/2 inner+origin, SOCKS5/4 CONNECT, Linux original-destination REDIRECT, compat flow REST, inspector metadata). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-23 (D64 origin h2 multiplex)
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.1.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.1.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path).
 
@@ -73,8 +73,8 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 
 - Inner + origin hops only. Client-facing `:8888` / orig-dest cleartext stay HTTP/1.1.
 - Captured `Protocol` is the **inner client** proto (h2-client → `h2`; h1-client + h2-origin → `http/1.1`).
-- h2 client + h1 origin serializes streams on one origin TCP. Request trailers are dropped toward origin (stored on the flow; `labmitm_h2_trailer_dropped_total`).
-- Replay of an h2 flow is HTTP/1.1 origin-form; leading-`:` names are stripped.
+- h2 client + h1 origin still serializes streams on one origin TCP (D44). Request trailers are dropped toward origin (stored on the flow; `labmitm_h2_trailer_dropped_total`). Origin h2 multiplexes when `protocols.http2.origin` and the inner leaf negotiated `h2` (D64); one CONNECT = one origin TCP.
+- Replay of an h2 flow follows the **live** `protocols.http2.origin` flag (off → HTTP/1.1 origin-form with leading-`:` stripped; on → origin ALPN `h2` then `http/1.1` on one Dial).
 - `PUSH_PROMISE` is not captured. Breakpoints pause the **stream**, not the TCP session.
 - Handshake failure still does not blind-tunnel (D20). **D7 stands.**
 
