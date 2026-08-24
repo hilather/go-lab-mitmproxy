@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -206,6 +207,19 @@ func (m mapResolver) LookupIP(_ context.Context, _ string, host string) ([]net.I
 	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 }
 
+type countingResolver struct {
+	inner Resolver
+	n     atomic.Int64
+}
+
+func (c *countingResolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
+	c.n.Add(1)
+	if c.inner == nil {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	return c.inner.LookupIP(ctx, network, host)
+}
+
 type recordingDial struct {
 	mu    sync.Mutex
 	addrs []string
@@ -254,4 +268,56 @@ func (r *recordingListen) Addrs() []string {
 	out := make([]string, len(r.addrs))
 	copy(out, r.addrs)
 	return out
+}
+
+type recordingUDP struct {
+	mu     sync.Mutex
+	addrs  []string
+	writes []string
+}
+
+func (r *recordingUDP) wrap(inner func(net.IP) (net.PacketConn, error)) func(net.IP) (net.PacketConn, error) {
+	return func(ip net.IP) (net.PacketConn, error) {
+		r.mu.Lock()
+		r.addrs = append(r.addrs, ip.String())
+		r.mu.Unlock()
+		if inner == nil {
+			return nil, io.EOF
+		}
+		pc, err := inner(ip)
+		if err != nil {
+			return nil, err
+		}
+		return &recordingPacketConn{PacketConn: pc, rec: r}, nil
+	}
+}
+
+func (r *recordingUDP) Addrs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.addrs))
+	copy(out, r.addrs)
+	return out
+}
+
+func (r *recordingUDP) Writes() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.writes))
+	copy(out, r.writes)
+	return out
+}
+
+type recordingPacketConn struct {
+	net.PacketConn
+	rec *recordingUDP
+}
+
+func (c *recordingPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	if c.rec != nil && addr != nil {
+		c.rec.mu.Lock()
+		c.rec.writes = append(c.rec.writes, addr.String())
+		c.rec.mu.Unlock()
+	}
+	return c.PacketConn.WriteTo(p, addr)
 }

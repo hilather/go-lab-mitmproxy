@@ -54,6 +54,13 @@ func socks4BindSpec(t *testing.T) model.Spec {
 	return spec
 }
 
+func socks5UDPSpec(t *testing.T) model.Spec {
+	t.Helper()
+	spec := socks5Spec(t)
+	spec.Listeners.Proxy.AcceptUDPAssociate = true
+	return spec
+}
+
 func bePort(p int) []byte {
 	var b [2]byte
 	binary.BigEndian.PutUint16(b[:], uint16(p))
@@ -235,13 +242,17 @@ func TestSOCKS5BindCommand(t *testing.T) {
 }
 
 func TestSOCKS5UDPCommand(t *testing.T) {
+	// acceptSOCKS5 on, acceptUDPAssociate off (D59): UDP stays 05 07.
 	px := startProxy(t, Options{Spec: socks5Spec(t)})
 	c := socksDial(t, px.Addr().String())
 	socks5GreetingOK(t, c)
 	writeAll(t, c, []byte{0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0, 80})
 	got := readN(t, c, 10)
-	if got[1] != 0x07 {
-		t.Fatalf("udp rep %x", got)
+	if got[0] != 0x05 || got[1] != 0x07 {
+		t.Fatalf("udp rep %x want 05 07", got)
+	}
+	if px.Metrics().Rejected("socks_command") < 1 || px.Metrics().Socks("command") < 1 {
+		t.Fatal("expected socks_command")
 	}
 }
 
@@ -399,10 +410,17 @@ func TestSOCKS5Intercept(t *testing.T) {
 		t.Fatal("missing tls intercept ok")
 	}
 	found := false
-	for _, f := range sink.Last() {
-		if f.Intercepted && f.Via == "socks5" && f.SOCKS != nil && strings.Contains(f.URL, "/hello") {
-			found = true
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, f := range sink.Last() {
+			if f.Intercepted && f.Via == "socks5" && f.SOCKS != nil && strings.Contains(f.URL, "/hello") {
+				found = true
+			}
 		}
+		if found {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if !found {
 		t.Fatalf("no intercepted socks flow: %+v", sink.Last())
@@ -879,6 +897,28 @@ func TestListenEphemeralTCPRejectsUnspecified(t *testing.T) {
 	}
 }
 
+func TestListenEphemeralUDPRejectsUnspecified(t *testing.T) {
+	if _, err := listenEphemeralUDP(net.IPv4zero); err == nil {
+		t.Fatal("expected reject 0.0.0.0")
+	}
+	if _, err := listenEphemeralUDP(net.IPv6unspecified); err == nil {
+		t.Fatal("expected reject ::")
+	}
+	if _, err := listenEphemeralUDP(net.ParseIP("169.254.169.254")); err == nil {
+		t.Fatal("expected reject IMDS")
+	}
+	if _, err := listenEphemeralUDP(net.ParseIP("fe80::1")); err == nil {
+		t.Fatal("expected reject link-local")
+	}
+}
+
+func TestDialUDPRefusesHostname(t *testing.T) {
+	_, err := dialUDP(t.Context(), "udp", "example.lab:9", time.Second)
+	if err == nil {
+		t.Fatal("expected refuse hostname")
+	}
+}
+
 func TestSOCKS5NameIMDSDoesNotDial(t *testing.T) {
 	rec := &recordingDial{}
 	px := startProxy(t, Options{
@@ -1026,6 +1066,406 @@ func parseHex(s string) ([]byte, error) {
 		return nil, fmt.Errorf("odd hex %q", s)
 	}
 	return hex.DecodeString(s)
+}
+
+func startUDPEcho(t *testing.T) *net.UDPConn {
+	t.Helper()
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			n, from, err := pc.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			_, _ = pc.WriteToUDP(buf[:n], from)
+		}
+	}()
+	return pc
+}
+
+func listenUDPClient(t *testing.T) *net.UDPConn {
+	t.Helper()
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	_ = pc.SetDeadline(time.Now().Add(5 * time.Second))
+	return pc
+}
+
+func socksUDP4(ip net.IP, port int, data []byte) []byte {
+	p := []byte{0, 0, 0, socks5ATYPIPv4}
+	p = append(p, ip.To4()...)
+	p = append(p, bePort(port)...)
+	return append(p, data...)
+}
+
+func socksUDPDomain(host string, port int, data []byte) []byte {
+	p := []byte{0, 0, 0, socks5ATYPDomain, byte(len(host))}
+	p = append(p, host...)
+	p = append(p, bePort(port)...)
+	return append(p, data...)
+}
+
+func writeUDPTo(t *testing.T, c *net.UDPConn, bnd string, pkt []byte) {
+	t.Helper()
+	addr, err := net.ResolveUDPAddr("udp", bnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.WriteToUDP(pkt, addr); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readUDPFrom(t *testing.T, c *net.UDPConn) []byte {
+	t.Helper()
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 65535)
+	n, _, err := c.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return buf[:n]
+}
+
+func socks5Associate(t *testing.T, px *Server) (control net.Conn, bnd string, ip net.IP, port int) {
+	t.Helper()
+	c := socksDial(t, px.Addr().String())
+	socks5GreetingOK(t, c)
+	writeAll(t, c, []byte{0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+	got := readN(t, c, 10)
+	if got[0] != 0x05 || got[1] != 0x00 || got[3] != 0x01 {
+		t.Fatalf("associate %x", got)
+	}
+	ip = net.IP(got[4:8])
+	port = int(binary.BigEndian.Uint16(got[8:10]))
+	if ip.IsUnspecified() || port == 0 {
+		t.Fatalf("BND unspecified %v:%d", ip, port)
+	}
+	bnd = net.JoinHostPort(ip.String(), strconv.Itoa(port))
+	if bnd == px.Addr().String() {
+		t.Fatal("BND must not be listeners.proxy.address")
+	}
+	return c, bnd, ip, port
+}
+
+func waitUDPFlow(t *testing.T, sink *Null) *model.Flow {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, f := range sink.Last() {
+			if f.SOCKS != nil && f.SOCKS.Command == model.SOCKSCmdUDP {
+				return f
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("missing udp flow: %+v", sink.Last())
+	return nil
+}
+
+func TestSOCKS5UDPAssociateEcho(t *testing.T) {
+	origin := startUDPEcho(t)
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	sink := NewNull()
+	recU := &recordingUDP{}
+	px := startProxy(t, Options{
+		Spec:      socks5UDPSpec(t),
+		Sink:      sink,
+		ListenUDP: recU.wrap(listenEphemeralUDP),
+	})
+	control, bnd, _, _ := socks5Associate(t, px)
+	listened := recU.Addrs()
+	if len(listened) != 1 || net.ParseIP(listened[0]).IsUnspecified() {
+		t.Fatalf("listen %v", listened)
+	}
+	cli := listenUDPClient(t)
+	writeUDPTo(t, cli, bnd, socksUDP4(oIP, oPort, []byte("ping")))
+	got := readUDPFrom(t, cli)
+	host, port, data, ok := parseSOCKSUDP(got)
+	if !ok || string(data) != "ping" {
+		t.Fatalf("echo %x host=%s port=%s data=%q", got, host, port, data)
+	}
+	_ = control.Close()
+	f := waitUDPFlow(t, sink)
+	if f.Protocol != model.FlowProtocolSOCKS5 || f.Intercepted || f.Method != http.MethodConnect {
+		t.Fatalf("flow %+v", f)
+	}
+	if f.SOCKS.Datagrams < 2 || f.SOCKS.LastDest == "" || f.SOCKS.BND != bnd {
+		t.Fatalf("SOCKS %+v", f.SOCKS)
+	}
+	if px.Metrics().Socks("ok") < 1 {
+		t.Fatal("expected socks ok")
+	}
+}
+
+func TestSOCKS5UDPUnspecifiedDST(t *testing.T) {
+	// ASSOCIATE DST 0.0.0.0:0 is legal (unlike BIND).
+	px := startProxy(t, Options{Spec: socks5UDPSpec(t)})
+	_, bnd, _, _ := socks5Associate(t, px)
+	if bnd == "" {
+		t.Fatal("empty BND")
+	}
+}
+
+func TestSOCKS5UDPFirstDatagramPinsClient(t *testing.T) {
+	var originN atomic.Int64
+	origin, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = origin.Close() })
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			n, from, rerr := origin.ReadFromUDP(buf)
+			if rerr != nil {
+				return
+			}
+			originN.Add(1)
+			_, _ = origin.WriteToUDP(buf[:n], from)
+		}
+	}()
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	px := startProxy(t, Options{Spec: socks5UDPSpec(t)})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cli1 := listenUDPClient(t)
+	cli2 := listenUDPClient(t)
+	writeUDPTo(t, cli1, bnd, socksUDP4(oIP, oPort, []byte("a")))
+	_ = readUDPFrom(t, cli1)
+	if originN.Load() != 1 {
+		t.Fatalf("origin got %d want 1", originN.Load())
+	}
+	writeUDPTo(t, cli2, bnd, socksUDP4(oIP, oPort, []byte("b")))
+	_ = cli2.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+	buf := make([]byte, 64)
+	if n, _, rerr := cli2.ReadFromUDP(buf); n > 0 {
+		t.Fatalf("second source tunneled %q", buf[:n])
+	} else if rerr == nil {
+		t.Fatal("expected timeout on second source")
+	}
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) && originN.Load() == 1 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if originN.Load() != 1 {
+		t.Fatalf("second source reached origin (%d)", originN.Load())
+	}
+	writeUDPTo(t, cli1, bnd, socksUDP4(oIP, oPort, []byte("c")))
+	got := readUDPFrom(t, cli1)
+	_, _, data, ok := parseSOCKSUDP(got)
+	if !ok || string(data) != "c" {
+		t.Fatalf("pinned client echo %q", data)
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPDomainPin(t *testing.T) {
+	origin := startUDPEcho(t)
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	res := &countingResolver{inner: mapResolver{"echo.lab": {net.ParseIP("127.0.0.1")}}}
+	px := startProxy(t, Options{Spec: socks5UDPSpec(t), Resolver: res})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cli := listenUDPClient(t)
+	writeUDPTo(t, cli, bnd, socksUDPDomain("echo.lab", oPort, []byte("one")))
+	_ = readUDPFrom(t, cli)
+	writeUDPTo(t, cli, bnd, socksUDPDomain("echo.lab", oPort, []byte("two")))
+	_ = readUDPFrom(t, cli)
+	if res.n.Load() != 1 {
+		t.Fatalf("LookupIP %d want 1", res.n.Load())
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPIMDSDropped(t *testing.T) {
+	recU := &recordingUDP{}
+	px := startProxy(t, Options{
+		Spec:      socks5UDPSpec(t),
+		ListenUDP: recU.wrap(listenEphemeralUDP),
+	})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cli := listenUDPClient(t)
+	imds := net.ParseIP("169.254.169.254").To4()
+	writeUDPTo(t, cli, bnd, socksUDP4(imds, 80, []byte("x")))
+	deadline := time.Now().Add(2 * time.Second)
+	for px.Metrics().Rejected("target_denied") < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if px.Metrics().Rejected("target_denied") < 1 {
+		t.Fatal("expected target_denied")
+	}
+	for _, w := range recU.Writes() {
+		if strings.HasPrefix(w, "169.254.169.254:") {
+			t.Fatalf("wrote IMDS %v", recU.Writes())
+		}
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPFRAGDropped(t *testing.T) {
+	var originN atomic.Int64
+	origin, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = origin.Close() })
+	go func() {
+		buf := make([]byte, 64)
+		for {
+			_, _, rerr := origin.ReadFromUDP(buf)
+			if rerr != nil {
+				return
+			}
+			originN.Add(1)
+		}
+	}()
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	px := startProxy(t, Options{Spec: socks5UDPSpec(t)})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cli := listenUDPClient(t)
+	pkt := socksUDP4(oIP, oPort, []byte("frag"))
+	pkt[2] = 1
+	writeUDPTo(t, cli, bnd, pkt)
+	time.Sleep(100 * time.Millisecond)
+	if originN.Load() != 0 {
+		t.Fatalf("FRAG reached origin (%d)", originN.Load())
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPHairpinDropped(t *testing.T) {
+	recU := &recordingUDP{}
+	px := startProxy(t, Options{
+		Spec:      socks5UDPSpec(t),
+		ListenUDP: recU.wrap(listenEphemeralUDP),
+	})
+	control, bnd, ip, port := socks5Associate(t, px)
+	cli := listenUDPClient(t)
+	writeUDPTo(t, cli, bnd, socksUDP4(ip.To4(), port, []byte("loop")))
+	deadline := time.Now().Add(2 * time.Second)
+	for px.Metrics().Rejected("target_denied") < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if px.Metrics().Rejected("target_denied") < 1 {
+		t.Fatal("expected hairpin target_denied")
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPInboundCap(t *testing.T) {
+	origin, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = origin.Close() })
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	spec := socks5UDPSpec(t)
+	spec.Proxy.Admission.MaxInFlightBytes = 80
+	sink := NewNull()
+	px := startProxy(t, Options{Spec: spec, Sink: sink})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cli := listenUDPClient(t)
+	_ = origin.SetReadDeadline(time.Now().Add(2 * time.Second))
+	writeUDPTo(t, cli, bnd, socksUDP4(oIP, oPort, []byte("pin")))
+	_, from, err := origin.ReadFromUDP(make([]byte, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := bytes.Repeat([]byte("x"), 50)
+	if _, err := origin.WriteToUDP(payload, from); err != nil {
+		t.Fatal(err)
+	}
+	got := readUDPFrom(t, cli)
+	_, _, data, ok := parseSOCKSUDP(got)
+	if !ok || len(data) != 50 {
+		t.Fatalf("first inbound %d ok=%v", len(data), ok)
+	}
+	if _, err := origin.WriteToUDP(payload, from); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := origin.WriteToUDP(payload, from); err != nil {
+		t.Fatal(err)
+	}
+	_ = cli.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+	extra := 0
+	buf := make([]byte, 256)
+	for {
+		n, _, rerr := cli.ReadFromUDP(buf)
+		if rerr != nil {
+			break
+		}
+		if n > 0 {
+			extra++
+		}
+	}
+	if extra != 0 {
+		t.Fatalf("over-cap inbound delivered %d", extra)
+	}
+	_ = control.Close()
+	f := waitUDPFlow(t, sink)
+	if !f.Truncated {
+		t.Fatalf("want Truncated flow %+v", f)
+	}
+}
+
+func TestSOCKS5UDPIdleTimeout(t *testing.T) {
+	origin := startUDPEcho(t)
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	spec := socks5UDPSpec(t)
+	spec.Proxy.Admission.IdleTimeout = 150 * time.Millisecond
+	spec.Proxy.Admission.SessionTimeout = time.Minute
+	sink := NewNull()
+	px := startProxy(t, Options{Spec: spec, Sink: sink})
+	control, bnd, _, _ := socks5Associate(t, px)
+	_ = waitUDPFlow(t, sink)
+	cli := listenUDPClient(t)
+	writeUDPTo(t, cli, bnd, socksUDP4(oIP, oPort, []byte("late")))
+	_ = cli.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	buf := make([]byte, 64)
+	n, _, err := cli.ReadFromUDP(buf)
+	if n > 0 {
+		t.Fatalf("relayed after idle %q", buf[:n])
+	}
+	if err == nil {
+		t.Fatal("expected no reply after idle")
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPControlCloseTearsDown(t *testing.T) {
+	origin := startUDPEcho(t)
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	sink := NewNull()
+	px := startProxy(t, Options{Spec: socks5UDPSpec(t), Sink: sink})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cli := listenUDPClient(t)
+	writeUDPTo(t, cli, bnd, socksUDP4(oIP, oPort, []byte("open")))
+	_ = readUDPFrom(t, cli)
+	_ = control.Close()
+	_ = waitUDPFlow(t, sink)
+	writeUDPTo(t, cli, bnd, socksUDP4(oIP, oPort, []byte("after")))
+	_ = cli.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	buf := make([]byte, 64)
+	n, _, err := cli.ReadFromUDP(buf)
+	if n > 0 {
+		t.Fatalf("relayed after control close %q", buf[:n])
+	}
+	if err == nil {
+		t.Fatal("expected no reply after control close")
+	}
 }
 
 func TestSOCKS5NMethodsZeroCloses(t *testing.T) {

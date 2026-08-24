@@ -19,6 +19,7 @@ LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not 
 | SSRF to cloud metadata / link-local | **High** | Resolve-then-guard every A/AAAA; Dial pinned IP; no second lookup (D16). Residual: Alibaba `100.100.100.200`, RFC1918 default-allow |
 | Orig-dest spoof / Docker DNAT to `:8890` | **High** | Direct-connect (dest port + local IP); `isHairpin` on both live binds; topologies limited to shared netns + sidecar iptables or host network (D50). Publishing `8890` is not transparent |
 | SOCKS BIND advertises IMDS / proxy listen as BND, or listens all-interfaces | **High** | `acceptBind` default off; Listen on control `LocalAddr` IP only (never `:0`); unspecified DST rejected; advertisement filter; hairpin set includes live BIND ports; CIDR + DST-set on inbound peer ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D58) |
+| SOCKS UDP ASSOCIATE open relay / amplification / hairpin | **High** | `acceptUDPAssociate` default off; listen on control `LocalAddr` IP only (never `:0`); first datagram pins client UDP source; domain dests pinned (LookupIP once, deny every A/AAAA); CIDR + hairpin drop; inbound flood cap (4096 datagrams or `maxInFlightBytes`); FRAG dropped ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D59, D68) |
 | SSRF via Host / CONNECT / absolute-form on orig-dest | **High** | D57: tagged `ServeHTTP` never `serveCONNECT`/`serveAbsolute`; Dial dest IP only; dest IP is CIDR-guarded; never Dial Host/SNI |
 | `CAP_NET_ADMIN` on the appliance | **High if granted** | Default image UID 65532, `cap_drop: ALL`; iptables is sidecar/host only (D30) |
 | HTTP request smuggling | **Medium** | HTTP/1.1 only; stdlib server parses client hop; we rebuild origin-form rather than blindly copying request-target; fuzz header parser |
@@ -48,7 +49,7 @@ internal/control/*  may import app, capabilities, auth, observability — NOT pr
 internal/observability  leaf telemetry only — no domain, snapshot, or control-plane imports
 ```
 
-Static check (`internal/proxy/import_test.go` plus a repo-wide walk): `Dial`, `DialTimeout`, `Dialer.Dial`, `DialContext` idents are **forbidden by default** in every production `internal/*/*.go` except `internal/proxy`. Explicitly forbidden in `internal/tlsmitm` and `internal/http2x`. Allowed only in `internal/proxy` and `*_test.go` / `internal/proxytest`. A `DialTLS` **field** on `http2.Transport` is allowed only if it stays nil.
+Static check (`internal/proxy/import_test.go` plus a repo-wide walk): `Dial`, `DialTimeout`, `Dialer.Dial`, `DialContext`, `DialUDP`, `ListenUDP`, and `ListenPacket` idents are **forbidden by default** in every production `internal/*/*.go` except `internal/proxy`. Explicitly forbidden in `internal/tlsmitm` and `internal/http2x`. Allowed only in `internal/proxy` and `*_test.go` / `internal/proxytest`. Do **not** forbid `net.Listen` (management REST and metrics already bind). A `DialTLS` **field** on `http2.Transport` is allowed only if it stays nil.
 
 ## CA private key handling
 

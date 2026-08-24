@@ -49,6 +49,7 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocol
 - **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) and Extended CONNECT (RFC 8441), including on the inner hop. Inner `:method=CONNECT` / `:protocol` is RST `PROTOCOL_ERROR`, no flow. Client-facing h2c regular GET/POST is allowed when `clientCleartext` is on; RFC 9113 CONNECT streams RST (D62 splice is not wired). Flag-off `PRI` remains a hard close.
 - **gRPC protobuf codec.** gRPC is HTTP/2 headers + DATA only.
 - **SOCKS UDP ASSOCIATE, GSSAPI.** BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`. Username/password is opt-in `acceptUserPass` (D60); flag-off stays NO AUTH (`0x00`). GSSAPI (method `0x01`) is never selected.
+- **SOCKS GSSAPI, username/password.** NO AUTH (`0x00`) only. BIND is 1.2 opt-in (`acceptBind`, default off); UDP ASSOCIATE is 1.2 opt-in (`acceptUDPAssociate`, default off); flag-off SOCKS5 BIND/UDP stays `05 07`. No QUIC, no orig-dest UDP.
 - **WebSocket frame inspect.** `101` + bidirectional copy. Websocket Upgrade on an h2 inner session is rejected.
 - **SOCKS BIND, UDP ASSOCIATE, GSSAPI, username/password.** NO AUTH (`0x00`) only.
 - **WebSocket frame inspect on HTTP/2.** HTTP/1.1 `101` inspect is opt-in `protocols.websocket.inspectFrames` (D67). Websocket Upgrade / Extended CONNECT on an h2 inner session is still RST (D48).

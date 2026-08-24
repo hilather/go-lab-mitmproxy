@@ -61,6 +61,8 @@ export type WebSocketInfo = {
   frameCount: number;
   truncated: boolean;
   frames?: WebSocketFrame[];
+  lastDest?: string;
+  datagrams?: number;
 };
 
 export type TLSInfo = {

@@ -53,8 +53,11 @@ func (s *Server) liveBindAddrs() []string {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]string, 0, len(s.binds))
+	out := make([]string, 0, len(s.binds)+len(s.udps))
 	for a := range s.binds {
+		out = append(out, a)
+	}
+	for a := range s.udps {
 		out = append(out, a)
 	}
 	return out
@@ -69,9 +72,16 @@ func (s *Server) closeBinds() {
 	for _, ln := range s.binds {
 		lns = append(lns, ln)
 	}
+	pcs := make([]net.PacketConn, 0, len(s.udps))
+	for _, pc := range s.udps {
+		pcs = append(pcs, pc)
+	}
 	s.mu.Unlock()
 	for _, ln := range lns {
 		_ = ln.Close()
+	}
+	for _, pc := range pcs {
+		_ = pc.Close()
 	}
 }
 
