@@ -281,6 +281,70 @@ func TestH2CConnectRawTunnel(t *testing.T) {
 	}
 }
 
+func TestH2CConnectRawIdleTimeout(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	originDone := make(chan time.Duration, 1)
+	go func() {
+		start := time.Now()
+		c, err := ln.Accept()
+		if err != nil {
+			originDone <- 0
+			return
+		}
+		defer func() { _ = c.Close() }()
+		buf := make([]byte, 8)
+		_, _ = c.Read(buf)
+		originDone <- time.Since(start)
+	}()
+
+	spec := loadSpec(t)
+	spec.Protocols.HTTP2.ClientCleartext = true
+	spec.Proxy.Admission.IdleTimeout = 200 * time.Millisecond
+	spec.Proxy.Admission.SessionTimeout = 5 * time.Second
+	px := startProxy(t, Options{Spec: spec})
+	fr, c := h2cRawClient(t, px.Addr().String())
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	writeH2CHeaders(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodConnect},
+		{Name: ":authority", Value: ln.Addr().String()},
+	}, false)
+	st := readH2CStatus(t, fr, 1)
+	if st != http.StatusOK {
+		t.Fatalf("status %d want 200", st)
+	}
+	select {
+	case d := <-originDone:
+		if d == 0 {
+			t.Fatal("origin accept failed")
+		}
+		if d > time.Second {
+			t.Fatalf("origin FD lived %s (idleTimeout=200ms)", d)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("origin FD outlived idleTimeout")
+	}
+	start := time.Now()
+	deadline := start.Add(time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			return
+		}
+		if rst, ok := f.(*http2.RSTStreamFrame); ok && rst.StreamID == 1 {
+			return
+		}
+		if df, ok := f.(*http2.DataFrame); ok && df.StreamID == 1 && df.StreamEnded() {
+			return
+		}
+	}
+	t.Fatal("idleTimeout did not RST or DATA END_STREAM")
+}
+
 func TestH2CConnectIntercept(t *testing.T) {
 	var sawURI string
 	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

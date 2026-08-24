@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
@@ -213,9 +212,18 @@ func (s *Server) h2cConnectTunnel(ctx context.Context, in http2x.Stream, sess *r
 
 	s.capture(h2cConnectFlow(req, host, in.ID, http.StatusOK, "", started), sess)
 	s.metrics.session("ok")
+	ad := sess.spec.Proxy.Admission
 	return http2x.Tunnel{
 		Kind:   http2x.TunnelRaw,
-		Origin: &trackedConn{Conn: up, untrack: func() { s.untrack(up) }},
+		Origin: up,
+		AfterAck: func(client net.Conn) {
+			defer s.untrack(up)
+			defer func() { _ = up.Close() }()
+			if client != nil {
+				defer func() { _ = client.Close() }()
+			}
+			s.tunnel(client, nil, up, ad)
+		},
 	}, nil
 }
 
@@ -337,27 +345,6 @@ func h2cConnectFlow(req *http.Request, host string, streamID uint32, status int,
 		f.HTTP2 = &model.HTTP2Info{StreamID: streamID}
 	}
 	return f
-}
-
-type trackedConn struct {
-	net.Conn
-	untrack func()
-	once    sync.Once
-}
-
-func (c *trackedConn) Close() error {
-	err := c.Conn.Close()
-	c.once.Do(func() {
-		if c.untrack != nil {
-			c.untrack()
-		}
-	})
-	return err
-}
-
-func (c *trackedConn) CloseWrite() error {
-	closeWrite(c.Conn)
-	return nil
 }
 
 func h2cForbidden(in http2x.Stream) bool {
