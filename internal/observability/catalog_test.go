@@ -42,7 +42,7 @@ func TestCatalogLabelPolicy(t *testing.T) {
 		MetricStoreBytes, MetricStoreEvictions, MetricStoreFullTotal,
 		MetricStoreWaiters, MetricHTTPRequestsTotal, MetricHTTPRequestDuration,
 		MetricMCPCallsTotal, MetricAuthFailuresTotal, MetricAuditEventsTotal,
-		MetricH2TrailerDroppedTotal,
+		MetricH2TrailerDroppedTotal, MetricWSFramesTotal,
 	}
 	for _, name := range required {
 		if !seen[name] {
@@ -111,7 +111,7 @@ func TestForbiddenAndAllowed(t *testing.T) {
 			t.Fatalf("%s should be forbidden", k)
 		}
 	}
-	for _, k := range []string{"result", "capability", "code_class", "tool", "reason", "event", "action", "scheme", "intercepted"} {
+	for _, k := range []string{"result", "capability", "code_class", "tool", "reason", "event", "action", "scheme", "intercepted", "opcode"} {
 		if !AllowedLabel(k) {
 			t.Fatalf("%s should be allowed", k)
 		}

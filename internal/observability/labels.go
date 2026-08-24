@@ -140,6 +140,16 @@ func InterceptedLabel(ok bool) string {
 	return "false"
 }
 
+// WSOpcodeLabel collapses a WebSocket opcode to a bounded label.
+func WSOpcodeLabel(opcode string) string {
+	switch strings.ToLower(strings.TrimSpace(opcode)) {
+	case "continuation", "text", "binary", "close", "ping", "pong":
+		return strings.ToLower(strings.TrimSpace(opcode))
+	default:
+		return "other"
+	}
+}
+
 // FlowResult collapses a capture outcome to a bounded label.
 func FlowResult(result string) string {
 	switch strings.ToLower(strings.TrimSpace(result)) {

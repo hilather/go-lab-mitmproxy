@@ -105,3 +105,11 @@ func (c *Client) Buffered() int {
 	}
 	return c.br.Buffered()
 }
+
+// Reader is the buffered connection reader (leftover after ReadResponse).
+func (c *Client) Reader() io.Reader {
+	if c == nil {
+		return nil
+	}
+	return c.br
+}

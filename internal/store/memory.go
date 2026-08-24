@@ -48,6 +48,7 @@ type record struct {
 	resident    int64
 	reqSpill    string
 	respSpill   string
+	wsSpill     string
 	wasPaused   bool
 	pauseDone   bool
 	pauseResult pauseResult
@@ -57,6 +58,7 @@ type recSnap struct {
 	flow      *model.Flow
 	reqSpill  string
 	respSpill string
+	wsSpill   string
 }
 
 func normalizeOptions(opts Options) (Options, error) {
@@ -168,6 +170,44 @@ func applyBodyCaps(f *model.Flow, max int64) {
 	if truncateSide(&f.Response, max) {
 		f.Truncated = true
 	}
+	if truncateWebSocket(f.WebSocket, max) {
+		f.Truncated = true
+	}
+}
+
+func truncateWebSocket(ws *model.WebSocketInfo, max int64) bool {
+	if ws == nil || max <= 0 {
+		return false
+	}
+	truncated := ws.Truncated
+	if len(ws.Frames) > model.WSMaxFrames {
+		ws.Frames = ws.Frames[:model.WSMaxFrames]
+		ws.Truncated = true
+		truncated = true
+	}
+	var used int64
+	for i := range ws.Frames {
+		p := ws.Frames[i].Payload
+		remain := max - used
+		if remain <= 0 {
+			ws.Frames = ws.Frames[:i]
+			ws.Truncated = true
+			return true
+		}
+		if int64(len(p)) > remain {
+			ws.Frames[i].Payload = append([]byte(nil), p[:remain]...)
+			ws.Frames[i].Truncated = true
+			ws.Frames[i].Size = len(ws.Frames[i].Payload)
+			ws.Frames = ws.Frames[:i+1]
+			ws.Truncated = true
+			return true
+		}
+		used += int64(len(p))
+		if ws.Frames[i].Size == 0 {
+			ws.Frames[i].Size = len(p)
+		}
+	}
+	return truncated
 }
 
 func truncateSide(msg *model.HTTPMessage, max int64) bool {
@@ -770,5 +810,6 @@ func snapshotRecord(rec *record) recSnap {
 		flow:      cloneFlow(rec.flow),
 		reqSpill:  rec.reqSpill,
 		respSpill: rec.respSpill,
+		wsSpill:   rec.wsSpill,
 	}
 }

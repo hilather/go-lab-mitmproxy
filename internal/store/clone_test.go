@@ -14,6 +14,10 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 		OriginalDest: "10.0.0.1:443",
 		HTTP2:        &model.HTTP2Info{StreamID: 7},
 		SOCKS:        &model.SOCKSInfo{Version: 5, ATYP: "domain", Dest: "app.lab:443", Command: "connect", BND: "127.0.0.1:54321", User: "lab-socks"},
+		WebSocket: &model.WebSocketInfo{
+			FrameCount: 1,
+			Frames:     []model.WebSocketFrame{{Opcode: "text", Payload: []byte("hi"), Size: 2}},
+		},
 		Request: model.HTTPMessage{
 			Headers:  []model.Header{{Name: "Host", Value: "app.lab"}},
 			Trailers: []model.Header{{Name: "X-T", Value: "1"}},
@@ -27,6 +31,7 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 	in.HTTP2.StreamID = 99
 	in.SOCKS.Dest = "mutated"
 	in.SOCKS.User = "mutated"
+	in.WebSocket.Frames[0].Payload[0] = 'X'
 	in.Request.Trailers[0].Value = "mut"
 	in.Response.Trailers[0].Value = "mut"
 	in.Request.Body[0] = 'X'
@@ -35,6 +40,9 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 	}
 	if out.SOCKS == nil || out.SOCKS.Dest != "app.lab:443" || out.SOCKS.BND != "127.0.0.1:54321" || out.SOCKS.User != "lab-socks" {
 		t.Fatalf("socks=%+v", out.SOCKS)
+	}
+	if out.WebSocket == nil || string(out.WebSocket.Frames[0].Payload) != "hi" {
+		t.Fatalf("websocket=%+v", out.WebSocket)
 	}
 	if out.Request.Trailers[0].Value != "1" || out.Response.Trailers[0].Value != "2" {
 		t.Fatalf("trailers mutated: %+v %+v", out.Request.Trailers, out.Response.Trailers)

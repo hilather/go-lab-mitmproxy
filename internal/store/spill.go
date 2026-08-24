@@ -10,13 +10,15 @@ import (
 )
 
 // ULID (26 Crockford) plus -req.body / -resp.body, optional .tmp.
-var spillName = regexp.MustCompile(`(?i)^[0-7][0-9A-HJKMNP-TV-Z]{25}-(req|resp)\.body(\.tmp)?$`)
+var spillName = regexp.MustCompile(`(?i)^[0-7][0-9A-HJKMNP-TV-Z]{25}-(req|resp|ws)\.body(\.tmp)?$`)
 
 type spillJob struct {
 	reqTmp    string
 	reqFinal  string
 	respTmp   string
 	respFinal string
+	wsTmp     string
+	wsFinal   string
 }
 
 func writeSpillTemps(dir string, threshold int64, f *model.Flow) (*spillJob, error) {
@@ -41,10 +43,37 @@ func writeSpillTemps(dir string, threshold int64, f *model.Flow) (*spillJob, err
 		job.respTmp = tmp
 		job.respFinal = filepath.Join(dir, f.ID+"-resp.body")
 	}
-	if job.reqTmp == "" && job.respTmp == "" {
+	if blob := wsConcat(f.WebSocket); int64(len(blob)) >= threshold {
+		tmp := filepath.Join(dir, f.ID+"-ws.body.tmp")
+		if err := os.WriteFile(tmp, blob, 0o600); err != nil {
+			unlinkSpillJob(job)
+			return nil, fmt.Errorf("%w: websocket: %v", ErrSpill, err)
+		}
+		job.wsTmp = tmp
+		job.wsFinal = filepath.Join(dir, f.ID+"-ws.body")
+	}
+	if job.reqTmp == "" && job.respTmp == "" && job.wsTmp == "" {
 		return nil, nil
 	}
 	return job, nil
+}
+
+func wsConcat(ws *model.WebSocketInfo) []byte {
+	if ws == nil {
+		return nil
+	}
+	var n int
+	for i := range ws.Frames {
+		n += len(ws.Frames[i].Payload)
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]byte, 0, n)
+	for i := range ws.Frames {
+		out = append(out, ws.Frames[i].Payload...)
+	}
+	return out
 }
 
 func writeSideSpill(dir string, threshold int64, id, side string, body []byte) (string, error) {
@@ -84,7 +113,28 @@ func commitSpill(rec *record, job *spillJob) error {
 		rec.respSpill = job.respFinal
 		rec.flow.Response.Body = nil
 	}
+	if job.wsTmp != "" {
+		if err := os.Rename(job.wsTmp, job.wsFinal); err != nil {
+			unlinkRecord(rec)
+			return fmt.Errorf("%w: rename websocket: %v", ErrSpill, err)
+		}
+		job.wsTmp = ""
+		rec.wsSpill = job.wsFinal
+		clearWSPayloads(rec.flow.WebSocket)
+	}
 	return nil
+}
+
+func clearWSPayloads(ws *model.WebSocketInfo) {
+	if ws == nil {
+		return
+	}
+	for i := range ws.Frames {
+		if ws.Frames[i].Size == 0 {
+			ws.Frames[i].Size = len(ws.Frames[i].Payload)
+		}
+		ws.Frames[i].Payload = nil
+	}
 }
 
 func unlinkSpillJob(job *spillJob) {
@@ -98,6 +148,10 @@ func unlinkSpillJob(job *spillJob) {
 	if job.respTmp != "" {
 		_ = os.Remove(job.respTmp)
 		job.respTmp = ""
+	}
+	if job.wsTmp != "" {
+		_ = os.Remove(job.wsTmp)
+		job.wsTmp = ""
 	}
 }
 
@@ -137,6 +191,10 @@ func unlinkRecord(rec *record) {
 		_ = os.Remove(rec.respSpill)
 		rec.respSpill = ""
 	}
+	if rec.wsSpill != "" {
+		_ = os.Remove(rec.wsSpill)
+		rec.wsSpill = ""
+	}
 }
 
 func loadSpill(s recSnap) error {
@@ -154,6 +212,28 @@ func loadSpill(s recSnap) error {
 			return err
 		}
 		s.flow.Response.Body = b
+	}
+	if s.wsSpill != "" && s.flow.WebSocket != nil {
+		b, err := os.ReadFile(s.wsSpill)
+		if err != nil {
+			return err
+		}
+		off := 0
+		for i := range s.flow.WebSocket.Frames {
+			n := s.flow.WebSocket.Frames[i].Size
+			if n == 0 {
+				n = len(s.flow.WebSocket.Frames[i].Payload)
+			}
+			if n == 0 {
+				continue
+			}
+			if off+n > len(b) {
+				s.flow.WebSocket.Frames[i].Payload = append([]byte(nil), b[off:]...)
+				break
+			}
+			s.flow.WebSocket.Frames[i].Payload = append([]byte(nil), b[off:off+n]...)
+			off += n
+		}
 	}
 	return nil
 }

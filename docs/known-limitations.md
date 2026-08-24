@@ -51,6 +51,8 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocol
 - **gRPC protobuf codec.** gRPC is HTTP/2 headers + DATA only.
 - **SOCKS UDP ASSOCIATE, GSSAPI.** BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`. Username/password is opt-in `acceptUserPass` (D60); flag-off stays NO AUTH (`0x00`). GSSAPI (method `0x01`) is never selected.
 - **WebSocket frame inspect.** `101` + bidirectional copy. Websocket Upgrade on an h2 inner session is rejected.
+- **SOCKS BIND, UDP ASSOCIATE, GSSAPI, username/password.** NO AUTH (`0x00`) only.
+- **WebSocket frame inspect on HTTP/2.** HTTP/1.1 `101` inspect is opt-in `protocols.websocket.inspectFrames` (D67). Websocket Upgrade / Extended CONNECT on an h2 inner session is still RST (D48).
 - **HTTP Basic on management (D6).** `Authorization: Basic` is 401 Bearer.
 - **Public CA, SSL-strip, exploit/fuzzer UX, chaos engine, durable flow-directory, multi-replica store.**
 - **Docker `-p 8890:8890` as “transparent mode.”** Publishing `8890` is not transparent (D50).
