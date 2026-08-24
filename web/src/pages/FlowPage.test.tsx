@@ -255,6 +255,12 @@ describe("FlowPage", () => {
           },
         ],
       },
+  it("shows PUSH_PROMISE parent and promised ids, without a gRPC tab when grpc is absent", async () => {
+    const pushedFlow = {
+      ...flow,
+      id: "01JPUSH",
+      protocol: "h2",
+      http2: { streamId: 2, parentStreamId: 1, promisedId: 2, pushed: true },
     };
     vi.stubGlobal(
       "fetch",
@@ -265,6 +271,8 @@ describe("FlowPage", () => {
         }
         if (url.includes("/v1/flows/01JGRPC") && !url.includes("/request") && !url.includes("/response")) {
           return json(200, grpcFlow);
+        if (url.includes("/v1/flows/01JPUSH") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, pushedFlow);
         }
         return json(404, {
           status: 404,
@@ -291,5 +299,16 @@ describe("FlowPage", () => {
     expect(await screen.findByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument();
     expect(document.querySelector("iframe")).toBeNull();
     expect(document.querySelector("[dangerouslySetInnerHTML]")).toBeNull();
+      { route: "/flows/01JPUSH" },
+    );
+
+    expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
+    expect(screen.getByText("h2")).toHaveClass("badge");
+    expect(screen.getByText("stream 2")).toHaveClass("badge");
+    expect(screen.getByText("Pushed")).toBeInTheDocument();
+    expect(screen.getByText("yes (parent 1, promised 2)")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Frames/i })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /gRPC/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
   });
 });

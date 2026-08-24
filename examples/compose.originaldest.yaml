@@ -1,4 +1,5 @@
 # Original-destination (Linux REDIRECT) overlay.
+# 1.2 protocol flags stay off (bootstrap testdata/container/originaldest.yaml).
 #
 # Publishing host port 8890 is NOT transparent intercept (D50). Docker
 # published-port DNAT does not preserve the pre-DNAT destination on the

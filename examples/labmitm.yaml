@@ -8,6 +8,11 @@
 # v1.1.0 + compose image labmitm:local (not a GHCR digest). A later
 # appliance tag will align vendored examples/ with the lab-owned copy;
 # do not bump the lab pin off v1.1.0 for comments.
+# 1.2 protocol flags stay off (omitted materializes false): acceptBind,
+# acceptUDPAssociate, acceptUserPass, protocols.http2.{clientCleartext,
+# origin,extendedConnect,capturePush,grpcDecode},
+# protocols.websocket.inspectFrames. Overlay must not turn them on.
+# Empty spec remains a 1.0 process. Catalog stays 30. D7 stands.
 apiVersion: labmitm.dev/v1alpha1
 kind: LabMITM
 metadata:
