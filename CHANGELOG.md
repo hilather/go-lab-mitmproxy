@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- HTTPS `proxy.Replay` now closes the one-shot origin TLS connection after the response body is drained. Repeated inspector/REST/MCP HTTPS replays no longer leak an idle FD and Transport goroutines per call.
 
 ### Removed or deprecated
 

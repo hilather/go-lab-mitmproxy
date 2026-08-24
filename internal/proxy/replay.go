@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
@@ -309,6 +310,7 @@ func (s *Server) roundTripReplay(ctx context.Context, req *http.Request, res res
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
 			return tlsConn, nil
 		},
+		DisableKeepAlives:  true,
 		ForceAttemptHTTP2:  false,
 		DisableCompression: true,
 		TLSNextProto:       map[string]func(string, *tls.Conn) http.RoundTripper{},
@@ -322,7 +324,32 @@ func (s *Server) roundTripReplay(ctx context.Context, req *http.Request, res res
 		_ = tlsConn.Close()
 		return nil, err
 	}
+	// One-shot Transport: close the TLS conn after the caller drains Body.
+	// Without this, persistConn stays idle forever (IdleConnTimeout 0).
+	if resp.Body == nil {
+		tr.CloseIdleConnections()
+		_ = tlsConn.Close()
+		return resp, nil
+	}
+	resp.Body = &closeAfterBody{ReadCloser: resp.Body, after: func() {
+		tr.CloseIdleConnections()
+		_ = tlsConn.Close()
+	}}
 	return resp, nil
+}
+
+type closeAfterBody struct {
+	io.ReadCloser
+	once  sync.Once
+	after func()
+}
+
+func (c *closeAfterBody) Close() error {
+	err := c.ReadCloser.Close()
+	if c.after != nil {
+		c.once.Do(c.after)
+	}
+	return err
 }
 
 func replayTLSConfig(auth *tlsmitm.Authority, sni string, spec model.Spec) *tls.Config {
