@@ -157,6 +157,43 @@ func TestH2CRegularGET(t *testing.T) {
 	}
 }
 
+func TestH2CExpectStripped(t *testing.T) {
+	var got, expect string
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expect = r.Header.Get("Expect")
+		b, _ := io.ReadAll(r.Body)
+		got = string(b)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	spec := loadSpec(t)
+	spec.Protocols.HTTP2.ClientCleartext = true
+	px := startProxy(t, Options{Spec: spec})
+	host := mustURL(t, originURL).Host
+	fr, c := h2cRawClient(t, px.Addr().String())
+	defer func() { _ = c.Close() }()
+	writeH2CHeaders(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodPost},
+		{Name: ":scheme", Value: "http"},
+		{Name: ":authority", Value: host},
+		{Name: ":path", Value: "/e"},
+		{Name: "expect", Value: "100-continue"},
+		{Name: "content-type", Value: "text/plain"},
+	}, false)
+	if err := fr.WriteData(1, true, []byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	st := readH2CStatus(t, fr, 1)
+	if st != http.StatusOK {
+		t.Fatalf("status %d (Expect must be stripped, not 500 hijack)", st)
+	}
+	if expect != "" {
+		t.Fatalf("origin saw Expect=%q", expect)
+	}
+	if got != "ping" {
+		t.Fatalf("origin body %q", got)
+	}
+}
+
 func TestH2CSchemeHTTPS400(t *testing.T) {
 	spec := loadSpec(t)
 	spec.Protocols.HTTP2.ClientCleartext = true

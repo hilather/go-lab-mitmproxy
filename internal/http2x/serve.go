@@ -280,7 +280,7 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			in := streamFromMeta(id, f, body)
 			handler := h
 			if tun != nil && strings.EqualFold(in.Method, http.MethodConnect) {
-				// RFC 9113 CONNECT splice is PR 9; call tun then RST.
+				// D62 CONNECT splice is not wired: call tun then RST.
 				tunn := tun
 				handler = func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
 					_, err := tunn(ctx, in)

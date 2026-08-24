@@ -275,7 +275,7 @@ Default-off `protocols.http2.clientCleartext` (Reset-only). Requires [ADR 0012](
 | Flag-on PRI | Hijack, no Write. `http.Server` already consumed `PRI * HTTP/2.0\r\n\r\n`. Leftover is `SM\r\n\r\n` plus SETTINGS in the `bufio.ReadWriter`. `ServeConn` must **not** `ReadFull` the 24-byte preface from the raw conn. Transcript [testdata/proxy/h2c-pri-leftover.txt](https://github.com/hilather/go-lab-mitmproxy/blob/main/testdata/proxy/h2c-pri-leftover.txt) must fail if the preface is re-read from the conn after Hijack. |
 | Regular `GET`/`POST` `:scheme=http` `:authority` `:path` | Absolute-form equivalent. Same guards as `serveAbsolute`. **Allowed** (not CONNECT-only). |
 | `:scheme=https` regular | `400` `validation_failed`. Metric `reason="absolute_https"`. |
-| `:method=CONNECT` (RFC 9113 §8.5) | RST until the CONNECT PR. Orig-dest tagged CONNECT is `400`, no Dial (D57). |
+| `:method=CONNECT` (RFC 9113 §8.5) | RST (`PROTOCOL_ERROR`). Orig-dest tagged CONNECT is `400`, no Dial (D57). D62 splice is not wired. |
 | Missing `:authority` | `400`; no Dial. |
 
 `http2x.ServeClient` remains the inner ALPN-`h2` wrapper (`PrefaceFull` on the TLS conn). Production Dial stays in `internal/proxy`.

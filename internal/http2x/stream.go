@@ -73,10 +73,11 @@ type ServeOpts struct {
 
 // TunnelHandler is CONNECT / Extended CONNECT. Nil tun → those streams go to
 // StreamHandler (proxy may RST or return 400). Non-nil: CONNECT skips
-// StreamHandler. RFC 9113 CONNECT splice is PR 9; this PR RSTs after tun.
+// StreamHandler. RFC 9113 CONNECT (D62) is not spliced here: tun is invoked
+// then the stream is RST.
 type TunnelHandler func(ctx context.Context, in Stream) (Tunnel, error)
 
-// TunnelKind is the post-2xx CONNECT handoff (PR 9 / PR 7).
+// TunnelKind is the post-2xx CONNECT handoff (D62 raw/intercept, D63 websocket).
 type TunnelKind int
 
 const (
