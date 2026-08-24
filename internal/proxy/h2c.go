@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/http2x"
@@ -57,26 +60,19 @@ func (s *Server) serveH2C(w http.ResponseWriter, req *http.Request, sess *ruleSe
 		maxStreams = uint32(n)
 	}
 	_ = http2x.ServeConn(s.ctx, client, bufrw, http2x.ServeOpts{
-		Preface:              http2x.PrefaceTail,
-		MaxConcurrentStreams: maxStreams,
+		Preface:               http2x.PrefaceTail,
+		MaxConcurrentStreams:  maxStreams,
+		EnableConnectProtocol: sess.spec.Protocols.HTTP2.ExtendedConnect,
 	}, func(ctx context.Context, in http2x.Stream) (*http.Response, []model.Header, error) {
 		return s.roundTripH2C(ctx, in, sess, tagged, dest)
-	}, nil)
+	}, func(ctx context.Context, in http2x.Stream) (http2x.Tunnel, error) {
+		return s.h2cTunnel(ctx, in, sess, tagged)
+	})
 }
 
 func (s *Server) roundTripH2C(ctx context.Context, in http2x.Stream, pinned *ruleSession, tagged bool, dest origDestMeta) (*http.Response, []model.Header, error) {
 	if ctx == nil {
 		ctx = s.ctx
-	}
-	if strings.EqualFold(in.Method, http.MethodConnect) {
-		if tagged {
-			rw := newCaptureRW()
-			writeProxyError(rw, http.StatusBadRequest, domainerr.CodeValidationFailed,
-				"CONNECT is not supported on original-destination", "")
-			return rw.response(), nil, nil
-		}
-		// RFC 9113 CONNECT (D62) is not tunneled on h2c yet; RST.
-		return nil, nil, http2x.ErrInnerCONNECT
 	}
 	if h2cForbidden(in) {
 		return nil, nil, http2x.ErrInnerCONNECT
@@ -133,6 +129,235 @@ func (s *Server) roundTripH2C(ctx context.Context, in http2x.Stream, pinned *rul
 	}
 	s.serveAbsolute(rw, inner, sess)
 	return rw.response(), nil, nil
+}
+
+// h2cTunnel is the client-facing CONNECT / :protocol handler (D62).
+// Orig-dest tagged CONNECT is 400, no Dial. Nested inner CONNECT is not
+// this path (innerH2Tunnel). Handshake failure is AfterAck RST/close, not a
+// DATA splice (D20).
+func (s *Server) h2cTunnel(ctx context.Context, in http2x.Stream, pinned *ruleSession, tagged bool) (http2x.Tunnel, error) {
+	if tagged {
+		return http2x.Tunnel{Status: http.StatusBadRequest}, nil
+	}
+	sess := pinned
+	if sess == nil {
+		sess = s.beginSession()
+	}
+	proto := strings.TrimSpace(in.Protocol)
+	if proto != "" {
+		if !sess.spec.Protocols.HTTP2.ExtendedConnect || !strings.EqualFold(in.Method, http.MethodConnect) || !strings.EqualFold(proto, "websocket") {
+			s.metrics.reject("http2")
+			return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+		}
+		return s.h2cWebSocketTunnel(ctx, in, sess)
+	}
+	if !strings.EqualFold(in.Method, http.MethodConnect) {
+		s.metrics.reject("http2")
+		return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+	}
+	return s.h2cConnectTunnel(ctx, in, sess)
+}
+
+func (s *Server) h2cConnectTunnel(ctx context.Context, in http2x.Stream, sess *ruleSession) (http2x.Tunnel, error) {
+	started := time.Now()
+	req := h2cConnectRequest(in)
+	host, port, err := splitAuthority(in.Authority, "")
+	if err != nil || port == "" {
+		return http2x.Tunnel{Status: http.StatusBadRequest}, nil
+	}
+	if ctx == nil {
+		ctx = s.ctx
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, sess.spec.Proxy.Admission.UpstreamTimeout)
+	defer cancel()
+
+	res, err := resolveThenGuard(dialCtx, s.resolver, sess.spec.Proxy.Targets, host, port)
+	if err != nil {
+		if isDNS(err) {
+			s.capture(h2cConnectFlow(req, host, in.ID, http.StatusBadGateway, "dns", started), sess)
+			return http2x.Tunnel{Status: http.StatusBadGateway}, nil
+		}
+		s.metrics.reject("target_denied")
+		s.capture(h2cConnectFlow(req, host, in.ID, http.StatusForbidden, string(domainerr.CodeTargetDenied), started), sess)
+		return http2x.Tunnel{Status: http.StatusForbidden}, nil
+	}
+
+	up, err := s.dialPinnedTO(dialCtx, "tcp", pinnedAddr(res.Selected, res.Port), sess.spec.Proxy.Admission.DialTimeout)
+	if err != nil {
+		s.capture(h2cConnectFlow(req, host, in.ID, http.StatusBadGateway, "dial", started), sess)
+		return http2x.Tunnel{Status: http.StatusBadGateway}, nil
+	}
+	s.track(up)
+
+	if shouldIntercept(sess.spec.TLS, host, port) {
+		return http2x.Tunnel{
+			Kind:   http2x.TunnelIntercept,
+			Origin: up,
+			AfterAck: func(client net.Conn) {
+				defer s.untrack(up)
+				defer func() { _ = up.Close() }()
+				if client != nil {
+					defer func() { _ = client.Close() }()
+				}
+				s.serveInterceptConn(client, nil, up, interceptMeta{
+					ConnectHost: host,
+					Port:        port,
+					Res:         res,
+					Started:     started,
+					ClientReq:   req,
+					Via:         "http-proxy",
+				}, sess)
+			},
+		}, nil
+	}
+
+	s.capture(h2cConnectFlow(req, host, in.ID, http.StatusOK, "", started), sess)
+	s.metrics.session("ok")
+	return http2x.Tunnel{
+		Kind:   http2x.TunnelRaw,
+		Origin: &trackedConn{Conn: up, untrack: func() { s.untrack(up) }},
+	}, nil
+}
+
+func (s *Server) h2cWebSocketTunnel(ctx context.Context, in http2x.Stream, sess *ruleSession) (http2x.Tunnel, error) {
+	started := time.Now()
+	defPort := "80"
+	if strings.EqualFold(in.Scheme, "https") {
+		defPort = "443"
+	}
+	host, port, err := splitAuthority(in.Authority, defPort)
+	if err != nil || host == "" {
+		return http2x.Tunnel{Status: http.StatusBadRequest}, nil
+	}
+	if ctx == nil {
+		ctx = s.ctx
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, sess.spec.Proxy.Admission.UpstreamTimeout)
+	res, err := resolveThenGuard(dialCtx, s.resolver, sess.spec.Proxy.Targets, host, port)
+	if err != nil {
+		cancel()
+		if isDNS(err) {
+			return http2x.Tunnel{Status: http.StatusBadGateway}, nil
+		}
+		s.metrics.reject("target_denied")
+		return http2x.Tunnel{Status: http.StatusForbidden}, nil
+	}
+
+	inner := reconstructH2Request(in)
+	inner.Body = http.NoBody
+	inner.ContentLength = 0
+	if inner.Header == nil {
+		inner.Header = make(http.Header)
+	}
+	inner.Header.Set("Upgrade", "websocket")
+	inner.Header.Set("Connection", "Upgrade")
+	if inner.Header.Get("Sec-WebSocket-Version") == "" {
+		inner.Header.Set("Sec-WebSocket-Version", "13")
+	}
+	if inner.Header.Get("Sec-WebSocket-Key") == "" {
+		inner.Header.Set("Sec-WebSocket-Key", randomWebSocketKey())
+	}
+	inner = withH2Meta(inner, h2Meta{
+		streamID: in.ID,
+		protocol: model.FlowProtocolWebSocket,
+		pseudos:  append([]model.Header(nil), in.Pseudos...),
+	})
+	out, cap := s.originRequest(dialCtx, inner, res, host, port, nil, sess)
+	out.Method = http.MethodGet
+	out.Proto = "HTTP/1.1"
+	out.ProtoMajor = 1
+	out.ProtoMinor = 1
+	out.Body = nil
+	out.ContentLength = 0
+	stripLeadingColonHeaders(out.Header)
+	resp, sticky, err := s.roundTripUpgrade(dialCtx, out, res, sess)
+	cancel()
+	if err != nil {
+		return http2x.Tunnel{Status: http.StatusBadGateway}, nil
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		_ = drainOriginBody(resp)
+		if sticky != nil {
+			_ = sticky.Close()
+		}
+		return http2x.Tunnel{Status: resp.StatusCode, Headers: tunnelResponseHeaders(resp.Header)}, nil
+	}
+	s.track(sticky)
+	inspect := s.specOf(sess).Protocols.WebSocket.InspectFrames
+	f := s.flowFromReq(inner, host, "http", http.StatusOK, "", started)
+	f.Protocol = model.FlowProtocolWebSocket
+	f.Status = http.StatusOK
+	f.HTTP2 = &model.HTTP2Info{StreamID: in.ID}
+	if cap != nil {
+		f.Request.Body = cap.buf
+		f.Request.Truncated = cap.truncated
+	}
+	s.metrics.session("ok")
+	origin := wrapOriginUpgrade(sticky, resp.Body)
+	return http2x.Tunnel{
+		Kind:    http2x.TunnelWebSocket,
+		Headers: tunnelResponseHeaders(resp.Header),
+		AfterAck: func(client net.Conn) {
+			defer s.untrack(sticky)
+			defer func() { _ = sticky.Close() }()
+			defer func() {
+				if resp != nil && resp.Body != nil {
+					_ = resp.Body.Close()
+				}
+			}()
+			if client == nil {
+				return
+			}
+			defer func() { _ = client.Close() }()
+			if inspect {
+				s.inspectUpgrade(client, nil, origin, origin, sess, f)
+				s.capture(f, sess)
+				return
+			}
+			s.capture(f, sess)
+			s.tunnelUpgrade(client, nil, origin, origin, s.specOf(sess).Proxy.Admission)
+		},
+	}, nil
+}
+
+func h2cConnectRequest(in http2x.Stream) *http.Request {
+	return &http.Request{
+		Method:     http.MethodConnect,
+		Host:       in.Authority,
+		URL:        &url.URL{Host: in.Authority},
+		Header:     make(http.Header),
+		Proto:      "HTTP/2.0",
+		ProtoMajor: 2,
+	}
+}
+
+func h2cConnectFlow(req *http.Request, host string, streamID uint32, status int, ferr string, started time.Time) *model.Flow {
+	f := connectFlow(req, host, status, ferr, started)
+	if streamID != 0 {
+		f.HTTP2 = &model.HTTP2Info{StreamID: streamID}
+	}
+	return f
+}
+
+type trackedConn struct {
+	net.Conn
+	untrack func()
+	once    sync.Once
+}
+
+func (c *trackedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() {
+		if c.untrack != nil {
+			c.untrack()
+		}
+	})
+	return err
+}
+
+func (c *trackedConn) CloseWrite() error {
+	closeWrite(c.Conn)
+	return nil
 }
 
 func h2cForbidden(in http2x.Stream) bool {

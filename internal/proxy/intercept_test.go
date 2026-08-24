@@ -92,16 +92,23 @@ func TestInterceptTrustedClientSucceeds(t *testing.T) {
 		t.Fatal("missing tls intercept ok")
 	}
 	found := false
-	for _, f := range sink.Last() {
-		if f.Intercepted && f.Scheme == "https" && f.Method == http.MethodGet && strings.Contains(f.URL, "/hello") {
-			found = true
-			if f.TLS == nil || f.TLS.ALPN != tlsmitm.ALPN {
-				t.Fatalf("TLSInfo %+v", f.TLS)
-			}
-			if !f.TLS.UpstreamVerified {
-				t.Fatal("expected upstream verified")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, f := range sink.Last() {
+			if f.Intercepted && f.Scheme == "https" && f.Method == http.MethodGet && strings.Contains(f.URL, "/hello") {
+				found = true
+				if f.TLS == nil || f.TLS.ALPN != tlsmitm.ALPN {
+					t.Fatalf("TLSInfo %+v", f.TLS)
+				}
+				if !f.TLS.UpstreamVerified {
+					t.Fatal("expected upstream verified")
+				}
 			}
 		}
+		if found {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if !found {
 		t.Fatalf("no intercepted flow: %+v", sink.Last())

@@ -22,6 +22,7 @@ type framedStreamConn struct {
 
 	mu            sync.Mutex
 	writeClosed   bool
+	wrote         bool
 	writeDeadline time.Time
 }
 
@@ -55,12 +56,26 @@ func (c *framedStreamConn) Write(p []byte) (int, error) {
 		}); werr != nil {
 			return n, werr
 		}
+		c.mu.Lock()
+		c.wrote = true
+		c.mu.Unlock()
 		n += take
 	}
 	return n, nil
 }
 
 func (c *framedStreamConn) Close() error {
+	c.mu.Lock()
+	wrote := c.wrote
+	c.mu.Unlock()
+	if !wrote {
+		// Handshake fail after 2xx: RST the stream, do not DATA-tunnel (D20).
+		_ = c.write(func() error { return c.fr.WriteRSTStream(c.id, http2.ErrCodeConnect) })
+		if c.body != nil {
+			_ = c.body.Close()
+		}
+		return nil
+	}
 	_ = c.CloseWrite()
 	if c.body != nil {
 		_ = c.body.Close()

@@ -7,6 +7,7 @@
 // on the same listener (peek replay; no HTTP 200).
 // HTTP/2 preface is a hard close in the Handler unless
 // protocols.http2.clientCleartext (Reset-only; leftover SM+SETTINGS).
+// Flag-on h2c CONNECT (RFC 9113 §8.5) is one origin TCP per stream (D62).
 // TLS intercept
 // (tls.intercept:true on listed ports) mints a lab
 // leaf and runs an inner HTTP/1.1 session; handshake failure closes both

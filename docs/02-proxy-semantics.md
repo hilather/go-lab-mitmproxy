@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-23 (D61 h2c leftover + D63 inner Extended CONNECT)
+Last reviewed: 2026-08-23 (D62 RFC 9113 CONNECT on h2c)
 Related ADRs: 0002, 0009, 0010, 0012
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -317,10 +317,11 @@ Default-off `protocols.http2.clientCleartext` (Reset-only). Requires [ADR 0012](
 | Flag-on PRI | Hijack, no Write. `http.Server` already consumed `PRI * HTTP/2.0\r\n\r\n`. Leftover is `SM\r\n\r\n` plus SETTINGS in the `bufio.ReadWriter`. `ServeConn` must **not** `ReadFull` the 24-byte preface from the raw conn. Transcript [testdata/proxy/h2c-pri-leftover.txt](https://github.com/hilather/go-lab-mitmproxy/blob/main/testdata/proxy/h2c-pri-leftover.txt) must fail if the preface is re-read from the conn after Hijack. |
 | Regular `GET`/`POST` `:scheme=http` `:authority` `:path` | Absolute-form equivalent. Same guards as `serveAbsolute`. **Allowed** (not CONNECT-only). |
 | `:scheme=https` regular | `400` `validation_failed`. Metric `reason="absolute_https"`. |
-| `:method=CONNECT` (RFC 9113 §8.5) | RST (`PROTOCOL_ERROR`). Orig-dest tagged CONNECT is `400`, no Dial (D57). D62 splice is not wired. |
+| `:method=CONNECT` no `:protocol` `:authority=host:port` (RFC 9113 §8.5) | `resolveThenGuard` + `dialTCP` inside `TunnelHandler`. http2x writes `:status=200` HEADERS first (no HTTP/1.1 200). Then `TunnelRaw` DATA splice or `TunnelIntercept` AfterAck → `serveInterceptConn` on the framed stream (D62). Handshake failure closes/RST the stream — **no DATA tunnel** (D20). One stream = one origin TCP (D27). WINDOW_UPDATE via `outFlow.take`. Orig-dest tagged CONNECT is `400`, no Dial (D57). Missing port is `400`; no Dial. |
+| `:method=CONNECT` `:protocol=websocket` | Only if `extendedConnect`. Absolute-form websocket bootstrap then `TunnelWebSocket` AfterAck (D63). Other `:protocol` values RST, no flow. Flag-off RST. |
 | Missing `:authority` | `400`; no Dial. |
 
-`http2x.ServeClient` remains the inner ALPN-`h2` wrapper (`PrefaceFull` on the TLS conn). Production Dial stays in `internal/proxy`.
+`http2x.ServeClient` remains the inner ALPN-`h2` wrapper (`PrefaceFull` on the TLS conn). Client-facing CONNECT skips `StreamHandler` and uses `TunnelHandler`. Production Dial stays in `internal/proxy`.
 
 ## Related documents
 
