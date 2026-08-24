@@ -49,7 +49,7 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocol
 - **HTTP/2 or h2c on the client-facing cleartext proxy port.** `PRI * HTTP/2.0` on `:8888` **and** on `:8890` is a hard close.
 - **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) and Extended CONNECT (RFC 8441), including on the inner hop. Inner `:method=CONNECT` / `:protocol` is RST `PROTOCOL_ERROR`, no flow.
 - **gRPC protobuf codec.** gRPC is HTTP/2 headers + DATA only.
-- **SOCKS UDP ASSOCIATE, GSSAPI, username/password.** NO AUTH (`0x00`) only. BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`.
+- **SOCKS UDP ASSOCIATE, GSSAPI.** BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`. Username/password is opt-in `acceptUserPass` (D60); flag-off stays NO AUTH (`0x00`). GSSAPI (method `0x01`) is never selected.
 - **WebSocket frame inspect.** `101` + bidirectional copy. Websocket Upgrade on an h2 inner session is rejected.
 - **HTTP Basic on management (D6).** `Authorization: Basic` is 401 Bearer.
 - **Public CA, SSL-strip, exploit/fuzzer UX, chaos engine, durable flow-directory, multi-replica store.**

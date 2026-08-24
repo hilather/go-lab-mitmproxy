@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-23 (SOCKS BIND + user-pass)
 Related ADRs: 0002, 0003, 0005, 0007, 0009, 0010, 0012
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).
@@ -11,7 +11,7 @@ LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not 
 
 | Threat | Severity | Mitigation |
 |---|---|---|
-| Open proxy on a published bind used to attack third parties | **Critical** | Default bind `127.0.0.1:8888`; lab overlay documents LAN publish; target guards deny metadata/link-local; no Proxy-auth in 1.0 so **do not** publish without a network boundary |
+| Open proxy on a published bind used to attack third parties | **Critical** | Default bind `127.0.0.1:8888` (D10); lab overlay documents LAN publish; target guards deny metadata/link-local; no HTTP `Proxy-Authorization`. Opt-in SOCKS user-pass (D60) is **not** a substitute for a network boundary |
 | Stolen lab CA impersonates every HTTPS site the client trusts | **Critical** | Generate-in-memory default (restart rotates); files mode is a mounted secret; never log/export key; `GET /v1/ca` is cert-only and authenticated; UI copy states “lab-only, uninstall after use” |
 | Unauthenticated management read of captured bodies | **High** | Default `mode: bearer`; image fixture has a token file; unauthenticated `GET /v1/flows` is 401; no `dev-loopback-unauth` in the image default |
 | Body exfil via `mitm.read` token leak | **High** | File-ref tokens ≥256 bits; redaction in logs/export/audit (no `Authorization` / `Cookie` / `Set-Cookie` values in slog); audit records id/host/status/size, not bodies |
@@ -29,8 +29,9 @@ LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not 
 
 ## Data-plane vs management-plane
 
-- **Proxy:** unauthenticated (D17). Access control is bind address + target guards + lab network.
-- **Management:** bearer (D6). Same verifier for REST and MCP. UI exchanges bearer for cookie.
+- **Proxy HTTP hop:** unauthenticated (D17 remainder). No `Proxy-Authorization`. Access control is bind address + target guards + lab network.
+- **SOCKS:** optional RFC 1929 username/password when `listeners.proxy.acceptUserPass` ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D60). Fail-closed: if the flag is on, NO AUTH (`0x00`) is never selected even if offered. GSSAPI (`0x01`) is never selected. Credentials are file refs compiled into a snapshot side table (`SOCKSUsers` digests); they are not Canonical, not export, not management tokens, and not `internal/auth.Verifier`. Live `replaceRules` / `replaceAdmission` / `replaceTLS` copy `Previous.SOCKSUsers` and must not stat the password files. Matching YAML `id` may appear on `SOCKSInfo.User`; username and password are never logged, exported, or attached to a Flow. **SOCKS user-pass is not a substitute for a network boundary.** Default bind remains `127.0.0.1:8888` (D10).
+- **Management:** bearer (D6). Same verifier for REST and MCP. UI exchanges bearer for cookie. No HTTP Basic.
 
 ## Dial isolation
 
@@ -40,8 +41,8 @@ internal/tlsmitm    may import model, observability — handshake only; NO Dial
 internal/http2x     codec only (`golang.org/x/net/http2`); NO Dial; DialTLS stays nil
 internal/store      may import model, observability
 internal/rules      may import model
-internal/compiler   may import model, tlsmitm (CA generate/load)
-internal/snapshot   may import model
+internal/compiler   may import model, tlsmitm (CA generate/load), config; SOCKS user files on Start/Reset only
+internal/snapshot   may import model, rules, tlsmitm
 internal/app        may import model, store, snapshot, audit, config, compiler, proxy.Replay, observability
 internal/control/*  may import app, capabilities, auth, observability — NOT proxy internals except via app
 internal/observability  leaf telemetry only — no domain, snapshot, or control-plane imports
@@ -74,7 +75,7 @@ Default 1.0 view is escaped text. Optional preview iframe (off by default): `san
 ## Data handling
 
 - Flow contents are lab data and may contain credentials (cookies, tokens). Treat as secret-adjacent: do not put raw Host in info logs (`host_class=public|lab|ip|unknown` at info); audit “flow.captured” records id, host, status, size, not the body.
-- Export of config never includes token values or CA keys.
+- Export of config never includes token values, CA keys, SOCKS passwords, usernames, or `SOCKSUsers` digests.
 - `GET` raw request/response is authorized `mitm.read` — operators must understand that.
 
 ## Container

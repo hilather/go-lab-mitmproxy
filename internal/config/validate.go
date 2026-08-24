@@ -18,15 +18,33 @@ var (
 	compatPathPrefixPattern = regexp.MustCompile(`^/[-a-z0-9]+(/[-a-z0-9]+)*$`)
 )
 
+type validateOpts struct {
+	// skipUserPassFiles omits usernameFile/passwordFile existence and RFC 1929
+	// length checks. compiler.Compile sets this when Previous != nil so live
+	// apply does not stat SOCKS secrets (D60).
+	skipUserPassFiles bool
+}
+
 // Validate checks a (preferably normalized) state. It does not mutate st.
 func Validate(st *model.State) error {
+	return validateState(st, validateOpts{})
+}
+
+// ValidateLiveApply is Validate for live Compile (Previous set). It does not
+// stat SOCKS username/password files so replaceRules cannot fail on a vanished
+// file and cannot pick up new bytes without Reset (D60).
+func ValidateLiveApply(st *model.State) error {
+	return validateState(st, validateOpts{skipUserPassFiles: true})
+}
+
+func validateState(st *model.State, opts validateOpts) error {
 	if st == nil {
 		return domainerr.ValidationFailed("nil state",
 			domainerr.FieldViolation{Path: "", Code: violationRequired, Message: "state is nil"})
 	}
 	var vs []domainerr.FieldViolation
 	validateDocument(st, &vs)
-	validateListeners(&st.Spec.Listeners, &vs)
+	validateListeners(&st.Spec.Listeners, &vs, opts)
 	validateCompat(&st.Spec, &vs)
 	validateProtocols(&st.Spec.Protocols, &vs)
 	validateProxy(&st.Spec.Proxy, &vs)
@@ -69,7 +87,7 @@ func validateDocument(st *model.State, vs *[]domainerr.FieldViolation) {
 	}
 }
 
-func validateListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation) {
+func validateListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation, opts validateOpts) {
 	validateTCPAddr("spec.listeners.proxy.address", l.Proxy.Address, vs)
 	validateTCPAddr("spec.listeners.management.address", l.Management.Address, vs)
 	if l.Management.RESTPath != "" && !strings.HasPrefix(l.Management.RESTPath, "/") {
@@ -90,10 +108,10 @@ func validateListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation) {
 	if l.OriginalDestination.Enabled {
 		validateTCPAddr("spec.listeners.originalDestination.address", l.OriginalDestination.Address, vs)
 	}
-	validateProxyListener(&l.Proxy, vs)
+	validateProxyListener(&l.Proxy, vs, opts)
 }
 
-func validateProxyListener(p *model.ProxyListenerSpec, vs *[]domainerr.FieldViolation) {
+func validateProxyListener(p *model.ProxyListenerSpec, vs *[]domainerr.FieldViolation, opts validateOpts) {
 	if p.AcceptBind && !p.AcceptSOCKS5 && !p.AcceptSOCKS4 {
 		*vs = append(*vs, domainerr.FieldViolation{
 			Path:    "spec.listeners.proxy.acceptBind",
@@ -124,10 +142,10 @@ func validateProxyListener(p *model.ProxyListenerSpec, vs *[]domainerr.FieldViol
 			})
 		}
 	}
-	validateUserPassUsers(p.UserPass.Users, vs)
+	validateUserPassUsers(p.UserPass.Users, vs, opts.skipUserPassFiles)
 }
 
-func validateUserPassUsers(users []model.UserPassUserSpec, vs *[]domainerr.FieldViolation) {
+func validateUserPassUsers(users []model.UserPassUserSpec, vs *[]domainerr.FieldViolation, skipFiles bool) {
 	ids := map[string]string{}
 	for i, u := range users {
 		path := indexPath("spec.listeners.proxy.userPass.users", i)
@@ -147,13 +165,13 @@ func validateUserPassUsers(users []model.UserPassUserSpec, vs *[]domainerr.Field
 		}
 		if strings.TrimSpace(u.UsernameFile) == "" {
 			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".usernameFile", Code: violationRequired, Message: "usernameFile is required"})
-		} else {
+		} else if !skipFiles {
 			requireExistingFile(path+".usernameFile", u.UsernameFile, vs)
 			checkRFC1929FileLength(path+".usernameFile", u.UsernameFile, "username", vs)
 		}
 		if strings.TrimSpace(u.PasswordFile) == "" {
 			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".passwordFile", Code: violationRequired, Message: "passwordFile is required"})
-		} else {
+		} else if !skipFiles {
 			requireExistingFile(path+".passwordFile", u.PasswordFile, vs)
 			checkRFC1929FileLength(path+".passwordFile", u.PasswordFile, "password", vs)
 		}

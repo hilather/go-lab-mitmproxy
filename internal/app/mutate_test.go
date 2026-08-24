@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -284,6 +286,86 @@ func TestValidateUnknownOp(t *testing.T) {
 		Operations: []model.Operation{{Op: "replaceRelay"}},
 	})
 	requireCode(t, err, domainerr.CodeValidationFailed)
+}
+
+func TestReplaceRulesDoesNotRereadSOCKSPasswordFiles(t *testing.T) {
+	dir := t.TempDir()
+	uf := filepath.Join(dir, "user")
+	pf := filepath.Join(dir, "pass")
+	if err := os.WriteFile(uf, []byte("labuser\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pf, []byte("labpass12\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: t\nspec:\n  listeners:\n    proxy:\n      acceptSOCKS5: true\n      acceptUserPass: true\n      userPass:\n        users:\n          - id: lab-socks\n            usernameFile: " + uf + "\n            passwordFile: " + pf + "\n"
+	path := filepath.Join(dir, "labmitm.yaml")
+	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := Boot(context.Background(), Options{BootstrapPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	boot := svc.Active()
+	if boot == nil || len(boot.SOCKSUsers) != 1 {
+		t.Fatalf("SOCKSUsers=%v", boot)
+	}
+	first := boot.SOCKSUsers[0].Digest
+	if err := os.WriteFile(pf, []byte("newpassword1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		IdempotencyKey:   "socks-rules-1",
+		Reason:           "enable rules without rereading SOCKS files",
+		Operations:       []model.Operation{enableRules()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.Active().SOCKSUsers[0].Digest != first {
+		t.Fatal("replaceRules must not load new SOCKS password bytes")
+	}
+	if err := os.Remove(uf); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(pf); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: res.RuntimeRevision,
+		IdempotencyKey:   "socks-rules-2",
+		Reason:           "vanished SOCKS files must not fail replaceRules",
+		Operations: []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      "drop-x",
+					Enabled: true,
+					Phase:   model.RulePhaseRequest,
+					Match:   model.RuleMatchSpec{PathPrefix: "/x"},
+					Action:  model.RuleActionSpec{Type: model.ActionDrop, Status: 403},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("vanished password file failed replaceRules: %v", err)
+	}
+	if svc.Active().SOCKSUsers[0].Digest != first {
+		t.Fatal("vanished file must keep Previous.SOCKSUsers")
+	}
+	exp, err := svc.Export(context.Background(), actor(), ExportJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(exp.Body)
+	if strings.Contains(body, "labpass12") || strings.Contains(body, "newpassword1") || strings.Contains(body, "labuser") {
+		t.Fatalf("export leaked SOCKS secret: %s", body)
+	}
 }
 
 func TestExportJSON(t *testing.T) {

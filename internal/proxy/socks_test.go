@@ -11,13 +11,17 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/compiler"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/observability"
+	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 )
@@ -1039,5 +1043,184 @@ func TestSOCKS5NMethodsZeroCloses(t *testing.T) {
 	}
 	if px.Metrics().Rejected("socks_auth") < 1 {
 		t.Fatal("expected socks_auth")
+	}
+}
+
+func userPassSpec(t *testing.T) model.Spec {
+	t.Helper()
+	spec := socks5Spec(t)
+	spec.Listeners.Proxy.AcceptUserPass = true
+	spec.Listeners.Proxy.UserPass.Users = []model.UserPassUserSpec{{
+		ID:           "lab-socks",
+		UsernameFile: filepath.Join(moduleRoot(t), "testdata", "config", "valid", "socks-username"),
+		PasswordFile: filepath.Join(moduleRoot(t), "testdata", "config", "valid", "socks-password"),
+	}}
+	return spec
+}
+
+func startUserPassProxy(t *testing.T, opts Options) *Server {
+	t.Helper()
+	if opts.Spec.Listeners.Proxy.Address == "" {
+		opts.Spec = userPassSpec(t)
+	}
+	st := &model.State{
+		APIVersion: model.APIVersionV1Alpha1,
+		Kind:       model.KindLabMITM,
+		Metadata:   model.Metadata{Name: "t"},
+		Spec:       opts.Spec,
+	}
+	snap, err := compiler.Compile(t.Context(), st, compiler.CompileOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snaps := snapshot.NewStore()
+	snaps.InstallBootstrap(snap)
+	opts.Spec = snap.Canonical.Spec
+	opts.Snapshots = snaps
+	if opts.Authority == nil {
+		opts.Authority = snap.CA
+	}
+	return startProxy(t, opts)
+}
+
+func socks5UserPassAuth(t *testing.T, c net.Conn, user, pass string) []byte {
+	t.Helper()
+	req := []byte{0x01, byte(len(user))}
+	req = append(req, user...)
+	req = append(req, byte(len(pass)))
+	req = append(req, pass...)
+	writeAll(t, c, req)
+	return readN(t, c, 2)
+}
+
+func TestSOCKS5UserPassWrongPassword(t *testing.T) {
+	var logBuf bytes.Buffer
+	px := startUserPassProxy(t, Options{Logger: observability.NewLogger(&logBuf, observability.LevelDebug).WithSync()})
+	c := socksDial(t, px.Addr().String())
+	writeAll(t, c, []byte{0x05, 0x01, 0x02})
+	got := readN(t, c, 2)
+	if got[0] != 0x05 || got[1] != 0x02 {
+		t.Fatalf("greeting %x want 05 02", got)
+	}
+	rep := socks5UserPassAuth(t, c, "labuser", "wrongpass")
+	if rep[0] != 0x01 || rep[1] != 0x01 {
+		t.Fatalf("auth reply %x want 01 01", rep)
+	}
+	buf := make([]byte, 8)
+	n, err := c.Read(buf)
+	if err == nil && n > 0 {
+		t.Fatalf("got %x want close", buf[:n])
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for px.Metrics().Rejected("socks_auth") < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if px.Metrics().Rejected("socks_auth") < 1 || px.Metrics().Socks("auth") < 1 {
+		t.Fatal("expected socks_auth")
+	}
+	logged := logBuf.String()
+	if strings.Contains(logged, "labpass12") || strings.Contains(logged, "wrongpass") || strings.Contains(logged, "labuser") {
+		t.Fatalf("log leaked SOCKS secret: %s", logged)
+	}
+}
+
+func TestSOCKS5UserPassMissingMethodEvenIfNoAuthOffered(t *testing.T) {
+	px := startUserPassProxy(t, Options{})
+	c := socksDial(t, px.Addr().String())
+	writeAll(t, c, []byte{0x05, 0x01, 0x00})
+	got := readN(t, c, 2)
+	if got[0] != 0x05 || got[1] != 0xff {
+		t.Fatalf("got %x want 05 ff", got)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for px.Metrics().Rejected("socks_auth") < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if px.Metrics().Rejected("socks_auth") < 1 {
+		t.Fatal("expected socks_auth")
+	}
+}
+
+func TestSOCKS5UserPassOffStillNoAuth(t *testing.T) {
+	px := startProxy(t, Options{Spec: socks5Spec(t)})
+	c := socksDial(t, px.Addr().String())
+	writeAll(t, c, []byte{0x05, 0x02, 0x02, 0x00})
+	got := readN(t, c, 2)
+	if got[0] != 0x05 || got[1] != 0x00 {
+		t.Fatalf("got %x want 05 00", got)
+	}
+}
+
+func TestSOCKS5GSSAPINeverSelected(t *testing.T) {
+	t.Run("flag-off", func(t *testing.T) {
+		px := startProxy(t, Options{Spec: socks5Spec(t)})
+		c := socksDial(t, px.Addr().String())
+		writeAll(t, c, []byte{0x05, 0x01, 0x01})
+		got := readN(t, c, 2)
+		if got[0] != 0x05 || got[1] != 0xff {
+			t.Fatalf("got %x want 05 ff", got)
+		}
+	})
+	t.Run("flag-on", func(t *testing.T) {
+		px := startUserPassProxy(t, Options{})
+		c := socksDial(t, px.Addr().String())
+		writeAll(t, c, []byte{0x05, 0x02, 0x01, 0x00})
+		got := readN(t, c, 2)
+		if got[0] != 0x05 || got[1] != 0xff {
+			t.Fatalf("got %x want 05 ff even if 0x00 offered", got)
+		}
+	})
+}
+
+func TestSOCKS5UserPassSuccessStampsYAMLID(t *testing.T) {
+	origin, _ := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "socks-up")
+	}))
+	sink := NewNull()
+	px := startUserPassProxy(t, Options{Sink: sink})
+	ip, port, host := ipv4Port(t, origin)
+	c := socksDial(t, px.Addr().String())
+	writeAll(t, c, []byte{0x05, 0x01, 0x02})
+	greet := readN(t, c, 2)
+	if greet[0] != 0x05 || greet[1] != 0x02 {
+		t.Fatalf("greeting %x", greet)
+	}
+	rep := socks5UserPassAuth(t, c, "labuser", "labpass12")
+	if rep[0] != 0x01 || rep[1] != 0x00 {
+		t.Fatalf("auth %x want 01 00", rep)
+	}
+	req := append([]byte{0x05, 0x01, 0x00, 0x01}, ip...)
+	req = append(req, bePort(port)...)
+	writeAll(t, c, req)
+	ok := readN(t, c, 10)
+	if ok[1] != 0x00 {
+		t.Fatalf("CONNECT %x", ok)
+	}
+	if _, err := fmt.Fprintf(c, "GET / HTTP/1.1\r\nHost: %s\r\n\r\n", host); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "socks-up" {
+		t.Fatalf("body %q", body)
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.Protocol == model.FlowProtocolSOCKS5 && f.SOCKS != nil {
+			found = true
+			if f.SOCKS.User != "lab-socks" {
+				t.Fatalf("User=%q want lab-socks", f.SOCKS.User)
+			}
+			if f.SOCKS.User == "labuser" || strings.Contains(f.Error, "labpass12") {
+				t.Fatalf("flow leaked credentials: %+v", f)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing socks5 flow: %+v", sink.Last())
 	}
 }

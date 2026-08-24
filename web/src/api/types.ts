@@ -42,6 +42,7 @@ export type SOCKSInfo = {
   dest?: string;
   command?: string;
   bnd?: string;
+  user?: string;
 };
 
 export type TLSInfo = {
