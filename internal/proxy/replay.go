@@ -145,6 +145,7 @@ func (s *Server) isHairpin(res resolved, spec model.Spec) bool {
 	if spec.Listeners.OriginalDestination.Address != "" {
 		candidates = append(candidates, spec.Listeners.OriginalDestination.Address)
 	}
+	candidates = append(candidates, s.liveBindAddrs()...)
 	for _, c := range candidates {
 		if sameEndpoint(c, target) {
 			return true

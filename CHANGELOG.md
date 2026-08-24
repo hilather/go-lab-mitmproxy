@@ -6,7 +6,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
-- None.
+- Opt-in SOCKS5/4 BIND behind `listeners.proxy.acceptBind` (D58). Listen on the SOCKS control `LocalAddr()` IP only, never `:0` / `0.0.0.0` / `::`. Unspecified DST is rejected (no Listen). Two-reply raw tunnel (`SOCKS.Command="bind"`, `intercepted=false`). Flag-off BIND stays `05 07` / SOCKS4 `91`. Hairpin includes live BIND listen ports. Overlay YAML stays flags-off.
 
 ### Changed
 

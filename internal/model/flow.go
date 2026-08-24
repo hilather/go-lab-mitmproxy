@@ -19,6 +19,9 @@ const (
 	FlowProtocolConnect   = "connect"
 	FlowProtocolSOCKS5    = "socks5"
 	FlowProtocolSOCKS4    = "socks4"
+
+	SOCKSCmdConnect = "connect"
+	SOCKSCmdBind    = "bind"
 )
 
 // Flow is one captured HTTP exchange (or CONNECT metadata).
@@ -63,12 +66,13 @@ type HTTP2Info struct {
 	StreamID uint32
 }
 
-// SOCKSInfo is captured SOCKS CONNECT metadata.
+// SOCKSInfo is captured SOCKS CONNECT/BIND metadata.
 type SOCKSInfo struct {
 	Version int
 	ATYP    string
 	Dest    string
 	Command string
+	BND     string
 }
 
 // Header is an ordered, case-preserving HTTP header.

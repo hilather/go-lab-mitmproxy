@@ -2,9 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-19 (1.1 docs overlay)
-Related ADRs: 0002, 0004, 0009, 0010, 0011
-Related ADRs: 0002, 0004, 0009, 0010, 0011
+Last reviewed: 2026-08-23
+Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
 
@@ -13,7 +12,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Layer | What | Where |
 |---|---|---|
 | Unit | config decode/unknown/reserved/byte sizes; store caps/wipe/wait/race; rules first-match; auth scopes; domainerr; OpenMetrics | `internal/*` |
-| Proxy protocol | absolute-form GET/POST, hop-by-hop strip, CONNECT Hijack + two GETs, HTTP/2 preface close, SOCKS peek-close (flags off), SOCKS5/4 CONNECT when flags on (IMDS deny, IPv6 BND `::`, intercept without HTTP 200), silent-peer stall (second HTTP before HeaderTimeout), resolve-then-guard (name→IMDS, name→link-local), `https://` 400, CONNECT without port, WebSocket 101, Expect strip, HTTP_PROXY ignored | `internal/proxy` + `internal/proxytest`; transcripts in `testdata/proxy` |
+| Proxy protocol | absolute-form GET/POST, hop-by-hop strip, CONNECT Hijack + two GETs, HTTP/2 preface close, SOCKS peek-close (flags off), SOCKS5/4 CONNECT when flags on (IMDS deny, IPv6 BND `::`, intercept without HTTP 200), SOCKS BIND when `acceptBind` (two-reply success, IMDS/unspecified no Listen, hairpin BND, SOCKS4 BIND, flag-off `05 07`; not PlayTranscript), silent-peer stall (second HTTP before HeaderTimeout), resolve-then-guard (name→IMDS, name→link-local), `https://` 400, CONNECT without port, WebSocket 101, Expect strip, HTTP_PROXY ignored | `internal/proxy` + `internal/proxytest`; transcripts in `testdata/proxy` |
 | TLS intercept | generate CA, files CA, leaf SAN=SNI, client trusting lab CA succeeds, untrusted client fails, upstream verify on/off, ALPN http/1.1 only (flag off), snapshot NextProtos, non-443 CONNECT tunnels, handshake fail → `tls_handshake` (no blind fallback), inner `PRI` → `http2_inner` | `internal/tlsmitm` + fixture origin in `proxytest` |
 | HTTP/2 codec | `http2x` StreamID + pseudos, no Dial idents, `DialTLS == nil`, pool refuses redial | `internal/http2x` |
 | HTTP/2 transcode | two concurrent h2 streams + h1 origin (no `refuses redial`); response `WaitPaused` with a non-empty body does not block a second stream; live and replay strip `:` headers; `h2_trailer_dropped` | `internal/proxy` |

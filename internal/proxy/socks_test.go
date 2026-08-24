@@ -36,6 +36,20 @@ func socks4Spec(t *testing.T) model.Spec {
 	return spec
 }
 
+func socks5BindSpec(t *testing.T) model.Spec {
+	t.Helper()
+	spec := socks5Spec(t)
+	spec.Listeners.Proxy.AcceptBind = true
+	return spec
+}
+
+func socks4BindSpec(t *testing.T) model.Spec {
+	t.Helper()
+	spec := socks4Spec(t)
+	spec.Listeners.Proxy.AcceptBind = true
+	return spec
+}
+
 func bePort(p int) []byte {
 	var b [2]byte
 	binary.BigEndian.PutUint16(b[:], uint16(p))
@@ -202,6 +216,7 @@ func TestSOCKS5PrefersNoAuth(t *testing.T) {
 }
 
 func TestSOCKS5BindCommand(t *testing.T) {
+	// acceptSOCKS5 on, acceptBind off (D58): BIND stays 05 07.
 	px := startProxy(t, Options{Spec: socks5Spec(t)})
 	c := socksDial(t, px.Addr().String())
 	socks5GreetingOK(t, c)
@@ -572,12 +587,230 @@ func TestSOCKS4aDomain(t *testing.T) {
 }
 
 func TestSOCKS4CommandRejected(t *testing.T) {
+	// acceptSOCKS4 on, acceptBind off (D58): CD=2 stays 91.
 	px := startProxy(t, Options{Spec: socks4Spec(t)})
 	c := socksDial(t, px.Addr().String())
 	writeAll(t, c, []byte{0x04, 0x02, 0, 80, 127, 0, 0, 1, 0})
 	got := readN(t, c, 8)
 	if got[1] != 91 {
 		t.Fatalf("got %x want CD=91", got)
+	}
+}
+
+func TestSOCKS5BindSuccess(t *testing.T) {
+	recL := &recordingListen{}
+	sink := NewNull()
+	px := startProxy(t, Options{
+		Spec:      socks5BindSpec(t),
+		Sink:      sink,
+		ListenTCP: recL.wrap(listenEphemeralTCP),
+	})
+	c := socksDial(t, px.Addr().String())
+	socks5GreetingOK(t, c)
+	req := append([]byte{0x05, 0x02, 0x00, 0x01, 127, 0, 0, 1}, bePort(80)...)
+	writeAll(t, c, req)
+	got := readN(t, c, 10)
+	if got[0] != 0x05 || got[1] != 0x00 || got[3] != 0x01 {
+		t.Fatalf("first reply %x", got)
+	}
+	ip := net.IP(got[4:8])
+	port := int(binary.BigEndian.Uint16(got[8:10]))
+	if ip.IsUnspecified() || port == 0 {
+		t.Fatalf("BND unspecified %v:%d", ip, port)
+	}
+	bnd := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+	if bnd == px.Addr().String() {
+		t.Fatal("BND must not be listeners.proxy.address")
+	}
+	listened := recL.Addrs()
+	if len(listened) != 1 || net.ParseIP(listened[0]).IsUnspecified() {
+		t.Fatalf("listen %v", listened)
+	}
+	peer, err := net.DialTimeout("tcp", bnd, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = peer.Close() }()
+	_ = peer.SetDeadline(time.Now().Add(5 * time.Second))
+	got2 := readN(t, c, 10)
+	if got2[1] != 0x00 {
+		t.Fatalf("second reply %x", got2)
+	}
+	writeAll(t, c, []byte("ping"))
+	if string(readN(t, peer, 4)) != "ping" {
+		t.Fatal("client→peer")
+	}
+	writeAll(t, peer, []byte("pong"))
+	if string(readN(t, c, 4)) != "pong" {
+		t.Fatal("peer→client")
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.SOCKS != nil && f.SOCKS.Command == model.SOCKSCmdBind {
+			found = true
+			if f.Protocol != model.FlowProtocolSOCKS5 || f.Intercepted {
+				t.Fatalf("flow %+v", f)
+			}
+			if f.SOCKS.BND != bnd {
+				t.Fatalf("BND %q want %q", f.SOCKS.BND, bnd)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing bind flow: %+v", sink.Last())
+	}
+	if px.Metrics().Socks("ok") < 1 {
+		t.Fatal("expected socks ok")
+	}
+}
+
+func TestSOCKS5BindIMDSDoesNotListen(t *testing.T) {
+	recL := &recordingListen{}
+	recD := &recordingDial{}
+	px := startProxy(t, Options{
+		Spec:        socks5BindSpec(t),
+		ListenTCP:   recL.wrap(nil),
+		DialContext: recD.wrap(nil),
+	})
+	c := socksDial(t, px.Addr().String())
+	socks5GreetingOK(t, c)
+	req := append([]byte{0x05, 0x02, 0x00, 0x01, 169, 254, 169, 254}, bePort(80)...)
+	writeAll(t, c, req)
+	got := readN(t, c, 10)
+	if got[1] != 0x02 {
+		t.Fatalf("imds bind %x want 05 02", got)
+	}
+	if len(recL.Addrs()) != 0 {
+		t.Fatalf("listened %v", recL.Addrs())
+	}
+	if len(recD.Addrs()) != 0 {
+		t.Fatalf("dialed %v", recD.Addrs())
+	}
+}
+
+func TestSOCKS5BindUnspecifiedDoesNotListen(t *testing.T) {
+	recL := &recordingListen{}
+	px := startProxy(t, Options{
+		Spec:      socks5BindSpec(t),
+		ListenTCP: recL.wrap(nil),
+	})
+	c := socksDial(t, px.Addr().String())
+	socks5GreetingOK(t, c)
+	writeAll(t, c, []byte{0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+	got := readN(t, c, 10)
+	if got[1] != 0x02 {
+		t.Fatalf("unspecified bind %x want 05 02", got)
+	}
+	if len(recL.Addrs()) != 0 {
+		t.Fatalf("listened %v", recL.Addrs())
+	}
+
+	c6 := socksDial(t, px.Addr().String())
+	socks5GreetingOK(t, c6)
+	req6 := []byte{0x05, 0x02, 0x00, 0x04}
+	req6 = append(req6, make([]byte, 16)...)
+	req6 = append(req6, 0, 0)
+	writeAll(t, c6, req6)
+	got6 := readN(t, c6, 22)
+	if got6[1] != 0x02 {
+		t.Fatalf("unspecified v6 bind %x want 05 02", got6)
+	}
+	if len(recL.Addrs()) != 0 {
+		t.Fatalf("listened after v6 %v", recL.Addrs())
+	}
+}
+
+func TestSOCKS5BindHairpinBND(t *testing.T) {
+	recD := &recordingDial{}
+	px := startProxy(t, Options{
+		Spec:        socks5BindSpec(t),
+		DialContext: recD.wrap(nil),
+	})
+	c := socksDial(t, px.Addr().String())
+	socks5GreetingOK(t, c)
+	req := append([]byte{0x05, 0x02, 0x00, 0x01, 127, 0, 0, 1}, bePort(80)...)
+	writeAll(t, c, req)
+	got := readN(t, c, 10)
+	if got[1] != 0x00 {
+		t.Fatalf("first reply %x", got)
+	}
+	ip := net.IP(got[4:8])
+	port := int(binary.BigEndian.Uint16(got[8:10]))
+	c2 := socksDial(t, px.Addr().String())
+	socks5GreetingOK(t, c2)
+	creq := append([]byte{0x05, 0x01, 0x00, 0x01}, ip.To4()...)
+	creq = append(creq, bePort(port)...)
+	writeAll(t, c2, creq)
+	got2 := readN(t, c2, 10)
+	if got2[1] != 0x02 {
+		t.Fatalf("hairpin CONNECT %x want 05 02", got2)
+	}
+	if len(recD.Addrs()) != 0 {
+		t.Fatalf("hairpin dialed %v", recD.Addrs())
+	}
+}
+
+func TestSOCKS4Bind(t *testing.T) {
+	sink := NewNull()
+	px := startProxy(t, Options{Spec: socks4BindSpec(t), Sink: sink})
+	c := socksDial(t, px.Addr().String())
+	req := []byte{0x04, 0x02}
+	req = append(req, bePort(80)...)
+	req = append(req, 127, 0, 0, 1, 0)
+	writeAll(t, c, req)
+	got := readN(t, c, 8)
+	if got[0] != 0 || got[1] != 90 {
+		t.Fatalf("first reply %x", got)
+	}
+	port := int(binary.BigEndian.Uint16(got[2:4]))
+	ip := net.IPv4(got[4], got[5], got[6], got[7])
+	if ip.IsUnspecified() || port == 0 {
+		t.Fatalf("BND %v:%d", ip, port)
+	}
+	bnd := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+	if bnd == px.Addr().String() {
+		t.Fatal("BND must not be listeners.proxy.address")
+	}
+	peer, err := net.DialTimeout("tcp", bnd, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = peer.Close() }()
+	_ = peer.SetDeadline(time.Now().Add(5 * time.Second))
+	got2 := readN(t, c, 8)
+	if got2[1] != 90 {
+		t.Fatalf("second reply %x", got2)
+	}
+	writeAll(t, c, []byte("s4"))
+	if string(readN(t, peer, 2)) != "s4" {
+		t.Fatal("client→peer")
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.Protocol == model.FlowProtocolSOCKS4 && f.SOCKS != nil && f.SOCKS.Command == model.SOCKSCmdBind {
+			found = true
+			if f.Intercepted {
+				t.Fatal("bind must not intercept")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing socks4 bind flow %+v", sink.Last())
+	}
+}
+
+func TestListenEphemeralTCPRejectsUnspecified(t *testing.T) {
+	if _, err := listenEphemeralTCP(net.IPv4zero); err == nil {
+		t.Fatal("expected reject 0.0.0.0")
+	}
+	if _, err := listenEphemeralTCP(net.IPv6unspecified); err == nil {
+		t.Fatal("expected reject ::")
+	}
+	if _, err := listenEphemeralTCP(net.ParseIP("169.254.169.254")); err == nil {
+		t.Fatal("expected reject IMDS")
+	}
+	if _, err := listenEphemeralTCP(net.ParseIP("fe80::1")); err == nil {
+		t.Fatal("expected reject link-local")
 	}
 }
 

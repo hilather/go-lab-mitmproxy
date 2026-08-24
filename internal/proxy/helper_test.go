@@ -230,3 +230,28 @@ func (r *recordingDial) Addrs() []string {
 	copy(out, r.addrs)
 	return out
 }
+
+type recordingListen struct {
+	mu    sync.Mutex
+	addrs []string
+}
+
+func (r *recordingListen) wrap(inner func(net.IP) (net.Listener, error)) func(net.IP) (net.Listener, error) {
+	return func(ip net.IP) (net.Listener, error) {
+		r.mu.Lock()
+		r.addrs = append(r.addrs, ip.String())
+		r.mu.Unlock()
+		if inner != nil {
+			return inner(ip)
+		}
+		return nil, io.EOF
+	}
+}
+
+func (r *recordingListen) Addrs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.addrs))
+	copy(out, r.addrs)
+	return out
+}

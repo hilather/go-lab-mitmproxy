@@ -13,7 +13,7 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 		Via:          "socks5",
 		OriginalDest: "10.0.0.1:443",
 		HTTP2:        &model.HTTP2Info{StreamID: 7},
-		SOCKS:        &model.SOCKSInfo{Version: 5, ATYP: "domain", Dest: "app.lab:443", Command: "connect"},
+		SOCKS:        &model.SOCKSInfo{Version: 5, ATYP: "domain", Dest: "app.lab:443", Command: "connect", BND: "127.0.0.1:54321"},
 		Request: model.HTTPMessage{
 			Headers:  []model.Header{{Name: "Host", Value: "app.lab"}},
 			Trailers: []model.Header{{Name: "X-T", Value: "1"}},
@@ -32,7 +32,7 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 	if out.HTTP2 == nil || out.HTTP2.StreamID != 7 {
 		t.Fatalf("http2=%+v", out.HTTP2)
 	}
-	if out.SOCKS == nil || out.SOCKS.Dest != "app.lab:443" {
+	if out.SOCKS == nil || out.SOCKS.Dest != "app.lab:443" || out.SOCKS.BND != "127.0.0.1:54321" {
 		t.Fatalf("socks=%+v", out.SOCKS)
 	}
 	if out.Request.Trailers[0].Value != "1" || out.Response.Trailers[0].Value != "2" {

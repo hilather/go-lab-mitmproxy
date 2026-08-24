@@ -49,7 +49,7 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocol
 - **HTTP/2 or h2c on the client-facing cleartext proxy port.** `PRI * HTTP/2.0` on `:8888` **and** on `:8890` is a hard close.
 - **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) and Extended CONNECT (RFC 8441), including on the inner hop. Inner `:method=CONNECT` / `:protocol` is RST `PROTOCOL_ERROR`, no flow.
 - **gRPC protobuf codec.** gRPC is HTTP/2 headers + DATA only.
-- **SOCKS BIND, UDP ASSOCIATE, GSSAPI, username/password.** NO AUTH (`0x00`) only.
+- **SOCKS UDP ASSOCIATE, GSSAPI, username/password.** NO AUTH (`0x00`) only. BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`.
 - **WebSocket frame inspect.** `101` + bidirectional copy. Websocket Upgrade on an h2 inner session is rejected.
 - **HTTP Basic on management (D6).** `Authorization: Basic` is 401 Bearer.
 - **Public CA, SSL-strip, exploit/fuzzer UX, chaos engine, durable flow-directory, multi-replica store.**
@@ -78,10 +78,11 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 
 ## SOCKS residuals (when enabled)
 
-- CONNECT only, multiplexed on `listeners.proxy` (no extra bind).
+- CONNECT multiplexed on `listeners.proxy` (no extra bind). BIND (`acceptBind`) listens on the SOCKS control `LocalAddr()` IP only, never `:0` / `0.0.0.0` / `::`. Unspecified DST (`0.0.0.0:0` / `[::]:0`) is rejected (RFC residual).
+- BIND is always a raw tunnel (`intercepted=false`). No inner HTTP, no TLS MITM.
 - Peek runs in a per-conn goroutine; Accept does not stall.
-- Flags off keep 1.0 SOCKS-close (`reason="socks"`).
-- Same CIDR guards and `gate.acquire` as HTTP CONNECT. Hairpin and IMDS deny do not Dial.
+- Flags off keep 1.0 SOCKS-close (`reason="socks"`). `acceptSOCKS5` without `acceptBind` keeps BIND at `05 07`.
+- Same CIDR guards and `gate.acquire` as HTTP CONNECT. Hairpin includes live BIND listen ports. IMDS deny does not Dial or Listen.
 
 ## Compat residuals (when enabled)
 

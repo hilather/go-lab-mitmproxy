@@ -36,6 +36,8 @@ type Options struct {
 	Resolver Resolver
 	// DialContext, when set, replaces dialTCP (tests record outbound).
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	// ListenTCP, when set, replaces listenEphemeralTCP (tests record BIND listens).
+	ListenTCP func(controlIP net.IP) (net.Listener, error)
 	// OrigDestAddress overrides spec.listeners.originalDestination.address.
 	OrigDestAddress string
 	// OriginalDst, when set, replaces SO_ORIGINAL_DST (tests: mocked dest).
@@ -60,6 +62,7 @@ type Server struct {
 	inbox    store.Store
 	resolver Resolver
 	dialFn   func(ctx context.Context, network, addr string) (net.Conn, error)
+	listenFn func(controlIP net.IP) (net.Listener, error)
 	auth     *tlsmitm.Authority
 	snaps    *snapshot.Store
 	gate     *gate
@@ -79,6 +82,7 @@ type Server struct {
 	mu          sync.Mutex
 	hijacked    map[net.Conn]struct{}
 	dispatching map[net.Conn]struct{}
+	binds       map[string]net.Listener
 	hijackWG    sync.WaitGroup
 	acceptWG    sync.WaitGroup
 	dispatchWG  sync.WaitGroup
@@ -108,6 +112,7 @@ func New(opts Options) (*Server, error) {
 		inbox:        opts.Store,
 		resolver:     res,
 		dialFn:       opts.DialContext,
+		listenFn:     opts.ListenTCP,
 		origDestBind: opts.OrigDestAddress,
 		origDestFn:   opts.OriginalDst,
 		snaps:        opts.Snapshots,
@@ -117,6 +122,7 @@ func New(opts Options) (*Server, error) {
 		cancel:       cancel,
 		hijacked:     make(map[net.Conn]struct{}),
 		dispatching:  make(map[net.Conn]struct{}),
+		binds:        make(map[string]net.Listener),
 	}
 	s.metrics.attach(opts.Metrics, opts.Logger)
 	if s.inbox == nil {
@@ -476,7 +482,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	s.acceptWG.Wait()
 	s.closeDispatching()
-	if err := waitWG(ctx, &s.dispatchWG, s.closeDispatching); err != nil && first == nil {
+	s.closeBinds()
+	if err := waitWG(ctx, &s.dispatchWG, func() {
+		s.closeDispatching()
+		s.closeBinds()
+	}); err != nil && first == nil {
 		first = err
 	}
 	if err := closeQuiet(httpLn); err != nil && first == nil {
@@ -487,7 +497,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			first = err
 		}
 	}
-	if err := waitWG(ctx, &s.hijackWG, s.closeHijacked); err != nil && first == nil {
+	if err := waitWG(ctx, &s.hijackWG, func() {
+		s.closeBinds()
+		s.closeHijacked()
+	}); err != nil && first == nil {
 		first = err
 	}
 	s.mu.Lock()

@@ -26,3 +26,17 @@ func dialTCP(ctx context.Context, network, addr string, timeout time.Duration) (
 	}
 	return d.DialContext(ctx, network, addr)
 }
+
+// listenEphemeralTCP is the only production BIND listen site (D58/D68).
+// controlIP is the SOCKS control LocalAddr host — never ":0" / 0.0.0.0 / ::.
+func listenEphemeralTCP(controlIP net.IP) (net.Listener, error) {
+	if err := checkBindListenIP(controlIP); err != nil {
+		return nil, err
+	}
+	addr := net.JoinHostPort(controlIP.String(), "0")
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return nil, fmt.Errorf("proxy: refusing wildcard BIND listen")
+	}
+	return net.Listen("tcp", addr)
+}
