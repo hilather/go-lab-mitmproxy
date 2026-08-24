@@ -487,6 +487,140 @@ func TestServeConnPrefaceTailDoesNotReadRawConn(t *testing.T) {
 		{Name: ":scheme", Value: "http"},
 		{Name: ":authority", Value: "app.lab"},
 		{Name: ":path", Value: "/hello"},
+func TestServeConnEnableConnectProtocolSetting(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		_ = ServeConn(ctx, server, nil, ServeOpts{Preface: PrefaceFull, EnableConnectProtocol: true},
+			func(context.Context, Stream) (*http.Response, []model.Header, error) {
+				return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil, nil
+			}, nil)
+	}()
+	if _, err := client.Write([]byte(http2.ClientPreface)); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(client, client)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	enable := false
+	max := uint32(0)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sf, ok := f.(*http2.SettingsFrame)
+		if !ok || sf.IsAck() {
+			continue
+		}
+		_ = sf.ForeachSetting(func(s http2.Setting) error {
+			if s.ID == SettingEnableConnectProtocol && s.Val == 1 {
+				enable = true
+			}
+			if s.ID == http2.SettingMaxConcurrentStreams {
+				max = s.Val
+			}
+			return nil
+		})
+		break
+	}
+	if !enable {
+		t.Fatal("missing ENABLE_CONNECT_PROTOCOL=1")
+	}
+	if max != maxConcurrentStreams {
+		t.Fatalf("MAX_CONCURRENT_STREAMS=%d", max)
+	}
+}
+
+func TestServeClientOmitsEnableConnectProtocol(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		_ = ServeClient(ctx, server, func(context.Context, Stream) (*http.Response, []model.Header, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil, nil
+		})
+	}()
+	if _, err := client.Write([]byte(http2.ClientPreface)); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(client, client)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sf, ok := f.(*http2.SettingsFrame)
+		if !ok || sf.IsAck() {
+			continue
+		}
+		enable := false
+		_ = sf.ForeachSetting(func(s http2.Setting) error {
+			if s.ID == SettingEnableConnectProtocol && s.Val == 1 {
+				enable = true
+			}
+			return nil
+		})
+		if enable {
+			t.Fatal("ServeClient must not advertise ENABLE_CONNECT_PROTOCOL")
+		}
+		return
+	}
+	t.Fatal("no server SETTINGS")
+}
+
+func TestServeConnSurfacesProtocolAndTunnel(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := make(chan Stream, 1)
+	go func() {
+		_ = ServeConn(ctx, server, nil, ServeOpts{Preface: PrefaceFull, EnableConnectProtocol: true},
+			func(context.Context, Stream) (*http.Response, []model.Header, error) {
+				t.Error("CONNECT must not use StreamHandler when tun is set")
+				return nil, nil, ErrInnerCONNECT
+			},
+			func(ctx context.Context, in Stream) (Tunnel, error) {
+				inCopy := in
+				inCopy.Body = nil
+				got <- inCopy
+				return Tunnel{
+					Kind: TunnelWebSocket,
+					AfterAck: func(c net.Conn) {
+						buf := make([]byte, 16)
+						n, _ := c.Read(buf)
+						if n > 0 {
+							_, _ = c.Write(buf[:n])
+						}
+						_ = c.Close()
+					},
+				}, nil
+			})
+	}()
+	if _, err := client.Write([]byte(http2.ClientPreface)); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(client, client)
+	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	ackSettings(t, fr)
+	var hdr bytes.Buffer
+	enc := hpack.NewEncoder(&hdr)
+	for _, hf := range []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodConnect},
+		{Name: ":protocol", Value: "websocket"},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/ws"},
 	} {
 		if err := enc.WriteField(hf); err != nil {
 			t.Fatal(err)
@@ -527,4 +661,154 @@ func TestServeConnPrefaceTailRequiresLeftover(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected PrefaceTail without leftover to fail")
 	}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case in := <-got:
+		if in.Protocol != "websocket" || in.Method != http.MethodConnect || in.Path != "/ws" {
+			t.Fatalf("stream %+v", in)
+		}
+	case <-ctx.Done():
+		t.Fatal("tunnel handler not invoked")
+	}
+	if !readH2Status(t, fr, 1, "200") {
+		t.Fatal("want :status=200")
+	}
+	if err := fr.WriteData(1, false, []byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	gotData := readH2Data(t, fr, 1)
+	if string(gotData) != "hi" {
+		t.Fatalf("echo %q", gotData)
+	}
+}
+
+func TestServeConnNilTunCONNECTUsesStreamHandler(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	saw := make(chan Stream, 1)
+	go func() {
+		_ = ServeConn(ctx, server, nil, ServeOpts{Preface: PrefaceFull},
+			func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
+				inCopy := in
+				inCopy.Body = nil
+				saw <- inCopy
+				return nil, nil, ErrInnerCONNECT
+			}, nil)
+	}()
+	if _, err := client.Write([]byte(http2.ClientPreface)); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(client, client)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	ackSettings(t, fr)
+	var hdr bytes.Buffer
+	enc := hpack.NewEncoder(&hdr)
+	for _, hf := range []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodConnect},
+		{Name: ":authority", Value: "app.lab:443"},
+	} {
+		if err := enc.WriteField(hf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fr.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: hdr.Bytes(),
+		EndHeaders:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case in := <-saw:
+		if in.Method != http.MethodConnect {
+			t.Fatalf("method %q", in.Method)
+		}
+	case <-ctx.Done():
+		t.Fatal("StreamHandler not invoked")
+	}
+	expectRST(t, fr, 1, http2.ErrCodeProtocol)
+}
+
+func ackSettings(t *testing.T, fr *http2.Framer) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sf, ok := f.(*http2.SettingsFrame); ok && !sf.IsAck() {
+			if err := fr.WriteSettingsAck(); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+	}
+	t.Fatal("no server SETTINGS")
+}
+
+func readH2Status(t *testing.T, fr *http2.Framer, id uint32, want string) bool {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch hf := f.(type) {
+		case *http2.MetaHeadersFrame:
+			if hf.StreamID != id {
+				continue
+			}
+			return hf.PseudoValue("status") == want
+		case *http2.RSTStreamFrame:
+			if hf.StreamID == id {
+				t.Fatalf("RST %v", hf.ErrCode)
+			}
+		}
+	}
+	return false
+}
+
+func readH2Data(t *testing.T, fr *http2.Framer, id uint32) []byte {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		df, ok := f.(*http2.DataFrame)
+		if !ok || df.StreamID != id {
+			continue
+		}
+		return append([]byte(nil), df.Data()...)
+	}
+	t.Fatal("no DATA")
+	return nil
+}
+
+func expectRST(t *testing.T, fr *http2.Framer, id uint32, code http2.ErrCode) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		rst, ok := f.(*http2.RSTStreamFrame)
+		if !ok || rst.StreamID != id {
+			continue
+		}
+		if rst.ErrCode != code {
+			t.Fatalf("RST %v want %v", rst.ErrCode, code)
+		}
+		return
+	}
+	t.Fatal("no RST_STREAM")
 }

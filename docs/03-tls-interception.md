@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: TLS, Proxy, Security
-Last reviewed: 2026-08-23 (D67 inner 101 inspectFrames)
+Last reviewed: 2026-08-23 (D63 inner Extended CONNECT websocket)
 Related ADRs: 0002, 0009, 0012
 
 Package `internal/tlsmitm`. Only this package and `internal/proxy` touch `crypto/tls` on the data plane. Management TLS (optional) lives in `internal/control/rest` like LabMail. `internal/tlsmitm` must **not** Dial.
@@ -82,7 +82,7 @@ Changing intercept/CA/ports requires compile (apply `replaceTLS` or reset). In-f
 
 Operators download `GET /v1/ca` (`application/x-pem-file`, scope `mitm.read` — **not** on the unauthenticated data plane) or use the UI “Download lab CA” button and install it in the system / browser / language trust store. Document `curl --proxy http://127.0.0.1:8888 --cacert labmitm-ca.pem https://app.lab/`. There is no “click through” bypass in the appliance itself. Health/UI copy must say the CA is not served on `:8888`.
 
-If the inner client negotiated `http/1.1` (flag off, or flag on but the client did not offer `h2`) and then sends an HTTP/2 preface: close both sides; store flow `Error=http2_inner`. When `protocols.http2.enabled` and the leaf ALPN is `h2`, `innerHTTP` runs `http2x.ServeClient`; each stream is one captured flow (`Protocol=h2`, `HTTP2.StreamID`). `roundTripInnerH2` must not write HTTP/1.1 to the client TLS conn and must not close CONNECT on a per-stream 502 (D53). Concurrent h2 streams serialize on the HTTP/1.1 origin conn; response `WaitPaused` runs after the origin body is drained and the mutex is released (D44). Inner CONNECT / Extended CONNECT / websocket Upgrade on an h2 session is RST `PROTOCOL_ERROR` with no flow (D48).
+If the inner client negotiated `http/1.1` (flag off, or flag on but the client did not offer `h2`) and then sends an HTTP/2 preface: close both sides; store flow `Error=http2_inner`. When `protocols.http2.enabled` and the leaf ALPN is `h2`, `innerHTTP` runs `http2x.ServeClient` (`extendedConnect` off) or `http2x.ServeConn` with `PrefaceFull` + `ENABLE_CONNECT_PROTOCOL` (`extendedConnect` on). Each GET/POST stream is one captured flow (`Protocol=h2`, `HTTP2.StreamID`). `roundTripInnerH2` must not write HTTP/1.1 to the client TLS conn and must not close CONNECT on a per-stream 502 (D53). Concurrent h2 streams serialize on the HTTP/1.1 origin conn; response `WaitPaused` runs after the origin body is drained and the mutex is released (D44). Nested inner CONNECT without `:protocol` and illegal h2 `Upgrade: websocket` stay RST `PROTOCOL_ERROR` with no flow (D48 remainder). With `extendedConnect`, inner `:protocol=websocket` transcodes to origin HTTP/1.1 Upgrade; success is inner `:status=200` then DATA / `wsx` (D63). Other `:protocol` values RST, no flow.
 
 Inner HTTP/1.1 `Upgrade: websocket` that the origin answers with `101` uses the same path as cleartext: flag-off bidirectional copy; flag-on `protocols.websocket.inspectFrames` `wsx` pumps (D67). HTTP/1.1 inner `RoundTrip` failure writes `502` and closes both sides.
 

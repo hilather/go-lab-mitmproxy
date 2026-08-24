@@ -22,13 +22,16 @@ const (
 	// (D61 leftover). The 24-byte ClientPreface is prefaceHead + prefaceTailSM.
 	prefaceHead   = "PRI * HTTP/2.0\r\n\r\n"
 	prefaceTailSM = "SM\r\n\r\n"
+
+	// SettingEnableConnectProtocol is SETTINGS_ENABLE_CONNECT_PROTOCOL (RFC 8441).
+	SettingEnableConnectProtocol http2.SettingID = 0x8
 )
 
 // ErrRefuseRedial is returned when the origin pool would need a second Dial.
 var ErrRefuseRedial = errors.New("proxy: intercepted CONNECT refuses redial")
 
-// ErrInnerCONNECT is returned by a StreamHandler to RST the stream
-// (inner CONNECT / Extended CONNECT, D48).
+// ErrInnerCONNECT is returned by a StreamHandler or TunnelHandler to RST the
+// stream (inner CONNECT / illegal :protocol, D48 remainder).
 var ErrInnerCONNECT = errors.New("http2x: inner CONNECT refused")
 
 // Stream is one HTTP/2 request stream (D45). Pseudos keep their leading ':'.
@@ -42,6 +45,7 @@ type Stream struct {
 	Scheme    string
 	Authority string
 	Path      string
+	Protocol  string // :protocol
 }
 
 // StreamHandler serves one client request stream. The response is encoded as
@@ -64,6 +68,17 @@ const (
 
 // ServeOpts configures ServeConn. Zero value is PrefaceFull, 100 streams,
 // no Extended CONNECT, EnablePush off.
+// PrefaceMode selects how ServeConn consumes the client connection preface.
+type PrefaceMode int
+
+const (
+	// PrefaceFull reads the 24-byte ClientPreface (inner ALPN h2).
+	PrefaceFull PrefaceMode = iota
+	// PrefaceTail skips the 24-byte preface (PRI leftover; not used on inner h2).
+	PrefaceTail
+)
+
+// ServeOpts configures ServeConn.
 type ServeOpts struct {
 	Preface               PrefaceMode
 	MaxConcurrentStreams  uint32 // snapshot admission; 0 → 100
@@ -78,6 +93,11 @@ type ServeOpts struct {
 type TunnelHandler func(ctx context.Context, in Stream) (Tunnel, error)
 
 // TunnelKind is the post-2xx CONNECT handoff (D62 raw/intercept, D63 websocket).
+// TunnelHandler serves CONNECT / :protocol streams. Nil tun on ServeConn
+// leaves those streams on StreamHandler (D48 ServeClient path).
+type TunnelHandler func(ctx context.Context, in Stream) (Tunnel, error)
+
+// TunnelKind is the post-2xx handoff.
 type TunnelKind int
 
 const (
@@ -87,6 +107,7 @@ const (
 )
 
 // Tunnel is the CONNECT handoff. http2x never Dials.
+// Tunnel is the CONNECT handoff. http2x writes :status=200 then AfterAck.
 type Tunnel struct {
 	Kind     TunnelKind
 	Origin   net.Conn

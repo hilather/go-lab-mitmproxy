@@ -46,13 +46,13 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocol
 - **Reverse-proxy / ingress.** `reverseproxy` stays reserved. LabMITM is a forward proxy (+ optional orig-dest).
 - **Windows / macOS original-destination.** Linux-only (`SO_ORIGINAL_DST` / `IP6T_SO_ORIGINAL_DST`). Non-linux `enabled: true` fails `Start` closed and binds nothing.
 - **Compat subset, not mitmproxy 11.** List/get/delete/clear/replay + raw content only. Out: mitmweb, dumpfile, CLI flags, addon, HTTP Basic, PUT mutate, UUID ids, filter DSL, HAR export. Headline: “LabMITM compat flow REST (mitmproxy-inspired subset).” Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md).
-- **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) and Extended CONNECT (RFC 8441), including on the inner hop. Inner `:method=CONNECT` / `:protocol` is RST `PROTOCOL_ERROR`, no flow. Client-facing h2c regular GET/POST is allowed when `clientCleartext` is on; RFC 9113 CONNECT streams RST (D62 splice is not wired). Flag-off `PRI` remains a hard close.
+- **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5). Client-facing h2c regular GET/POST is allowed when `clientCleartext` is on; RFC 9113 CONNECT streams RST until D62 splice. Flag-off `PRI` remains a hard close. Inner nested `:method=CONNECT` without `:protocol` is RST `PROTOCOL_ERROR`, **no flow** (D48 remainder). Inner `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); other `:protocol` values RST, no flow.
 - **gRPC protobuf codec.** gRPC is HTTP/2 headers + DATA only.
 - **SOCKS UDP ASSOCIATE, GSSAPI.** BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`. Username/password is opt-in `acceptUserPass` (D60); flag-off stays NO AUTH (`0x00`). GSSAPI (method `0x01`) is never selected.
 - **SOCKS GSSAPI, username/password.** NO AUTH (`0x00`) only. BIND is 1.2 opt-in (`acceptBind`, default off); UDP ASSOCIATE is 1.2 opt-in (`acceptUDPAssociate`, default off); flag-off SOCKS5 BIND/UDP stays `05 07`. No QUIC, no orig-dest UDP.
 - **WebSocket frame inspect.** `101` + bidirectional copy. Websocket Upgrade on an h2 inner session is rejected.
 - **SOCKS BIND, UDP ASSOCIATE, GSSAPI, username/password.** NO AUTH (`0x00`) only.
-- **WebSocket frame inspect on HTTP/2.** HTTP/1.1 `101` inspect is opt-in `protocols.websocket.inspectFrames` (D67). Websocket Upgrade / Extended CONNECT on an h2 inner session is still RST (D48).
+- **WebSocket frame inspect on HTTP/2.** HTTP/1.1 `101` inspect is opt-in `protocols.websocket.inspectFrames` (D67). Inner RFC 8441 websocket reuses that path when `extendedConnect` is on. Illegal h2 `Upgrade: websocket` is still RST, no flow.
 - **HTTP Basic on management (D6).** `Authorization: Basic` is 401 Bearer.
 - **Public CA, SSL-strip, exploit/fuzzer UX, chaos engine, durable flow-directory, multi-replica store.**
 - **Docker `-p 8890:8890` as “transparent mode.”** Publishing `8890` is not transparent (D50).
@@ -101,7 +101,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 - Generate-mode CA rotates on every restart/reset. Operators who need a stable CA use `tls.ca.mode: files`.
 - Default metadata CIDRs are AWS/GCP IPv4 + AWS IPv6 IMDS. Alibaba `100.100.100.200/32` and RFC1918 are **not** default-deny (lab SUTs).
 - HTML preview of captured pages is escaped text (optional sandboxed iframe is off by default).
-- WebSocket frames: flag-off is 101 + copy; flag-on is `protocols.websocket.inspectFrames` (D67). Extended CONNECT / websocket-on-h2 is still out.
+- WebSocket frames: flag-off is 101 + copy; flag-on is `protocols.websocket.inspectFrames` (D67). Inner Extended CONNECT websocket is `protocols.http2.extendedConnect` (D63).
 
 ## Store and control plane (unchanged)
 
