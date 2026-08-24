@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	maxFramePayload = 16384
-	initialWindow   = 1 << 20
+	maxFramePayload    = 16384
+	initialWindow      = 1 << 20
+	maxPushHeaderBlock = 1 << 20 // same budget as Framer.MaxHeaderListSize
 )
 
 var hopHeaders = map[string]bool{

@@ -1752,7 +1752,6 @@ func TestInterceptHTTP2PushCapturedNotForwarded(t *testing.T) {
 		{Name: ":authority", Value: "app.lab"},
 		{Name: ":path", Value: "/hello"},
 	}, true)
-	sawPush := false
 	gotParent := false
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) && !gotParent {
@@ -1761,12 +1760,15 @@ func TestInterceptHTTP2PushCapturedNotForwarded(t *testing.T) {
 		if err != nil {
 			t.Fatalf("inner read: %v", err)
 		}
+		id := f.Header().StreamID
+		if id != 0 && id%2 == 0 {
+			t.Fatalf("inner client must not see even-stream %T id=%d", f, id)
+		}
 		switch f := f.(type) {
 		case *http2.PushPromiseFrame:
-			sawPush = true
 			t.Fatalf("inner client must not see PUSH_PROMISE (promised=%d)", f.PromiseID)
 		case *http2.HeadersFrame, *http2.MetaHeadersFrame:
-			if f.Header().StreamID == 1 {
+			if id == 1 {
 				gotParent = true
 			}
 		case *http2.DataFrame:
@@ -1777,9 +1779,6 @@ func TestInterceptHTTP2PushCapturedNotForwarded(t *testing.T) {
 				gotParent = true
 			}
 		}
-	}
-	if sawPush {
-		t.Fatal("PUSH_PROMISE forwarded to inner client")
 	}
 	if saw.enablePush.Load() != 1 {
 		t.Fatalf("origin ENABLE_PUSH=%d want 1", saw.enablePush.Load())

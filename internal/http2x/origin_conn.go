@@ -270,6 +270,17 @@ func (o *OriginConn) credit(id uint32, n int) {
 	})
 }
 
+// creditConn restores only the connection receive window. Stream WINDOW_UPDATE
+// after END_STREAM or RST is unused; the hop-by-hop connection window is not.
+func (o *OriginConn) creditConn(n int) {
+	if n <= 0 {
+		return
+	}
+	_ = o.write(func() error {
+		return o.fr.WriteWindowUpdate(0, uint32(n))
+	})
+}
+
 func (o *OriginConn) reset(id uint32, code http2.ErrCode) {
 	_ = o.write(func() error { return o.fr.WriteRSTStream(id, code) })
 }
@@ -437,14 +448,18 @@ func (o *OriginConn) handleData(f *http2.DataFrame) {
 					ps.body = append(ps.body, payload[:keep]...)
 				}
 				ps.trunc = true
+				o.creditConn(len(payload))
 				o.finishPush(ps, false)
 				return
 			}
 			ps.body = append(ps.body, payload...)
 		}
 		if f.StreamEnded() {
+			o.creditConn(len(payload))
 			o.finishPush(ps, true)
-		} else if len(payload) > 0 {
+			return
+		}
+		if len(payload) > 0 {
 			o.credit(id, len(payload))
 		}
 		return
@@ -459,6 +474,10 @@ func (o *OriginConn) handlePushPromise(f *http2.PushPromiseFrame) {
 	promised := f.PromiseID
 	parent := f.StreamID
 	frag := append([]byte(nil), f.HeaderBlockFragment()...)
+	if len(frag) > maxPushHeaderBlock {
+		o.failAll(http2.ConnectionError(http2.ErrCodeProtocol))
+		return
+	}
 	ended := f.HeadersEnded()
 	for !ended {
 		nf, err := o.fr.ReadFrame()
@@ -471,7 +490,12 @@ func (o *OriginConn) handlePushPromise(f *http2.PushPromiseFrame) {
 			o.failAll(http2.ConnectionError(http2.ErrCodeProtocol))
 			return
 		}
-		frag = append(frag, cf.HeaderBlockFragment()...)
+		next := cf.HeaderBlockFragment()
+		if len(frag)+len(next) > maxPushHeaderBlock {
+			o.failAll(http2.ConnectionError(http2.ErrCodeProtocol))
+			return
+		}
+		frag = append(frag, next...)
 		ended = cf.HeadersEnded()
 	}
 	fields, err := decodeHPACK(o.dec, frag)
@@ -670,6 +694,9 @@ func decodeHPACK(dec *hpack.Decoder, frag []byte) ([]hpack.HeaderField, error) {
 	})
 	defer dec.SetEmitFunc(func(hpack.HeaderField) {})
 	if _, err := dec.Write(frag); err != nil {
+		return nil, err
+	}
+	if err := dec.Close(); err != nil {
 		return nil, err
 	}
 	return fields, nil
