@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-23 (1.2 residuals)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012
 
 ## Problem statement
@@ -330,11 +330,18 @@ TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`,
 
 ## Residual limitations
 
-See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). 1.0 defaults remain the process defaults.
+See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). 1.0 defaults remain the process defaults. 1.2 flags are default-off, Reset-only (D51). Overlay YAML stays flags-off. Catalog stays 30 `/v1` rows. **D7 stands.**
 
 - HTTP/3 / QUIC still out. HTTP/2 inner is `protocols.http2.enabled` (default off). Client-facing h2c is `protocols.http2.clientCleartext` (default off, Reset-only); flag-off `PRI` is still a hard close.
+- HTTP/3 / QUIC still out. No `h3` ALPN, no datagrams.
+- GSSAPI (SOCKS method `0x01`) is never selected.
+- Nested inner CONNECT without `:protocol` still RST, **no flow** (D48 remainder). Illegal h2 `Upgrade: websocket` still RST, no flow.
+- grpc-web stays opaque (content-type recorded; payload not parsed).
+- Unspecified BIND DST (`0.0.0.0:0` / `[::]:0`) is rejected (no Listen).
+- No TPROXY in the appliance (`tproxy` reserved). No reverse-proxy. UDP ASSOCIATE is not orig-dest transparent UDP.
+- Empty `spec: {}` is still a 1.0 process. 1.1 `acceptSOCKS5` remains CONNECT-only unless `acceptBind` / `acceptUDPAssociate` / `acceptUserPass`.
+- Flag-off `PRI * HTTP/2.0` is still a hard close. 1.2 `protocols.http2.clientCleartext` (default off, Reset-only) is the h2c opt-in.
 - No Python VM, mitmweb, dumpfile, CLI-flag clone, or wrapping Python mitmproxy.
-- No TPROXY in the appliance (`tproxy` reserved). No reverse-proxy.
 - Orig-dest is Linux-only REDIRECT + `SO_ORIGINAL_DST`, default off. Supported topologies are shared-netns + sidecar iptables or host-network REDIRECT (D50). Publishing `8890` is not transparent.
 - Compat flow REST is a mitmproxy-inspired **subset** (default off, Reset-only). Not mitmproxy 11 compatible.
 - SOCKS5/4 CONNECT is opt-in, NO AUTH, CONNECT only. BIND/UDP/GSSAPI/password are out.
@@ -342,6 +349,8 @@ See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blo
 - WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Inner and client-facing RFC 8441 `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); nested inner CONNECT without `:protocol` still RST, **no flow**. Client-facing h2c CONNECT (RFC 9113 §8.5) is on when `clientCleartext` is on (D62).
 - WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Inner RFC 8441 `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); nested inner CONNECT without `:protocol` still RST, **no flow**. Client-facing Extended CONNECT / h2c is still out.
 - gRPC protobuf decode: flag-off is HTTP/2 headers + DATA only; flag-on `protocols.http2.grpcDecode` (Reset-only, D66) is an in-tree length-prefix + wire tree. **grpc-web stays opaque.**
+- 1.1 and 1.2 flags (`acceptSOCKS5`/`acceptSOCKS4`/`acceptBind`/`acceptUDPAssociate`/`acceptUserPass`, `originalDestination`, `protocols.http2` including `clientCleartext`/`origin`/`extendedConnect`/`capturePush`/`grpcDecode`, `protocols.websocket.inspectFrames`, `compat.flowREST`) are bootstrap + **Reset only** (D51).
+- WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Inner RFC 8441 `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); nested inner CONNECT without `:protocol` still RST, **no flow**.
 - Generate-mode CA rotates on every restart/reset.
 - Store-full still forwards (capture dropped).
 - Single replica; no shared flow store.

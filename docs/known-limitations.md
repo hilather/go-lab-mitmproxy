@@ -1,6 +1,6 @@
 # Known limitations (1.2 residuals; 1.0 defaults)
 
-Honest residual for LabMITM after the 1.2 opt-in workstreams (SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
+Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
 Last reviewed: 2026-08-23 (1.2 residuals)
 
@@ -37,13 +37,13 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `acceptBind`, `acceptUDPAssociat
 
 **1.1 `acceptSOCKS5` stays CONNECT-only** unless `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` are also set. A 1.1 CONNECT-only config does not grow BIND listens, UDP sockets, or a user-pass handshake on upgrade.
 
-## This tree versus what is not tagged
+## 1.2 series residual versus what is not tagged
 
-1.2 workstreams are in this branch. What is **not** claimed:
+The 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68) is the claimed product. This isolated docs commit is last in that stack and does not make BIND/UDP/h2c/grpcx files ancestors of itself. What is **not** claimed:
 
-| In this tree | Not this tree / not this product |
+| 1.2 series | Not this product |
 |---|---|
-| Opt-in HTTP/2 inner+origin (h2c, Extended CONNECT, origin `h2`, PUSH capture, gRPC decode), SOCKS5/4 CONNECT + BIND/UDP/user-pass, Linux orig-dest REDIRECT, compat flow REST, inspector Frames / gRPC / push metadata | HTTP/3 / QUIC; TPROXY appliance; reverse-proxy; Python mitmproxy; GSSAPI |
+| Opt-in HTTP/2 inner+origin (h2c, Extended CONNECT, origin `h2`, PUSH capture, gRPC decode), SOCKS5/4 CONNECT + BIND/UDP/user-pass, Linux orig-dest REDIRECT, compat flow REST, inspector Frames / push metadata | HTTP/3 / QUIC; TPROXY appliance; reverse-proxy; Python mitmproxy; GSSAPI |
 | First-party flow-inspector SPA | mitmproxy mitmweb / Python addon UI |
 | Overlay examples in this repo (**flags off**) | mcp-integration-lab compose pin lives in that repo (vendor **v1.1.0** + `labmitm:local`; not a GHCR digest) |
 

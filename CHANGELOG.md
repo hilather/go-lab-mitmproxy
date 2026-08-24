@@ -4,7 +4,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ## Unreleased
 
-1.2 protocol expansion ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md), D58–D68). Additive `labmitm.dev/v1alpha1` flags, default **off**, bootstrap + **Reset-only** (D51). Empty `spec: {}` remains a 1.0 process. Overlay [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) stays flags-off. Catalog stays 30 `/v1` rows. No new capability IDs. **D7 stands.** Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). Tagged notes (`docs/releases/v1.2.0.md`) land when tagging.
+1.2 protocol expansion series (stacked PRs 1–13; [ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D58–D68). Additive `labmitm.dev/v1alpha1` flags, default **off**, bootstrap + **Reset-only** (D51). Empty `spec: {}` remains a 1.0 process. Overlay [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) stays flags-off. Catalog stays 30 `/v1` rows. No new capability IDs. **D7 stands.** Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). Tagged notes (`docs/releases/v1.2.0.md`) land when tagging.
 
 ### Added
 
@@ -24,7 +24,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - RFC 9113 §8.5 CONNECT on client-facing h2c (D62). Each CONNECT stream is one origin TCP. No HTTP/1.1 200. Handshake failure RSTs (D20); no DATA tunnel. Orig-dest tagged CONNECT stays 400 (D57). Nested inner CONNECT without `:protocol` still RST, **no flow**.
 - RFC 8441 Extended CONNECT websocket (`protocols.http2.extendedConnect`, D63). Inner and client-facing `:protocol=websocket` reuse `internal/wsx`. Success is inner `:status=200`. Other `:protocol` values RST, no flow. Illegal h2 `Upgrade: websocket` still RST, no flow.
 - Origin HTTP/2 multiplex when `protocols.http2.origin` **and** the inner leaf negotiated `h2` (D64). One CONNECT = one origin TCP. Flag-off keeps D32/D44 h2→h1 transcode. Replay follows the **live** origin flag (off → HTTP/1.1 origin-form with leading-`:` stripped).
-- Best-effort gRPC protobuf decode (`protocols.http2.grpcDecode`, D66). In-tree length-prefix + protobuf wire tree; no `google.golang.org/protobuf`. Fail-open. grpc-web stays **opaque** (content-type recorded, payload not parsed). REST/MCP `grpc` on GET-by-id; list omits `messages`. Inspector gRPC tab when present. `labmitm_grpc_decode_total{result}`.
+- Best-effort gRPC protobuf decode (`protocols.http2.grpcDecode`, D66). In-tree length-prefix + protobuf wire tree; no `google.golang.org/protobuf`. Fail-open. grpc-web stays **opaque** (content-type recorded, payload not parsed). REST/MCP `grpc` on GET-by-id; list omits `messages`. `labmitm_grpc_decode_total{result}`.
 - Origin `PUSH_PROMISE` capture-only (`protocols.http2.capturePush`, D65). Inner `EnablePush` stays 0. Promised streams are stored as flows and are **not** forwarded or replayable. Flag-off RSTs the promised id toward origin. Inspector shows parent/promised ids. `labmitm_h2_push_captured_total{result}`.
 
 ### Changed
