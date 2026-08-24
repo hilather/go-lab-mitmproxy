@@ -115,6 +115,23 @@ export type CAStatus = {
   notAfter?: string;
 };
 
+export type StatusFeatures = {
+  http2: boolean;
+  http2ClientCleartext: boolean;
+  http2Origin: boolean;
+  http2ExtendedConnect: boolean;
+  http2CapturePush: boolean;
+  http2GRPCDecode: boolean;
+  inspectWebSocketFrames: boolean;
+  socks5: boolean;
+  socks4: boolean;
+  acceptBind: boolean;
+  acceptUDPAssociate: boolean;
+  acceptUserPass: boolean;
+  originalDestination: boolean;
+  compatFlowREST: boolean;
+};
+
 export type Status = {
   ready: boolean;
   revisions: Record<string, unknown>;
@@ -122,6 +139,7 @@ export type Status = {
   store: StoreStats;
   intercept: boolean;
   ca: CAStatus;
+  features: StatusFeatures;
 };
 
 export type AuditEvent = {

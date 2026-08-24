@@ -64,7 +64,27 @@
       "properties": {
         "address": { "type": "string", "description": "host:port; default 127.0.0.1:8888; empty materializes that default, not :8888" },
         "acceptSOCKS5": { "type": "boolean", "description": "default false; Reset-only. Legal key is camelCase acceptSOCKS5" },
-        "acceptSOCKS4": { "type": "boolean", "description": "default false; Reset-only" }
+        "acceptSOCKS4": { "type": "boolean", "description": "default false; Reset-only" },
+        "acceptBind": { "type": "boolean", "description": "default false; Reset-only; requires acceptSOCKS5 or acceptSOCKS4" },
+        "acceptUDPAssociate": { "type": "boolean", "description": "default false; Reset-only; requires acceptSOCKS5" },
+        "acceptUserPass": { "type": "boolean", "description": "default false; Reset-only; requires acceptSOCKS5 and at least one userPass user" },
+        "userPass": { "$ref": "#/$defs/userPass" }
+      }
+    },
+    "userPass": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "users": { "type": "array", "items": { "$ref": "#/$defs/userPassUser" } }
+      }
+    },
+    "userPassUser": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+        "usernameFile": { "type": "string", "description": "file ref; RFC 1929 username 1–255 bytes; not inline" },
+        "passwordFile": { "type": "string", "description": "file ref; RFC 1929 password 1–255 bytes; not inline" }
       }
     },
     "originalDest": {
@@ -79,14 +99,27 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "http2": { "$ref": "#/$defs/http2" }
+        "http2": { "$ref": "#/$defs/http2" },
+        "websocket": { "$ref": "#/$defs/websocket" }
       }
     },
     "http2": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "description": "default false; Reset-only; unread until the HTTP/2 workstream" }
+        "enabled": { "type": "boolean", "description": "default false; Reset-only; inner leaf ALPN h2" },
+        "clientCleartext": { "type": "boolean", "description": "default false; Reset-only" },
+        "origin": { "type": "boolean", "description": "default false; Reset-only; requires enabled" },
+        "extendedConnect": { "type": "boolean", "description": "default false; Reset-only; requires enabled or clientCleartext" },
+        "capturePush": { "type": "boolean", "description": "default false; Reset-only; requires origin" },
+        "grpcDecode": { "type": "boolean", "description": "default false; Reset-only; requires enabled or origin" }
+      }
+    },
+    "websocket": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inspectFrames": { "type": "boolean", "description": "default false; Reset-only" }
       }
     },
     "compat": {

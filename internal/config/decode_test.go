@@ -42,10 +42,22 @@ func TestDecodeDefaultsYAML(t *testing.T) {
 	if st.Spec.Management.Auth.Mode != model.MgmtAuthBearer {
 		t.Fatalf("auth.mode=%q", st.Spec.Management.Auth.Mode)
 	}
+	if st.Spec.Listeners.Proxy.AcceptBind || st.Spec.Listeners.Proxy.AcceptUDPAssociate || st.Spec.Listeners.Proxy.AcceptUserPass {
+		t.Fatal("omitted 1.2 SOCKS flags must stay false")
+	}
+	if st.Spec.Protocols.HTTP2.ClientCleartext || st.Spec.Protocols.HTTP2.Origin || st.Spec.Protocols.WebSocket.InspectFrames {
+		t.Fatal("omitted 1.2 protocol flags must stay false")
+	}
 }
 
 func TestDecodeAcceptSOCKS5HyphenUnknownField(t *testing.T) {
 	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      accept-socks5: true\n"
+	_, err := Decode([]byte(doc))
+	_ = requireValidation(t, err, violationUnknownField)
+}
+
+func TestDecodeAcceptBindHyphenUnknownField(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      accept-bind: true\n"
 	_, err := Decode([]byte(doc))
 	_ = requireValidation(t, err, violationUnknownField)
 }

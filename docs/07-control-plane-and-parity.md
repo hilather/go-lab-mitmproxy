@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP
-Last reviewed: 2026-08-19 (1.1 compat flow REST after auth)
-Related ADRs: 0004, 0005, 0006, 0007, 0011
+Last reviewed: 2026-08-23 (1.2 status features keys)
+Related ADRs: 0004, 0005, 0006, 0007, 0011, 0012
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
 
@@ -58,7 +58,7 @@ mitm.audit.read    audit ring
 | `health.ready` | `GET /v1/health/ready` | — | none | REST_ONLY |
 | `version.get` | `GET /v1/version` | `mitm_version_get` | `mitm.read` | |
 | `capabilities.get` | `GET /v1/capabilities` | `mitm_capabilities_get`, `labmitm://capabilities` | `mitm.read` | |
-| `status.get` | `GET /v1/status` | `mitm_status_get`, `labmitm://status` | `mitm.read` | listeners, store stats, revisions, intercept on/off, `features.{http2,socks5,socks4,originalDestination,compatFlowREST}` (spec flags; default false), `ca.{mode,spkiSha256,subject,notAfter}` (never key) |
+| `status.get` | `GET /v1/status` | `mitm_status_get`, `labmitm://status` | `mitm.read` | listeners, store stats, revisions, intercept on/off, `features.{http2,http2ClientCleartext,http2Origin,http2ExtendedConnect,http2CapturePush,http2GRPCDecode,inspectWebSocketFrames,socks5,socks4,acceptBind,acceptUDPAssociate,acceptUserPass,originalDestination,compatFlowREST}` (spec flags; default false), `ca.{mode,spkiSha256,subject,notAfter}` (never key) |
 | `schema.get` | `GET /v1/schema/config` | `mitm_schema_get`, `labmitm://schema/config` | `mitm.read` | |
 | `state.get` | `GET /v1/state` | `mitm_state_get`, `labmitm://state` | `mitm.read` | redacted spec + revisions |
 | `state.validate` | `POST /v1/state:validate` | `mitm_state_validate` | `mitm.admin` | |

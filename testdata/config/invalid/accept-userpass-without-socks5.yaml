@@ -1,0 +1,8 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: accept-userpass-without-socks5
+spec:
+  listeners:
+    proxy:
+      acceptUserPass: true

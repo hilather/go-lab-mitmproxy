@@ -71,6 +71,17 @@ func TestReservedDoesNotMatchLegitFields(t *testing.T) {
 	if why := reservedReason(normalizeKey("acceptSOCKS5")); why != "" {
 		t.Fatalf("acceptSOCKS5 reserved: %s", why)
 	}
+	for _, k := range []string{"acceptBind", "acceptUDPAssociate", "acceptUserPass", "userPass", "inspectFrames", "clientCleartext"} {
+		if why := reservedReason(normalizeKey(k)); why != "" {
+			t.Fatalf("%s reserved: %s", k, why)
+		}
+	}
+	if why := reservedReason(normalizeKey("socksBind")); why == "" {
+		t.Fatal("socksBind must stay reserved")
+	}
+	if why := reservedReason(normalizeKey("socksUserPass")); why == "" {
+		t.Fatal("socksUserPass must stay reserved")
+	}
 	if why := reservedReason(normalizeKey("originalDestination")); why != "" {
 		t.Fatalf("originalDestination reserved: %s", why)
 	}

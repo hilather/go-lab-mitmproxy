@@ -56,8 +56,21 @@ func TestLabOverlayExample(t *testing.T) {
 	if st.Spec.Protocols.HTTP2.Enabled {
 		t.Fatal("protocols.http2.enabled must stay false")
 	}
+	if st.Spec.Protocols.HTTP2.ClientCleartext ||
+		st.Spec.Protocols.HTTP2.Origin ||
+		st.Spec.Protocols.HTTP2.ExtendedConnect ||
+		st.Spec.Protocols.HTTP2.CapturePush ||
+		st.Spec.Protocols.HTTP2.GRPCDecode {
+		t.Fatal("1.2 http2 flags must stay false")
+	}
+	if st.Spec.Protocols.WebSocket.InspectFrames {
+		t.Fatal("websocket.inspectFrames must stay false")
+	}
 	if st.Spec.Listeners.Proxy.AcceptSOCKS5 || st.Spec.Listeners.Proxy.AcceptSOCKS4 {
 		t.Fatal("acceptSOCKS5/acceptSOCKS4 must stay false")
+	}
+	if st.Spec.Listeners.Proxy.AcceptBind || st.Spec.Listeners.Proxy.AcceptUDPAssociate || st.Spec.Listeners.Proxy.AcceptUserPass {
+		t.Fatal("acceptBind/acceptUDPAssociate/acceptUserPass must stay false")
 	}
 	if st.Spec.Listeners.OriginalDestination.Enabled {
 		t.Fatal("originalDestination.enabled must stay false")

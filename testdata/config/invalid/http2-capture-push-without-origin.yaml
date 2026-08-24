@@ -1,0 +1,9 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: http2-capture-push-without-origin
+spec:
+  protocols:
+    http2:
+      enabled: true
+      capturePush: true

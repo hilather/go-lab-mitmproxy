@@ -50,11 +50,25 @@ func TestNormalizeMaterializesDefaults(t *testing.T) {
 	if st.Spec.Listeners.Proxy.AcceptSOCKS5 || st.Spec.Listeners.Proxy.AcceptSOCKS4 {
 		t.Fatal("SOCKS accept flags default off")
 	}
+	if st.Spec.Listeners.Proxy.AcceptBind || st.Spec.Listeners.Proxy.AcceptUDPAssociate || st.Spec.Listeners.Proxy.AcceptUserPass {
+		t.Fatal("1.2 SOCKS flags default off")
+	}
+	if st.Spec.Listeners.Proxy.UserPass.Users == nil {
+		t.Fatal("userPass.users must be empty slice, not nil")
+	}
 	if st.Spec.Listeners.OriginalDestination.Enabled {
 		t.Fatal("originalDestination.enabled default off")
 	}
-	if st.Spec.Protocols.HTTP2.Enabled {
-		t.Fatal("protocols.http2.enabled default off")
+	if st.Spec.Protocols.HTTP2.Enabled ||
+		st.Spec.Protocols.HTTP2.ClientCleartext ||
+		st.Spec.Protocols.HTTP2.Origin ||
+		st.Spec.Protocols.HTTP2.ExtendedConnect ||
+		st.Spec.Protocols.HTTP2.CapturePush ||
+		st.Spec.Protocols.HTTP2.GRPCDecode {
+		t.Fatal("protocols.http2 flags default off")
+	}
+	if st.Spec.Protocols.WebSocket.InspectFrames {
+		t.Fatal("protocols.websocket.inspectFrames default off")
 	}
 	if st.Spec.Compat.FlowREST.Enabled {
 		t.Fatal("compat.flowREST.enabled default off")
@@ -121,6 +135,31 @@ func TestNormalizeHTTP2Flag(t *testing.T) {
 	}
 	if !st.Spec.Protocols.HTTP2.Enabled {
 		t.Fatal("http2")
+	}
+	if st.Spec.Protocols.HTTP2.Origin || st.Spec.Protocols.HTTP2.ClientCleartext {
+		t.Fatal("http2 extras stayed off")
+	}
+}
+
+func TestNormalizeProtocolFlags12(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	st, err := LoadFile(testdata(t, "valid", "protocol-flags-12.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := st.Spec.Listeners.Proxy
+	if !p.AcceptSOCKS5 || !p.AcceptSOCKS4 || !p.AcceptBind || !p.AcceptUDPAssociate || !p.AcceptUserPass {
+		t.Fatalf("proxy flags=%+v", p)
+	}
+	if len(p.UserPass.Users) != 1 || p.UserPass.Users[0].ID != "lab-socks" {
+		t.Fatalf("users=%+v", p.UserPass.Users)
+	}
+	h := st.Spec.Protocols.HTTP2
+	if !h.Enabled || !h.ClientCleartext || !h.Origin || !h.ExtendedConnect || !h.CapturePush || !h.GRPCDecode {
+		t.Fatalf("http2=%+v", h)
+	}
+	if !st.Spec.Protocols.WebSocket.InspectFrames {
+		t.Fatal("inspectFrames")
 	}
 }
 

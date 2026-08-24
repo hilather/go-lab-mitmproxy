@@ -28,6 +28,7 @@ func Validate(st *model.State) error {
 	validateDocument(st, &vs)
 	validateListeners(&st.Spec.Listeners, &vs)
 	validateCompat(&st.Spec, &vs)
+	validateProtocols(&st.Spec.Protocols, &vs)
 	validateProxy(&st.Spec.Proxy, &vs)
 	validateTLS(&st.Spec.TLS, &vs)
 	validateRules(&st.Spec.Rules, &vs)
@@ -88,6 +89,106 @@ func validateListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation) {
 	validateFilePair("spec.listeners.management.tls", l.Management.TLS.Enabled, l.Management.TLS.CertFile, l.Management.TLS.KeyFile, vs)
 	if l.OriginalDestination.Enabled {
 		validateTCPAddr("spec.listeners.originalDestination.address", l.OriginalDestination.Address, vs)
+	}
+	validateProxyListener(&l.Proxy, vs)
+}
+
+func validateProxyListener(p *model.ProxyListenerSpec, vs *[]domainerr.FieldViolation) {
+	if p.AcceptBind && !p.AcceptSOCKS5 && !p.AcceptSOCKS4 {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.proxy.acceptBind",
+			Code:    violationInvalidValue,
+			Message: "acceptBind requires acceptSOCKS5 or acceptSOCKS4",
+		})
+	}
+	if p.AcceptUDPAssociate && !p.AcceptSOCKS5 {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.proxy.acceptUDPAssociate",
+			Code:    violationInvalidValue,
+			Message: "acceptUDPAssociate requires acceptSOCKS5",
+		})
+	}
+	if p.AcceptUserPass {
+		if !p.AcceptSOCKS5 {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    "spec.listeners.proxy.acceptUserPass",
+				Code:    violationInvalidValue,
+				Message: "acceptUserPass requires acceptSOCKS5",
+			})
+		}
+		if len(p.UserPass.Users) == 0 {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    "spec.listeners.proxy.acceptUserPass",
+				Code:    violationInvalidValue,
+				Message: "acceptUserPass requires at least one user",
+			})
+		}
+	}
+	validateUserPassUsers(p.UserPass.Users, vs)
+}
+
+func validateUserPassUsers(users []model.UserPassUserSpec, vs *[]domainerr.FieldViolation) {
+	ids := map[string]string{}
+	for i, u := range users {
+		path := indexPath("spec.listeners.proxy.userPass.users", i)
+		id := strings.TrimSpace(u.ID)
+		if id == "" {
+			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".id", Code: violationEmptyID, Message: "user id is required"})
+		} else if !ruleIDPattern.MatchString(id) {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".id",
+				Code:    violationInvalidValue,
+				Message: "user id must match [a-z0-9-]{1,64}",
+			})
+		} else if prev, ok := ids[id]; ok {
+			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".id", Code: violationDuplicateID, Message: "duplicate user id (first at " + prev + ")"})
+		} else {
+			ids[id] = path + ".id"
+		}
+		if strings.TrimSpace(u.UsernameFile) == "" {
+			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".usernameFile", Code: violationRequired, Message: "usernameFile is required"})
+		} else {
+			requireExistingFile(path+".usernameFile", u.UsernameFile, vs)
+			checkRFC1929FileLength(path+".usernameFile", u.UsernameFile, "username", vs)
+		}
+		if strings.TrimSpace(u.PasswordFile) == "" {
+			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".passwordFile", Code: violationRequired, Message: "passwordFile is required"})
+		} else {
+			requireExistingFile(path+".passwordFile", u.PasswordFile, vs)
+			checkRFC1929FileLength(path+".passwordFile", u.PasswordFile, "password", vs)
+		}
+	}
+}
+
+func validateProtocols(p *model.ProtocolsSpec, vs *[]domainerr.FieldViolation) {
+	h := p.HTTP2
+	if h.Origin && !h.Enabled {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.protocols.http2.origin",
+			Code:    violationInvalidValue,
+			Message: "origin requires protocols.http2.enabled",
+		})
+	}
+	if h.ExtendedConnect && !h.Enabled && !h.ClientCleartext {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.protocols.http2.extendedConnect",
+			Code:    violationInvalidValue,
+			Message: "extendedConnect requires protocols.http2.enabled or clientCleartext",
+		})
+	}
+	if h.CapturePush && !h.Origin {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.protocols.http2.capturePush",
+			Code:    violationInvalidValue,
+			Message: "capturePush requires protocols.http2.origin",
+		})
+	}
+	if h.GRPCDecode && !h.Enabled && !h.Origin {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.protocols.http2.grpcDecode",
+			Code:    violationInvalidValue,
+			Message: "grpcDecode requires protocols.http2.enabled or origin",
+		})
 	}
 }
 
@@ -565,5 +666,34 @@ func checkTokenSecretLength(path, file string, vs *[]domainerr.FieldViolation) {
 		Path:    path,
 		Code:    violationInvalidValue,
 		Message: "token secret must be at least 32 bytes",
+	})
+}
+
+// checkRFC1929FileLength fails if the file exists and the first secret line is
+// outside RFC 1929's 1–255 octet range.
+func checkRFC1929FileLength(path, file, kind string, vs *[]domainerr.FieldViolation) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		n := len(line)
+		if n < minRFC1929Secret || n > maxRFC1929Secret {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path,
+				Code:    violationInvalidValue,
+				Message: kind + " must be 1–255 bytes",
+			})
+		}
+		return
+	}
+	*vs = append(*vs, domainerr.FieldViolation{
+		Path:    path,
+		Code:    violationInvalidValue,
+		Message: kind + " must be 1–255 bytes",
 	})
 }
