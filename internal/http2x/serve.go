@@ -359,7 +359,7 @@ func serveTunnel(ctx context.Context, tun TunnelHandler, in Stream, parent net.C
 	}
 	if tunv.AfterAck != nil {
 		switch tunv.Kind {
-		case TunnelWebSocket, TunnelIntercept:
+		case TunnelWebSocket, TunnelIntercept, TunnelRaw:
 			_ = writeStatus(fr, enc, encBuf, write, in.ID, status, false, tunv.Headers)
 			tunv.AfterAck(adapter)
 			return
@@ -388,6 +388,8 @@ func serveTunnel(ctx context.Context, tun TunnelHandler, in Stream, parent net.C
 	_ = write(func() error { return fr.WriteRSTStream(in.ID, http2.ErrCodeInternal) })
 }
 
+// spliceRawTunnel is the AfterAck-nil codec path. Proxy raw CONNECT
+// uses AfterAck + Server.tunnel so idle/session deadlines apply (D62).
 func spliceRawTunnel(client net.Conn, origin net.Conn) {
 	if origin == nil {
 		if client != nil {
