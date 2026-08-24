@@ -43,6 +43,7 @@ func TestCatalogLabelPolicy(t *testing.T) {
 		MetricStoreWaiters, MetricHTTPRequestsTotal, MetricHTTPRequestDuration,
 		MetricMCPCallsTotal, MetricAuthFailuresTotal, MetricAuditEventsTotal,
 		MetricH2TrailerDroppedTotal, MetricWSFramesTotal, MetricGRPCDecodeTotal,
+		MetricH2TrailerDroppedTotal, MetricWSFramesTotal, MetricH2PushCapturedTotal,
 	}
 	for _, name := range required {
 		if !seen[name] {

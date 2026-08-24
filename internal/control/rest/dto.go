@@ -197,7 +197,10 @@ type messageJSON struct {
 }
 
 type http2InfoJSON struct {
-	StreamID uint32 `json:"streamId"`
+	StreamID       uint32 `json:"streamId"`
+	ParentStreamID uint32 `json:"parentStreamId,omitempty"`
+	PromisedID     uint32 `json:"promisedId,omitempty"`
+	Pushed         bool   `json:"pushed,omitempty"`
 }
 
 type socksInfoJSON struct {
@@ -400,7 +403,7 @@ func fromFlow(f *model.Flow, listItem bool) flowJSON {
 		}
 	}
 	if f.HTTP2 != nil {
-		out.HTTP2 = &http2InfoJSON{StreamID: f.HTTP2.StreamID}
+		out.HTTP2 = fromHTTP2(f.HTTP2)
 	}
 	if f.SOCKS != nil {
 		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command, BND: f.SOCKS.BND, User: f.SOCKS.User}
@@ -408,6 +411,18 @@ func fromFlow(f *model.Flow, listItem bool) flowJSON {
 	out.WebSocket = fromWebSocket(f.WebSocket, listItem)
 	out.GRPC = fromGRPC(f.GRPC, listItem)
 	return out
+}
+
+func fromHTTP2(h *model.HTTP2Info) *http2InfoJSON {
+	if h == nil {
+		return nil
+	}
+	return &http2InfoJSON{
+		StreamID:       h.StreamID,
+		ParentStreamID: h.ParentStreamID,
+		PromisedID:     h.PromisedID,
+		Pushed:         h.Pushed,
+	}
 }
 
 func fromWebSocket(ws *model.WebSocketInfo, listItem bool) *webSocketInfoJSON {

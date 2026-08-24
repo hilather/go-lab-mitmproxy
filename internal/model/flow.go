@@ -77,7 +77,10 @@ type HTTPMessage struct {
 
 // HTTP2Info is captured HTTP/2 stream metadata.
 type HTTP2Info struct {
-	StreamID uint32
+	StreamID       uint32
+	ParentStreamID uint32
+	PromisedID     uint32
+	Pushed         bool
 }
 
 // SOCKSInfo is captured SOCKS CONNECT/BIND/UDP metadata.

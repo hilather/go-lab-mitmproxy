@@ -17,6 +17,48 @@ import (
 	"golang.org/x/net/http2/hpack"
 )
 
+func TestServeClientEnablePushZero(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		_ = ServeClient(ctx, server, func(context.Context, Stream) (*http.Response, []model.Header, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil, nil
+		})
+	}()
+	if _, err := client.Write([]byte(http2.ClientPreface)); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(client, client)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sf, ok := f.(*http2.SettingsFrame)
+		if !ok || sf.IsAck() {
+			continue
+		}
+		var enable *uint32
+		_ = sf.ForeachSetting(func(s http2.Setting) error {
+			if s.ID == http2.SettingEnablePush {
+				v := s.Val
+				enable = &v
+			}
+			return nil
+		})
+		if enable == nil || *enable != 0 {
+			t.Fatalf("inner EnablePush=%v (must stay 0)", enable)
+		}
+		return
+	}
+	t.Fatal("no server SETTINGS")
+}
+
 func TestServeClientGET(t *testing.T) {
 	client, server := h2TLSPair(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

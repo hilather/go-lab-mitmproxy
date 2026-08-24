@@ -1629,3 +1629,215 @@ func readH2WebSocketFrame(t *testing.T, fr *http2.Framer, id uint32) wsx.Frame {
 	t.Fatal("no websocket DATA")
 	return wsx.Frame{}
 }
+
+type pushOriginSaw struct {
+	enablePush atomic.Uint32
+	rst        atomic.Bool
+}
+
+func startH2PushOrigin(t *testing.T) (port int, saw *pushOriginSaw) {
+	t.Helper()
+	saw = &pushOriginSaw{}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &tls.Config{
+		Certificates: []tls.Certificate{originCert(t)},
+		NextProtos:   []string{http2x.NextProtoH2},
+		MinVersion:   tls.VersionTLS12,
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		tc := tls.Server(c, cfg)
+		if err := tc.Handshake(); err != nil {
+			return
+		}
+		preface := make([]byte, len(http2.ClientPreface))
+		if _, err := io.ReadFull(tc, preface); err != nil {
+			return
+		}
+		fr := http2.NewFramer(tc, tc)
+		fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+		_ = fr.WriteSettings()
+		var hdr bytes.Buffer
+		enc := hpack.NewEncoder(&hdr)
+		encode := func(fields []hpack.HeaderField) []byte {
+			hdr.Reset()
+			for _, hf := range fields {
+				_ = enc.WriteField(hf)
+			}
+			return append([]byte(nil), hdr.Bytes()...)
+		}
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			_ = tc.SetDeadline(time.Now().Add(3 * time.Second))
+			f, err := fr.ReadFrame()
+			if err != nil {
+				return
+			}
+			switch f := f.(type) {
+			case *http2.SettingsFrame:
+				if !f.IsAck() {
+					_ = f.ForeachSetting(func(s http2.Setting) error {
+						if s.ID == http2.SettingEnablePush {
+							saw.enablePush.Store(s.Val)
+						}
+						return nil
+					})
+					_ = fr.WriteSettingsAck()
+				}
+			case *http2.RSTStreamFrame:
+				if f.StreamID == 2 {
+					saw.rst.Store(true)
+				}
+			case *http2.MetaHeadersFrame:
+				if f.StreamID != 1 {
+					continue
+				}
+				if err := fr.WritePushPromise(http2.PushPromiseParam{
+					StreamID: 1, PromiseID: 2, EndHeaders: true,
+					BlockFragment: encode([]hpack.HeaderField{
+						{Name: ":method", Value: http.MethodGet},
+						{Name: ":scheme", Value: "https"},
+						{Name: ":authority", Value: "app.lab"},
+						{Name: ":path", Value: "/style.css"},
+					}),
+				}); err != nil {
+					return
+				}
+				if err := fr.WriteHeaders(http2.HeadersFrameParam{
+					StreamID: 2, EndHeaders: true,
+					BlockFragment: encode([]hpack.HeaderField{
+						{Name: ":status", Value: "200"},
+						{Name: "content-type", Value: "text/css"},
+					}),
+				}); err != nil {
+					return
+				}
+				if err := fr.WriteData(2, true, []byte("pushed-body")); err != nil {
+					return
+				}
+				if err := fr.WriteHeaders(http2.HeadersFrameParam{
+					StreamID: 1, EndHeaders: true,
+					BlockFragment: encode([]hpack.HeaderField{{Name: ":status", Value: "200"}}),
+				}); err != nil {
+					return
+				}
+				if err := fr.WriteData(1, true, []byte("parent-body")); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	_, port = hostPort(t, ln.Addr().String())
+	return port, saw
+}
+
+func TestInterceptHTTP2PushCapturedNotForwarded(t *testing.T) {
+	port, saw := startH2PushOrigin(t)
+	sink := NewNull()
+	spec := interceptH2OriginSpec(t, port)
+	spec.Protocols.HTTP2.CapturePush = true
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodGet},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/hello"},
+	}, true)
+	sawPush := false
+	gotParent := false
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && !gotParent {
+		_ = tlsConn.SetDeadline(time.Now().Add(2 * time.Second))
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatalf("inner read: %v", err)
+		}
+		switch f := f.(type) {
+		case *http2.PushPromiseFrame:
+			sawPush = true
+			t.Fatalf("inner client must not see PUSH_PROMISE (promised=%d)", f.PromiseID)
+		case *http2.HeadersFrame, *http2.MetaHeadersFrame:
+			if f.Header().StreamID == 1 {
+				gotParent = true
+			}
+		case *http2.DataFrame:
+			if f.StreamID == 1 && string(f.Data()) != "parent-body" && len(f.Data()) > 0 {
+				t.Fatalf("inner data %q", f.Data())
+			}
+			if f.StreamID == 1 && f.StreamEnded() {
+				gotParent = true
+			}
+		}
+	}
+	if sawPush {
+		t.Fatal("PUSH_PROMISE forwarded to inner client")
+	}
+	if saw.enablePush.Load() != 1 {
+		t.Fatalf("origin ENABLE_PUSH=%d want 1", saw.enablePush.Load())
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	var pushed *model.Flow
+	for time.Now().Before(deadline) {
+		for _, f := range sink.Last() {
+			if f.HTTP2 != nil && f.HTTP2.Pushed {
+				pushed = f
+			}
+		}
+		if pushed != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pushed == nil {
+		t.Fatalf("promised flow not stored: %+v", sink.Last())
+	}
+	if pushed.HTTP2.ParentStreamID != 1 || pushed.HTTP2.PromisedID != 2 || string(pushed.Response.Body) != "pushed-body" {
+		t.Fatalf("pushed %+v http2=%+v body=%q", pushed, pushed.HTTP2, pushed.Response.Body)
+	}
+	if px.Metrics().H2PushCaptured("ok") < 1 {
+		t.Fatalf("metric ok=%d", px.Metrics().H2PushCaptured("ok"))
+	}
+}
+
+func TestInterceptHTTP2PushRSTWhenCaptureOff(t *testing.T) {
+	port, saw := startH2PushOrigin(t)
+	sink := NewNull()
+	spec := interceptH2OriginSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	resp, err := httpsH2ViaProxy(t, px.Addr().String(), strconv.Itoa(port), "/hello", px.Authority().CertPool())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "parent-body" {
+		t.Fatalf("parent status=%d body=%q", resp.StatusCode, body)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !saw.rst.Load() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if saw.enablePush.Load() != 0 {
+		t.Fatalf("origin ENABLE_PUSH=%d want 0", saw.enablePush.Load())
+	}
+	if !saw.rst.Load() {
+		t.Fatal("origin must see RST of promised id when capturePush is false")
+	}
+	for _, f := range sink.Last() {
+		if f.HTTP2 != nil && f.HTTP2.Pushed {
+			t.Fatalf("must not store pushed flow: %+v", f)
+		}
+	}
+	if px.Metrics().H2PushCaptured("rst") < 1 {
+		t.Fatalf("metric rst=%d", px.Metrics().H2PushCaptured("rst"))
+	}
+}

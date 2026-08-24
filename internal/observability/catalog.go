@@ -44,6 +44,7 @@ const (
 	MetricH2TrailerDroppedTotal = "labmitm_h2_trailer_dropped_total"
 	MetricWSFramesTotal         = "labmitm_ws_frames_total"
 	MetricGRPCDecodeTotal       = "labmitm_grpc_decode_total"
+	MetricH2PushCapturedTotal   = "labmitm_h2_push_captured_total"
 )
 
 // Frozen structured-log event names.
@@ -173,6 +174,7 @@ func Metrics() []MetricDef {
 		{Name: MetricH2TrailerDroppedTotal, Kind: KindCounter, Help: "HTTP/2 request trailers dropped when transcoding onto HTTP/1.1 origin.", Labels: nil},
 		{Name: MetricWSFramesTotal, Kind: KindCounter, Help: "WebSocket frames forwarded while inspectFrames is on.", Labels: []string{"opcode"}},
 		{Name: MetricGRPCDecodeTotal, Kind: KindCounter, Help: "Best-effort gRPC protobuf decode outcomes.", Labels: []string{"result"}},
+		{Name: MetricH2PushCapturedTotal, Kind: KindCounter, Help: "HTTP/2 PUSH_PROMISE streams captured or RST on the origin hop.", Labels: []string{"result"}},
 	}
 	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
 	for i := range defs {

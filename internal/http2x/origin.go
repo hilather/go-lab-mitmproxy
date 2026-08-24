@@ -12,8 +12,8 @@ import (
 
 // NewOriginTransport binds an HTTP/2 client to an already-dialed origin conn.
 // DialTLS stays nil. DialTLSContext refuses a second open instead of tls.Dial.
-// Inner streams multiplex on that one TCP (D64). Client SETTINGS EnablePush=0;
-// PUSH_PROMISE is not captured on this path.
+// Used by replay and refuse-redial tests. Live intercept origin h2 uses
+// OriginConn so PUSH_PROMISE can be captured or RST (D65).
 func NewOriginTransport(up net.Conn) (*http2.Transport, error) {
 	if up == nil {
 		return nil, ErrRefuseRedial

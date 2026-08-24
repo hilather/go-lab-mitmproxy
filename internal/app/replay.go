@@ -71,6 +71,10 @@ func validateReplay(f *model.Flow) error {
 		return domainerr.ValidationFailed("websocket flows cannot be replayed",
 			domainerr.FieldViolation{Path: "protocol", Code: "invalid_value", Message: "websocket flows cannot be replayed"})
 	}
+	if f.HTTP2 != nil && f.HTTP2.Pushed {
+		return domainerr.ValidationFailed("pushed flows cannot be replayed",
+			domainerr.FieldViolation{Path: "http2.pushed", Code: "invalid_value", Message: "PUSH_PROMISE flows cannot be replayed"})
+	}
 	if f.Request.Truncated {
 		return domainerr.ValidationFailed("truncated request cannot be replayed",
 			domainerr.FieldViolation{Path: "request", Code: "invalid_value", Message: "truncated request cannot be replayed"})
