@@ -714,6 +714,84 @@ func TestInterceptHTTP2OriginH2MultiplexTwoStreams(t *testing.T) {
 	}
 }
 
+func TestInterceptHTTP2OriginH2StreamErrorKeepsSibling(t *testing.T) {
+	slowEntered := make(chan struct{})
+	var conns atomic.Int32
+	origin := startTLSOriginH2State(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/fail" {
+			panic(http.ErrAbortHandler)
+		}
+		close(slowEntered)
+		time.Sleep(150 * time.Millisecond)
+		_, _ = io.WriteString(w, "slow-ok")
+	}), func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			conns.Add(1)
+		}
+	})
+	_, port := hostPort(t, origin)
+	spec := interceptH2OriginSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	cc := h2ClientConnViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+
+	slowDone := make(chan resultH2, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/slow", nil)
+		if err != nil {
+			slowDone <- resultH2{err: err}
+			return
+		}
+		resp, err := cc.RoundTrip(req)
+		if err != nil {
+			slowDone <- resultH2{err: err}
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, _ := io.ReadAll(resp.Body)
+		slowDone <- resultH2{status: resp.StatusCode, body: string(body)}
+	}()
+	select {
+	case <-slowEntered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("slow origin handler did not start")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	failReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/fail", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failResp, failErr := cc.RoundTrip(failReq)
+	if failResp != nil {
+		_, _ = io.Copy(io.Discard, failResp.Body)
+		_ = failResp.Body.Close()
+	}
+	if failErr == nil && failResp != nil && failResp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("fail want 502 or stream error, status=%d", failResp.StatusCode)
+	}
+	slow := <-slowDone
+	if slow.err != nil {
+		if strings.Contains(slow.err.Error(), "refuses redial") {
+			t.Fatalf("sibling killed shared origin TCP: %v", slow.err)
+		}
+		t.Fatalf("slow sibling: %v", slow.err)
+	}
+	if slow.status != http.StatusOK || slow.body != "slow-ok" {
+		t.Fatalf("slow sibling status=%d body=%q", slow.status, slow.body)
+	}
+	if conns.Load() != 1 {
+		t.Fatalf("second origin TCP forbidden: conns=%d", conns.Load())
+	}
+}
+
+type resultH2 struct {
+	status int
+	body   string
+	err    error
+}
+
 func TestInterceptHTTP2InnerHTTP11OriginFlagDoesNotOfferH2(t *testing.T) {
 	var proto string
 	origin := startTLSOriginH2(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1039,6 +1117,82 @@ func echoTLSWebSocketOrigin(t *testing.T) (port int, saw *wsOriginSaw) {
 	return port, saw
 }
 
+func echoH2WebSocketOrigin(t *testing.T) (port int, saw *wsOriginSaw, accepts *atomic.Int32) {
+	t.Helper()
+	saw = &wsOriginSaw{}
+	accepts = new(atomic.Int32)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &tls.Config{
+		Certificates: []tls.Certificate{originCert(t)},
+		NextProtos:   []string{http2x.NextProtoH2},
+		MinVersion:   tls.VersionTLS12,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancel()
+		_ = ln.Close()
+	})
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepts.Add(1)
+			go func(c net.Conn) {
+				defer func() { _ = c.Close() }()
+				tc := tls.Server(c, cfg)
+				if err := tc.Handshake(); err != nil {
+					return
+				}
+				h := func(context.Context, http2x.Stream) (*http.Response, []model.Header, error) {
+					return nil, nil, errors.New("origin h2 echo: unexpected request")
+				}
+				tun := func(_ context.Context, in http2x.Stream) (http2x.Tunnel, error) {
+					if !strings.EqualFold(in.Method, http.MethodConnect) || !strings.EqualFold(in.Protocol, "websocket") {
+						t.Errorf("origin method=%s protocol=%q", in.Method, in.Protocol)
+						return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+					}
+					saw.origin.Store(headerValue(in.Headers, "origin"))
+					saw.cookie.Store(headerValue(in.Headers, "cookie"))
+					saw.upgrades.Add(1)
+					return http2x.Tunnel{
+						Kind: http2x.TunnelWebSocket,
+						AfterAck: func(client net.Conn) {
+							if client == nil {
+								return
+							}
+							for {
+								fr, err := wsx.ReadFrame(client, 0)
+								if err != nil {
+									return
+								}
+								fr.Masked = false
+								fr.MaskKey = [4]byte{}
+								if err := wsx.WriteFrame(client, fr); err != nil {
+									return
+								}
+								if fr.Opcode == wsx.OpcodeClose {
+									return
+								}
+							}
+						},
+					}, nil
+				}
+				_ = http2x.ServeConn(ctx, tc, nil, http2x.ServeOpts{
+					Preface:               http2x.PrefaceFull,
+					EnableConnectProtocol: true,
+				}, h, tun)
+			}(c)
+		}
+	}()
+	_, port = hostPort(t, ln.Addr().String())
+	return port, saw, accepts
+}
+
 func firstCSV(v string) string {
 	for tok := range strings.SplitSeq(v, ",") {
 		s := strings.TrimSpace(tok)
@@ -1250,6 +1404,31 @@ func TestInterceptHTTP2ExtendedCONNECTWebsocketCopy(t *testing.T) {
 	}
 	if f.Method != http.MethodConnect {
 		t.Fatalf("method %q", f.Method)
+	}
+}
+
+func TestInterceptHTTP2ExtendedCONNECTOriginH2(t *testing.T) {
+	port, saw, accepts := echoH2WebSocketOrigin(t)
+	sink := NewNull()
+	spec := interceptH2OriginSpec(t, port)
+	spec.Protocols.HTTP2.ExtendedConnect = true
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeExtendedCONNECT(t, fr, hpack.HeaderField{Name: "origin", Value: "https://app.lab"})
+	expectH2Status(t, fr, 1, "200")
+	echoWSClient(t, fr, tlsConn)
+	if saw.upgrades.Load() != 1 {
+		t.Fatalf("origin upgrades %d (want CONNECT :protocol=websocket on one TCP)", saw.upgrades.Load())
+	}
+	if saw.Origin() != "https://app.lab" {
+		t.Fatalf("origin=%q", saw.Origin())
+	}
+	if accepts.Load() != 1 {
+		t.Fatalf("second origin TCP forbidden: accepts=%d", accepts.Load())
+	}
+	f := waitWSFlow(t, sink)
+	if !f.Intercepted || f.Status != http.StatusOK || f.Method != http.MethodConnect {
+		t.Fatalf("flow %+v", f)
 	}
 }
 

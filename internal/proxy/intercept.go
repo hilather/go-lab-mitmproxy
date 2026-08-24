@@ -735,7 +735,9 @@ func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, ori
 		resp, err = rt.RoundTrip(out)
 		if err != nil {
 			drainBody(inner)
-			if upTLS != nil {
+			// D44 h1 origin owns the one TCP. Origin h2 multiplexes;
+			// a stream error must not Close the shared CONNECT (D64).
+			if !originH2 && upTLS != nil {
 				_ = upTLS.Close()
 			}
 			return
@@ -825,7 +827,31 @@ func (s *Server) innerH2Tunnel(ctx context.Context, rt http.RoundTripper, origin
 		unlock = sync.OnceFunc(originMu.Unlock)
 	}
 
-	upCtx, upCancel := s.upstreamCtxSess(ctx, sess)
+	parent := ctx
+	if parent == nil {
+		parent = context.Background()
+		if s.ctx != nil {
+			parent = s.ctx
+		}
+	}
+	var (
+		upCtx    context.Context
+		upCancel context.CancelFunc
+	)
+	if originH2 {
+		// Do not put UpstreamTimeout on the long-lived CONNECT stream:
+		// http2.Transport RSTs on ctx cancel, which would tear down
+		// websocket AfterAck (D64). Bound only the handshake wait.
+		upCtx, upCancel = context.WithCancel(parent)
+	} else {
+		upCtx, upCancel = s.upstreamCtxSess(parent, sess)
+	}
+	release := upCancel
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 	out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap, sess)
 	if cap != nil {
 		sess.reqCap = cap
@@ -860,8 +886,37 @@ func (s *Server) innerH2Tunnel(ctx context.Context, rt http.RoundTripper, origin
 			out.Header.Set("Sec-WebSocket-Key", randomWebSocketKey())
 		}
 	}
+	var markHeaders func()
+	if originH2 {
+		to := s.specOf(sess).Proxy.Admission.UpstreamTimeout
+		if to <= 0 {
+			to = defaultUpstreamTimeout
+		}
+		hsCtx, hsCancel := context.WithTimeout(upCtx, to)
+		var mu sync.Mutex
+		got := false
+		context.AfterFunc(hsCtx, func() {
+			mu.Lock()
+			defer mu.Unlock()
+			if !got && hsCtx.Err() == context.DeadlineExceeded {
+				upCancel()
+			}
+		})
+		markHeaders = func() {
+			mu.Lock()
+			got = true
+			mu.Unlock()
+			hsCancel()
+		}
+	}
 	resp, err := rt.RoundTrip(out)
-	upCancel()
+	if markHeaders != nil {
+		markHeaders()
+	}
+	if !originH2 {
+		upCancel()
+		release = nil
+	}
 	if err != nil {
 		if pw != nil {
 			_ = pw.Close()
@@ -900,12 +955,16 @@ func (s *Server) innerH2Tunnel(ctx context.Context, rt http.RoundTripper, origin
 	origin := wrapOriginUpgrade(upTLS, fromUp)
 	if originH2 {
 		origin = newH2OriginStream(fromUp, pw)
+		release = nil
 	}
 	return http2x.Tunnel{
 		Kind:    http2x.TunnelWebSocket,
 		Headers: tunnelResponseHeaders(resp.Header),
 		AfterAck: func(client net.Conn) {
 			defer unlock()
+			if originH2 {
+				defer upCancel()
+			}
 			defer func() {
 				if resp != nil && resp.Body != nil {
 					_ = resp.Body.Close()
