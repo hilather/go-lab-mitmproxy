@@ -150,6 +150,16 @@ func WSOpcodeLabel(opcode string) string {
 	}
 }
 
+// GRPCDecodeResult collapses a gRPC decode outcome to a bounded label.
+func GRPCDecodeResult(result string) string {
+	switch strings.ToLower(strings.TrimSpace(result)) {
+	case "ok", "malformed", "truncated", "skipped":
+		return strings.ToLower(strings.TrimSpace(result))
+	default:
+		return "skipped"
+	}
+}
+
 // FlowResult collapses a capture outcome to a bounded label.
 func FlowResult(result string) string {
 	switch strings.ToLower(strings.TrimSpace(result)) {

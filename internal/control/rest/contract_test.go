@@ -431,6 +431,60 @@ func TestContractWebSocketFrames(t *testing.T) {
 	requireProblem(t, replay, http.StatusBadRequest, "validation_failed")
 }
 
+func TestContractGRPC(t *testing.T) {
+	s, svc := newTestServer(t)
+	h := s.Handler()
+	res, err := svc.Inbox().Insert(context.Background(), svc.Inbox().Epoch(), &model.Flow{
+		Host:     "grpc.lab",
+		Method:   "POST",
+		URL:      "https://grpc.lab/svc/Method",
+		Scheme:   "https",
+		Protocol: model.FlowProtocolHTTP2,
+		State:    model.FlowStateCompleted,
+		Status:   200,
+		GRPC: &model.GRPCInfo{
+			ContentType: "application/grpc",
+			Messages: []model.GRPCMessage{{
+				Length: 4,
+				Fields: []model.ProtoField{{Number: 1, WireType: 2, Text: "hi"}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res.ID
+
+	list := doReq(t, h, http.MethodGet, "/v1/flows?limit=1", "")
+	requireStatus(t, list, http.StatusOK)
+	items, _ := decodeJSON(t, list)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items=%s", list.Body.String())
+	}
+	g, _ := items[0].(map[string]any)["grpc"].(map[string]any)
+	if g == nil {
+		t.Fatalf("list missing grpc: %s", list.Body.String())
+	}
+	if _, ok := g["messages"]; ok {
+		t.Fatal("list item must omit messages")
+	}
+	if g["contentType"] != "application/grpc" {
+		t.Fatalf("contentType=%v", g["contentType"])
+	}
+
+	got := doReq(t, h, http.MethodGet, "/v1/flows/"+id, "")
+	requireStatus(t, got, http.StatusOK)
+	gg, _ := decodeJSON(t, got)["grpc"].(map[string]any)
+	msgs, _ := gg["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("get messages=%s", got.Body.String())
+	}
+	fields, _ := msgs[0].(map[string]any)["fields"].([]any)
+	if len(fields) != 1 || fields[0].(map[string]any)["text"] != "hi" {
+		t.Fatalf("fields=%v", fields)
+	}
+}
+
 func TestNoCORSHeaders(t *testing.T) {
 	s, _ := newTestServer(t)
 	got := doReq(t, s.Handler(), http.MethodOptions, "/v1/flows", "")

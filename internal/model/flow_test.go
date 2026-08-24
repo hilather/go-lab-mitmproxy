@@ -50,6 +50,24 @@ func TestResidentBytesWebSocket(t *testing.T) {
 	}
 }
 
+func TestResidentBytesGRPC(t *testing.T) {
+	f := &Flow{
+		GRPC: &GRPCInfo{
+			ContentType: "application/grpc",
+			Messages: []GRPCMessage{{
+				Length: 5,
+				Fields: []ProtoField{
+					{Number: 1, WireType: 2, Text: "hi"},
+				},
+			}},
+		},
+	}
+	want := int64(len("application/grpc") + GRPCFieldOverhead + GRPCFieldOverhead + len("hi"))
+	if f.ResidentBytes() != want {
+		t.Fatalf("got %d want %d", f.ResidentBytes(), want)
+	}
+}
+
 func TestFlowPath(t *testing.T) {
 	f := &Flow{URL: "https://app.lab.test/login?x=1"}
 	if f.Path() != "/login" {

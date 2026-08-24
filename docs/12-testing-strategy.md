@@ -22,12 +22,14 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | HTTP/2 transcode | two concurrent h2 streams + h1 origin (no `refuses redial`); response `WaitPaused` with a non-empty body does not block a second stream; live and replay strip `:` headers; `h2_trailer_dropped` | `internal/proxy` |
 | Orig-dest | mocked dest; dest-port+local IP close; origin-form POST dest:80; h2c preface close (flag-off, before acquire); tagged CONNECT 400 no Dial; tagged h2c CONNECT 400 no Dial; tagged absolute-form IMDS does not Dial IMDS; HTTP GET = one `gate` session; ready `OrigDestOff`; non-linux `enabled` fails Start | `internal/proxy` (`origdest_*.go`) |
 | Client-facing h2c | flag-on leftover transcript (`testdata/proxy/h2c-pri-leftover.txt`) fails if `ServeConn` re-reads the 24-byte preface from the raw conn after Hijack; regular h2c GET is absolute-form; `:scheme=https` 400 `reason=absolute_https`; no stdlib unencrypted HTTP/2 on `http.Server`; RFC 9113 CONNECT raw splice; intercept CONNECT stream AfterAck (no HTTP/1.1 200); handshake fail is RST/close not DATA tunnel (D20); orig-dest tagged CONNECT 400 no Dial | `internal/http2x` `PrefaceTail` + `TunnelRaw`/`TunnelIntercept` + `internal/proxy` |
+| gRPC decode | well-formed proto tree; malformed fail-open; grpc-web opaque; flag-off no `Flow.GRPC`; Dial-isolation in `grpcx` | `internal/grpcx`, `internal/proxy` |
+| Orig-dest | mocked dest; dest-port+local IP close; origin-form POST dest:80; h2c preface close; tagged CONNECT 400 no Dial; tagged absolute-form IMDS does not Dial IMDS; HTTP GET = one `gate` session; ready `OrigDestOff`; non-linux `enabled` fails Start | `internal/proxy` (`origdest_*.go`) |
 | Store | insert/delete/wait/wipe epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate bodies, stacked caps, spill | `internal/store` |
 | REST contract | OpenAPI, auth 401, list/get/delete/wait/resume, problem+json | `internal/control/rest` |
 | Compat flow REST | after-auth CSRF, Basic 401, truncated header, disabled 404 vs SPA, goldens | `internal/control/compat`, `internal/control/rest`, `testdata/compat` |
 | MCP | 2026-07-28 initialize, tools/list, tool call, origin, bearer | `internal/control/mcp` |
 | Parity | every `PARITY_REQUIRED` capability | `make test-parity` |
-| Fuzz | YAML decode, HTTP request line/headers, buildinfo, `wsx.ReadFrame` | committed `testdata/fuzz` corpora under each package |
+| Fuzz | YAML decode, HTTP request line/headers, buildinfo, `wsx.ReadFrame`, `grpcx.Decode` | committed `testdata/fuzz` corpora under each package |
 | Soak | accept N flows, `Wait`, `Wipe` | `internal/perf` (`-soak-n` / `LABMITM_SOAK_N`; CI default 8; local lab target 100 flows/s for 30s) |
 | Race | store insert/delete/wait; snapshot swap; breakpoint resume | `make test-race` |
 | Container | non-root, read-only, no caps, healthcheck, proxy smoke. **Never requires `NET_ADMIN`.** | `scripts/test-container.sh` |
@@ -36,7 +38,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Config compat | `testdata/config/valid` + `invalid` | `make test-config-compat` |
 | Changelog | user-visible paths require `CHANGELOG.md` | `make test-changelog` |
 | Tag gate | notes headings + green required CI on the tag SHA | `.github/workflows/release.yml` |
-| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status, protocol badge / stream id / trailers / SOCKS dest / original dest / Frames tab | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
+| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status, protocol badge / stream id / trailers / SOCKS dest / original dest / Frames tab / gRPC tab | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
 
 ## Required Make targets
 

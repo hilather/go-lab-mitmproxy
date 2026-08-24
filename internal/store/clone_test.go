@@ -18,6 +18,13 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 			FrameCount: 1,
 			Frames:     []model.WebSocketFrame{{Opcode: "text", Payload: []byte("hi"), Size: 2}},
 		},
+		GRPC: &model.GRPCInfo{
+			ContentType: "application/grpc",
+			Messages: []model.GRPCMessage{{
+				Length: 2,
+				Fields: []model.ProtoField{{Number: 1, WireType: 2, Text: "ab", Nested: []model.ProtoField{{Number: 2, Uint: 9}}}},
+			}},
+		},
 		Request: model.HTTPMessage{
 			Headers:  []model.Header{{Name: "Host", Value: "app.lab"}},
 			Trailers: []model.Header{{Name: "X-T", Value: "1"}},
@@ -32,6 +39,8 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 	in.SOCKS.Dest = "mutated"
 	in.SOCKS.User = "mutated"
 	in.WebSocket.Frames[0].Payload[0] = 'X'
+	in.GRPC.Messages[0].Fields[0].Text = "mut"
+	in.GRPC.Messages[0].Fields[0].Nested[0].Uint = 1
 	in.Request.Trailers[0].Value = "mut"
 	in.Response.Trailers[0].Value = "mut"
 	in.Request.Body[0] = 'X'
@@ -43,6 +52,9 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 	}
 	if out.WebSocket == nil || string(out.WebSocket.Frames[0].Payload) != "hi" {
 		t.Fatalf("websocket=%+v", out.WebSocket)
+	}
+	if out.GRPC == nil || out.GRPC.Messages[0].Fields[0].Text != "ab" || out.GRPC.Messages[0].Fields[0].Nested[0].Uint != 9 {
+		t.Fatalf("grpc=%+v", out.GRPC)
 	}
 	if out.Request.Trailers[0].Value != "1" || out.Response.Trailers[0].Value != "2" {
 		t.Fatalf("trailers mutated: %+v %+v", out.Request.Trailers, out.Response.Trailers)

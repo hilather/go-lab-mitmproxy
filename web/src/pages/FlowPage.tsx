@@ -10,12 +10,12 @@ import {
   responseBodyURL,
   type FlowBodySide,
 } from "../api/client";
-import type { Flow, Header, HTTPMessage, WebSocketFrame } from "../api/types";
+import type { Flow, GRPCMessage, Header, HTTPMessage, ProtoField, WebSocketFrame } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE, formatBytes } from "../auth/scopes";
 import { contentTypeOf, shouldRenderAsText, toHexDump } from "../ui/bodyView";
 
-type Tab = "request" | "response" | "trailers" | "tls" | "frames";
+type Tab = "request" | "response" | "trailers" | "tls" | "frames" | "grpc";
 
 function FlowCaptureMeta({ flow }: { flow: Flow }) {
   const socksDest = flow.socks?.dest ?? "";
@@ -147,6 +147,60 @@ function FramesPanel({ flow }: { flow: Flow }) {
   );
 }
 
+function ProtoFields({ fields }: { fields: ProtoField[] }) {
+  if (fields.length === 0) {
+    return <p className="muted">No fields.</p>;
+  }
+  return (
+    <ul>
+      {fields.map((f, i) => (
+        <li key={`${f.number}-${i}`}>
+          #{f.number} · wire {f.wireType}
+          {f.uint !== undefined ? ` · ${f.uint}` : ""}
+          {f.text ? <pre className="raw">{f.text}</pre> : null}
+          {f.nested && f.nested.length > 0 ? <ProtoFields fields={f.nested} /> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function GRPCMessageView({ msg, index }: { msg: GRPCMessage; index: number }) {
+  return (
+    <section>
+      <h2>
+        message {index + 1}
+        {msg.compressed ? " · compressed" : ""}
+        {msg.length > 0 ? ` · ${msg.length} bytes` : ""}
+      </h2>
+      <ProtoFields fields={msg.fields ?? []} />
+    </section>
+  );
+}
+
+function GRPCPanel({ flow }: { flow: Flow }) {
+  const grpc = flow.grpc;
+  if (grpc == null) {
+    return <p>No gRPC decode.</p>;
+  }
+  const messages = grpc.messages ?? [];
+  return (
+    <>
+      <p className="muted">
+        {grpc.contentType || "application/grpc"}
+        {grpc.compressed ? " · compressed" : ""}
+        {grpc.truncated ? " · truncated" : ""}
+        {grpc.decodeError ? ` · ${grpc.decodeError}` : ""}
+      </p>
+      {messages.length === 0 ? (
+        <p className="muted">No messages stored on this GET.</p>
+      ) : (
+        messages.map((m, i) => <GRPCMessageView key={i} msg={m} index={i} />)
+      )}
+    </>
+  );
+}
+
 function MessageBody({ msg }: { msg: HTTPMessage }) {
   const ct = contentTypeOf(msg.headers);
   const body = msg.body ?? "";
@@ -246,6 +300,9 @@ export function FlowPage() {
   if (flow.websocket != null) {
     tabs.push({ id: "frames", label: "Frames" });
   }
+  if (flow.grpc != null) {
+    tabs.push({ id: "grpc", label: "gRPC" });
+  }
 
   return (
     <main className="page">
@@ -260,6 +317,7 @@ export function FlowPage() {
         <span className="badge">{flow.protocol || "?"}</span>
         {flow.http2 != null ? <span className="badge">stream {flow.http2.streamId}</span> : null}
         {flow.websocket != null ? <span className="badge">{flow.websocket.frameCount} frames</span> : null}
+        {flow.grpc != null ? <span className="badge">grpc</span> : null}
         {flow.intercepted ? " · intercepted" : ""}
         {flow.truncated ? " · truncated" : ""}
       </p>
@@ -333,6 +391,7 @@ export function FlowPage() {
       ) : null}
       {tab === "trailers" ? <TrailersPanel request={flow.request} response={flow.response} /> : null}
       {tab === "frames" ? <FramesPanel flow={flow} /> : null}
+      {tab === "grpc" ? <GRPCPanel flow={flow} /> : null}
       {tab === "tls" ? (
         flow.tls ? (
           <dl>

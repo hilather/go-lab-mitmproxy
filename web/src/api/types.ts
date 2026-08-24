@@ -65,6 +65,28 @@ export type WebSocketInfo = {
   datagrams?: number;
 };
 
+export type ProtoField = {
+  number: number;
+  wireType: number;
+  text?: string;
+  uint?: number;
+  nested?: ProtoField[];
+};
+
+export type GRPCMessage = {
+  compressed: boolean;
+  length: number;
+  fields?: ProtoField[];
+};
+
+export type GRPCInfo = {
+  contentType?: string;
+  compressed?: boolean;
+  messages?: GRPCMessage[];
+  truncated: boolean;
+  decodeError?: string;
+};
+
 export type TLSInfo = {
   sni?: string;
   version?: string;
@@ -103,6 +125,7 @@ export type Flow = {
   http2?: HTTP2Info;
   socks?: SOCKSInfo;
   websocket?: WebSocketInfo;
+  grpc?: GRPCInfo;
   via?: string;
   originalDest?: string;
   timings: Timings;

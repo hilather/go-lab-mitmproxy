@@ -13,6 +13,7 @@ func cloneFlow(in *model.Flow) *model.Flow {
 	out.HTTP2 = cloneHTTP2(in.HTTP2)
 	out.SOCKS = cloneSOCKS(in.SOCKS)
 	out.WebSocket = cloneWebSocket(in.WebSocket)
+	out.GRPC = cloneGRPC(in.GRPC)
 	if in.RuleIDs != nil {
 		out.RuleIDs = append([]string(nil), in.RuleIDs...)
 	}
@@ -60,6 +61,33 @@ func cloneWebSocket(in *model.WebSocketInfo) *model.WebSocketInfo {
 		}
 	}
 	return &out
+}
+
+func cloneGRPC(in *model.GRPCInfo) *model.GRPCInfo {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Messages != nil {
+		out.Messages = make([]model.GRPCMessage, len(in.Messages))
+		for i := range in.Messages {
+			out.Messages[i] = in.Messages[i]
+			out.Messages[i].Fields = cloneProtoFields(in.Messages[i].Fields)
+		}
+	}
+	return &out
+}
+
+func cloneProtoFields(in []model.ProtoField) []model.ProtoField {
+	if in == nil {
+		return nil
+	}
+	out := make([]model.ProtoField, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Nested = cloneProtoFields(in[i].Nested)
+	}
+	return out
 }
 
 func cloneHeaders(in []model.Header) []model.Header {

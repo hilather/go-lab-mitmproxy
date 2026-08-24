@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: MCP, Application
-Last reviewed: 2026-08-18 (SEC-001)
+Last reviewed: 2026-08-23 (D66 gRPC decode)
 Related ADRs: 0004, 0006
 
 Native management API is `/v1` + `POST /mcp`. Capability IDs and tool names are frozen in [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md). Protocol pin: [docs/adr/0006-pin-mcp-protocol-versions.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0006-pin-mcp-protocol-versions.md).
@@ -70,6 +70,8 @@ Health live/ready, OpenAPI, UI assets, session/CSRF, and `/v1/metrics` are **not
 | `labmitm://audit/recent` | `audit.list` |
 
 `subscriptions/listen` on `labmitm://flows` notifies **URI only**; clients pull bodies with `mitm_flows_list`.
+
+`mitm_flows_list` omits `websocket.frames` and `grpc.messages`. `mitm_flow_get` includes both when present. No new tools.
 
 ## Auth
 

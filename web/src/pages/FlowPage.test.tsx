@@ -237,4 +237,59 @@ describe("FlowPage", () => {
     expect(document.querySelector("iframe")).toBeNull();
     expect(document.querySelector("[dangerouslySetInnerHTML]")).toBeNull();
   });
+
+  it("renders gRPC tab as escaped text, never as HTML", async () => {
+    const user = userEvent.setup();
+    const grpcFlow = {
+      ...flow,
+      id: "01JGRPC",
+      protocol: "h2",
+      grpc: {
+        contentType: "application/grpc",
+        truncated: false,
+        messages: [
+          {
+            compressed: false,
+            length: 25,
+            fields: [{ number: 1, wireType: 2, text: "<script>alert(1)</script>" }],
+          },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.includes("/v1/flows/01JGRPC") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, grpcFlow);
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+
+    renderApp(
+      <Routes>
+        <Route path="/flows/:id" element={<FlowPage />} />
+      </Routes>,
+      { route: "/flows/01JGRPC" },
+    );
+
+    expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
+    expect(screen.getByText("grpc")).toHaveClass("badge");
+    expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: /gRPC/i }));
+    expect(await screen.findByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument();
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(document.querySelector("[dangerouslySetInnerHTML]")).toBeNull();
+  });
 });

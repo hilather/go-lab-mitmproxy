@@ -122,6 +122,10 @@ func TestBoundedResultHelpers(t *testing.T) {
 	if ClassifyHost("app.lab") != "lab" || ClassifyHost("192.0.2.1") != "ip" || ClassifyHost("example.com") != "public" {
 		t.Fatal("host class")
 	}
+	if GRPCDecodeResult("OK") != "ok" || GRPCDecodeResult("malformed") != "malformed" ||
+		GRPCDecodeResult("truncated") != "truncated" || GRPCDecodeResult("nope") != "skipped" {
+		t.Fatal("grpc decode result")
+	}
 }
 
 func itoa(i int) string {

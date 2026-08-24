@@ -2,7 +2,7 @@
 
 Honest residual for LabMITM after the 1.1 opt-in workstreams (HTTP/2 inner+origin, SOCKS5/4 CONNECT, Linux original-destination REDIRECT, compat flow REST, inspector metadata). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-23 (D64 origin h2 multiplex)
+Last reviewed: 2026-08-23 (D66 gRPC decode)
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.1.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.1.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path).
 
@@ -51,6 +51,9 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `originalDestination`, `protocol
 - **SOCKS UDP ASSOCIATE, GSSAPI.** BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`. Username/password is opt-in `acceptUserPass` (D60); flag-off stays NO AUTH (`0x00`). GSSAPI (method `0x01`) is never selected.
 - **SOCKS GSSAPI, username/password.** NO AUTH (`0x00`) only. BIND is 1.2 opt-in (`acceptBind`, default off); UDP ASSOCIATE is 1.2 opt-in (`acceptUDPAssociate`, default off); flag-off SOCKS5 BIND/UDP stays `05 07`. No QUIC, no orig-dest UDP.
 - **WebSocket frame inspect.** `101` + bidirectional copy. Websocket Upgrade on an h2 inner session is rejected.
+- **HTTP/2 or h2c on the client-facing cleartext proxy port.** `PRI * HTTP/2.0` on `:8888` **and** on `:8890` is a hard close.
+- **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) and client-facing Extended CONNECT. Inner nested `:method=CONNECT` without `:protocol` is RST `PROTOCOL_ERROR`, **no flow** (D48 remainder). Inner `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); other `:protocol` values RST, no flow.
+- **gRPC-Web envelope decode.** `protocols.http2.grpcDecode` (D66, default off) best-effort-parses `application/grpc` and `application/grpc+proto` only. `application/grpc-web` / `application/grpc-web+proto` record the content-type header and leave the body opaque (no 5-byte prefix parse). No `.proto` registry. Flag-off stores HTTP/2 headers + DATA only.
 - **SOCKS BIND, UDP ASSOCIATE, GSSAPI, username/password.** NO AUTH (`0x00`) only.
 - **WebSocket frame inspect on HTTP/2.** HTTP/1.1 `101` inspect is opt-in `protocols.websocket.inspectFrames` (D67). Inner RFC 8441 websocket reuses that path when `extendedConnect` is on. Illegal h2 `Upgrade: websocket` is still RST, no flow.
 - **HTTP Basic on management (D6).** `Authorization: Basic` is 401 Bearer.
@@ -77,6 +80,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 - Replay of an h2 flow follows the **live** `protocols.http2.origin` flag (off → HTTP/1.1 origin-form with leading-`:` stripped; on → origin ALPN `h2` then `http/1.1` on one Dial).
 - `PUSH_PROMISE` is not captured. Breakpoints pause the **stream**, not the TCP session.
 - Handshake failure still does not blind-tunnel (D20). **D7 stands.**
+- gRPC protobuf decode is opt-in `protocols.http2.grpcDecode` (D66). Fail-open: malformed/truncated sets `GRPC.DecodeError` and still forwards. grpc-web stays opaque.
 
 ## SOCKS residuals (when enabled)
 
