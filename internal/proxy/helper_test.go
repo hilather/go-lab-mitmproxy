@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
+	"github.com/hilather/go-lab-mitmproxy/internal/http2x"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
+	"golang.org/x/net/http2"
 )
 
 func testdataProxy(t *testing.T, name string) string {
@@ -53,6 +56,42 @@ func startTLSOrigin(t *testing.T, cert tls.Certificate, h http.Handler) (addr st
 		Protocols:         proto,
 		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
 	}
+	go func() { _ = srv.Serve(tlsLn) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+		_ = ln.Close()
+	})
+	return ln.Addr().String()
+}
+
+func startTLSOriginH2(t *testing.T, cert tls.Certificate, h http.Handler) string {
+	t.Helper()
+	return startTLSOriginH2State(t, cert, h, nil)
+}
+
+func startTLSOriginH2State(t *testing.T, cert tls.Certificate, h http.Handler, state func(net.Conn, http.ConnState)) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		NextProtos:   []string{http2x.NextProtoH2, tlsmitm.ALPN},
+		MinVersion:   tls.VersionTLS12,
+	}
+	srv := &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		TLSConfig:         cfg,
+		ConnState:         state,
+	}
+	if err := http2.ConfigureServer(srv, &http2.Server{}); err != nil {
+		t.Fatal(err)
+	}
+	tlsLn := tls.NewListener(ln, srv.TLSConfig)
 	go func() { _ = srv.Serve(tlsLn) }()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)

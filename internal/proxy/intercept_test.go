@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/http2x"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxytest"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
@@ -354,7 +355,7 @@ func TestHandshakeNextProtosFromSpec(t *testing.T) {
 	if len(got) != 1 || got[0] != tlsmitm.ALPN {
 		t.Fatalf("flag off client %v", got)
 	}
-	if orig := handshakeOriginNextProtos(); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
+	if orig := handshakeOriginNextProtos(spec, http2x.NextProtoH2); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
 		t.Fatalf("flag off origin %v", orig)
 	}
 	spec.Protocols.HTTP2.Enabled = true
@@ -362,8 +363,18 @@ func TestHandshakeNextProtosFromSpec(t *testing.T) {
 	if len(got) != 2 || got[0] != "h2" || got[1] != tlsmitm.ALPN {
 		t.Fatalf("flag on client %v", got)
 	}
-	if orig := handshakeOriginNextProtos(); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
-		t.Fatalf("flag on origin stays http/1.1 (h2 inner transcodes) %v", orig)
+	if orig := handshakeOriginNextProtos(spec, http2x.NextProtoH2); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
+		t.Fatalf("enabled without origin stays http/1.1 %v", orig)
+	}
+	spec.Protocols.HTTP2.Origin = true
+	if orig := handshakeOriginNextProtos(spec, http2x.NextProtoH2); len(orig) != 2 || orig[0] != http2x.NextProtoH2 || orig[1] != tlsmitm.ALPN {
+		t.Fatalf("origin+inner h2 %v", orig)
+	}
+	if orig := handshakeOriginNextProtos(spec, tlsmitm.ALPN); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
+		t.Fatalf("inner http/1.1 never offers origin h2 %v", orig)
+	}
+	if orig := handshakeOriginNextProtos(spec, ""); len(orig) != 1 || orig[0] != tlsmitm.ALPN {
+		t.Fatalf("empty inner ALPN never offers origin h2 %v", orig)
 	}
 }
 

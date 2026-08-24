@@ -35,6 +35,13 @@ func interceptH2Spec(t *testing.T, originPort int) model.Spec {
 	return spec
 }
 
+func interceptH2OriginSpec(t *testing.T, originPort int) model.Spec {
+	t.Helper()
+	spec := interceptH2Spec(t, originPort)
+	spec.Protocols.HTTP2.Origin = true
+	return spec
+}
+
 func httpsH2ViaProxy(t *testing.T, proxyAddr, originPort, path string, roots *x509.CertPool) (*http.Response, error) {
 	t.Helper()
 	tr := &http.Transport{
@@ -617,6 +624,176 @@ func TestInterceptHTTP2ConcurrentStreamsSerializeOnH1Origin(t *testing.T) {
 	}
 	if maxInflight.Load() != 1 {
 		t.Fatalf("h1 origin saw concurrent requests: max=%d", maxInflight.Load())
+	}
+}
+
+func TestInterceptHTTP2OriginH2MultiplexTwoStreams(t *testing.T) {
+	var inflight atomic.Int32
+	var maxInflight atomic.Int32
+	var sawH2 atomic.Bool
+	var conns atomic.Int32
+	origin := startTLSOriginH2State(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 {
+			sawH2.Store(true)
+		}
+		n := inflight.Add(1)
+		defer inflight.Add(-1)
+		for {
+			old := maxInflight.Load()
+			if n <= old || maxInflight.CompareAndSwap(old, n) {
+				break
+			}
+		}
+		time.Sleep(80 * time.Millisecond)
+		_, _ = io.WriteString(w, r.URL.Path)
+	}), func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			conns.Add(1)
+		}
+	})
+	_, port := hostPort(t, origin)
+	spec := interceptH2OriginSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	cc := h2ClientConnViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+
+	var wg sync.WaitGroup
+	type result struct {
+		path string
+		body string
+		err  error
+	}
+	out := make(chan result, 2)
+	for _, path := range []string{"/a", "/b"} {
+		wg.Add(1)
+		go func(path string) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab"+path, nil)
+			if err != nil {
+				out <- result{path: path, err: err}
+				return
+			}
+			resp, err := cc.RoundTrip(req)
+			if err != nil {
+				out <- result{path: path, err: err}
+				return
+			}
+			defer func() { _ = resp.Body.Close() }()
+			body, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				out <- result{path: path, err: fmt.Errorf("status %d", resp.StatusCode)}
+				return
+			}
+			out <- result{path: path, body: string(body)}
+		}(path)
+	}
+	wg.Wait()
+	close(out)
+	got := map[string]string{}
+	for r := range out {
+		if r.err != nil {
+			if strings.Contains(r.err.Error(), "refuses redial") {
+				t.Fatalf("concurrent streams redialed: %v", r.err)
+			}
+			t.Fatalf("%s: %v", r.path, r.err)
+		}
+		got[r.path] = r.body
+	}
+	if got["/a"] != "/a" || got["/b"] != "/b" {
+		t.Fatalf("bodies %#v", got)
+	}
+	if !sawH2.Load() {
+		t.Fatal("origin did not negotiate h2")
+	}
+	if maxInflight.Load() < 2 {
+		t.Fatalf("origin h2 must multiplex without D44 mutex: max=%d", maxInflight.Load())
+	}
+	if conns.Load() != 1 {
+		t.Fatalf("second origin TCP forbidden: conns=%d", conns.Load())
+	}
+}
+
+func TestInterceptHTTP2InnerHTTP11OriginFlagDoesNotOfferH2(t *testing.T) {
+	var proto string
+	origin := startTLSOriginH2(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proto = r.Proto
+		_, _ = io.WriteString(w, "h1-inner")
+	}))
+	_, port := hostPort(t, origin)
+	spec := interceptH2OriginSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	resp, err := httpsViaProxy(t, px.Addr().String(), strconv.Itoa(port), "/hello", px.Authority().CertPool())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "h1-inner" {
+		t.Fatalf("status %d body %q", resp.StatusCode, body)
+	}
+	if resp.ProtoMajor != 1 {
+		t.Fatalf("client proto %q", resp.Proto)
+	}
+	if proto != "HTTP/1.1" {
+		t.Fatalf("inner http/1.1 offered origin h2: proto %q", proto)
+	}
+}
+
+func TestInterceptHTTP2OriginFlagOriginH1StillSerializes(t *testing.T) {
+	var inflight atomic.Int32
+	var maxInflight atomic.Int32
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 {
+			t.Error("origin flag on with h1-only origin must not speak h2")
+		}
+		n := inflight.Add(1)
+		defer inflight.Add(-1)
+		for {
+			old := maxInflight.Load()
+			if n <= old || maxInflight.CompareAndSwap(old, n) {
+				break
+			}
+		}
+		time.Sleep(80 * time.Millisecond)
+		_, _ = io.WriteString(w, r.URL.Path)
+	}))
+	_, port := hostPort(t, origin)
+	spec := interceptH2OriginSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	cc := h2ClientConnViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	var wg sync.WaitGroup
+	out := make(chan error, 2)
+	for _, path := range []string{"/a", "/b"} {
+		wg.Add(1)
+		go func(path string) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab"+path, nil)
+			if err != nil {
+				out <- err
+				return
+			}
+			resp, err := cc.RoundTrip(req)
+			if err != nil {
+				out <- err
+				return
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			out <- nil
+		}(path)
+	}
+	wg.Wait()
+	close(out)
+	for err := range out {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if maxInflight.Load() != 1 {
+		t.Fatalf("origin h1 still serializes (D44): max=%d", maxInflight.Load())
 	}
 }
 

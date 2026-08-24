@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/http2x"
 	"github.com/hilather/go-lab-mitmproxy/internal/httputilx"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
@@ -72,7 +73,7 @@ func (s *Server) Replay(ctx context.Context, stored *model.Flow) (*model.Flow, e
 		return nil, err
 	}
 	started := time.Now().UTC()
-	resp, err := s.roundTripReplay(ctx, out, res, host, scheme, spec)
+	resp, err := s.roundTripReplay(ctx, out, res, host, scheme, spec, stored.Protocol)
 	if err != nil {
 		f := replayFlow(stored, host, scheme, 0, "upstream", started, nil, nil)
 		s.captureReplay(f)
@@ -289,7 +290,7 @@ func originHostTLS(host, port string) string {
 	return host
 }
 
-func (s *Server) roundTripReplay(ctx context.Context, req *http.Request, res resolved, host, scheme string, spec model.Spec) (*http.Response, error) {
+func (s *Server) roundTripReplay(ctx context.Context, req *http.Request, res resolved, host, scheme string, spec model.Spec, innerProto string) (*http.Response, error) {
 	if scheme != "https" {
 		// Process Transport already has Proxy: nil (HTTP_PROXY ignored).
 		return s.tr.RoundTrip(req)
@@ -299,10 +300,26 @@ func (s *Server) roundTripReplay(ctx context.Context, req *http.Request, res res
 		return nil, err
 	}
 	cfg := replayTLSConfig(s.liveAuthority(), host, spec)
+	cfg.NextProtos = handshakeOriginNextProtos(spec, innerProto)
 	tlsConn := tls.Client(conn, cfg)
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
 		return nil, err
+	}
+	if tlsConn.ConnectionState().NegotiatedProtocol == http2x.NextProtoH2 {
+		tr, err := http2x.NewOriginTransport(tlsConn)
+		if err != nil {
+			_ = tlsConn.Close()
+			return nil, err
+		}
+		req = req.Clone(ctx)
+		req.URL.Scheme = "https"
+		resp, err := tr.RoundTrip(req)
+		if err != nil {
+			_ = tlsConn.Close()
+			return nil, err
+		}
+		return resp, nil
 	}
 	proto := http1Only()
 	tr := &http.Transport{
@@ -347,6 +364,10 @@ func replayFlow(stored *model.Flow, host, scheme string, status int, ferr string
 	if u == "" {
 		u = scheme + "://" + host + "/"
 	}
+	protocol := model.FlowProtocolHTTP11
+	if resp != nil && resp.ProtoMajor == 2 {
+		protocol = model.FlowProtocolHTTP2
+	}
 	f := &model.Flow{
 		StartedAt:   started,
 		CompletedAt: time.Now().UTC(),
@@ -355,7 +376,7 @@ func replayFlow(stored *model.Flow, host, scheme string, status int, ferr string
 		URL:         u,
 		Host:        host,
 		Scheme:      scheme,
-		Protocol:    model.FlowProtocolHTTP11,
+		Protocol:    protocol,
 		Status:      status,
 		Error:       ferr,
 		Request:     stored.Request,

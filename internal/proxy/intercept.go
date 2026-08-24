@@ -82,7 +82,8 @@ func (s *Server) serveInterceptConn(client net.Conn, bufrw *bufio.ReadWriter, up
 	}
 
 	_ = up.SetDeadline(time.Now().Add(hsTO))
-	upTLS, err := auth.HandshakeClient(hsCtx, up, upName, handshakeOriginNextProtos())
+	innerALPN := clientTLS.ConnectionState().NegotiatedProtocol
+	upTLS, err := auth.HandshakeClient(hsCtx, up, upName, handshakeOriginNextProtos(sess.spec, innerALPN))
 	if err != nil {
 		result := tlsmitm.ResultUpstreamTLS
 		if tlsmitm.IsVerifyError(err) {
@@ -178,8 +179,23 @@ func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host,
 	defer tr.CloseIdleConnections()
 
 	if clientTLS.ConnectionState().NegotiatedProtocol == http2x.NextProtoH2 && s.specOf(sess).Protocols.HTTP2.Enabled {
+		originRT := http.RoundTripper(tr)
+		originH2 := upTLS.ConnectionState().NegotiatedProtocol == http2x.NextProtoH2
+		var serialize *sync.Mutex
+		if originH2 {
+			h2tr, err := http2x.NewOriginTransport(upTLS)
+			if err != nil {
+				s.failIntercept(creq, host, started, tlsmitm.ResultUpstreamTLS, sess)
+				_ = clientTLS.Close()
+				_ = upTLS.Close()
+				return
+			}
+			originRT = h2tr
+		} else {
+			serialize = &originMu
+		}
 		h := func(ctx context.Context, in http2x.Stream) (*http.Response, []model.Header, error) {
-			return s.roundTripInnerH2(ctx, tr, &originMu, upTLS, in, host, port, res, info, sess)
+			return s.roundTripInnerH2(ctx, originRT, serialize, upTLS, in, host, port, res, info, sess, originH2)
 		}
 		spec := s.specOf(sess)
 		if spec.Protocols.HTTP2.ExtendedConnect {
@@ -188,7 +204,7 @@ func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host,
 				EnableConnectProtocol: true,
 				MaxConcurrentStreams:  uint32(spec.Proxy.Admission.MaxConcurrentStreams),
 			}, h, func(ctx context.Context, in http2x.Stream) (http2x.Tunnel, error) {
-				return s.innerH2Tunnel(ctx, tr, &originMu, upTLS, in, host, port, res, info, sess)
+				return s.innerH2Tunnel(ctx, originRT, serialize, upTLS, in, host, port, res, info, sess, originH2)
 			})
 			return
 		}
@@ -320,10 +336,14 @@ func handshakeClientNextProtos(spec model.Spec) []string {
 	return []string{tlsmitm.ALPN}
 }
 
-// handshakeOriginNextProtos is origin ALPN. h2 inner streams transcode onto
-// one HTTP/1.1 origin TCP (D32, D44). Origin stays http/1.1 so the one-shot
-// Dial cannot be asked to speak h2.
-func handshakeOriginNextProtos() []string {
+// handshakeOriginNextProtos is origin ALPN from the session snapshot (D46)
+// and the inner negotiated ALPN. Origin h2 is offered only when both
+// protocols.http2.origin and the inner leaf negotiated h2 (D64). Inner
+// http/1.1 never offers origin h2. Flag-off keeps D32/D44 transcode.
+func handshakeOriginNextProtos(spec model.Spec, innerALPN string) []string {
+	if spec.Protocols.HTTP2.Origin && innerALPN == http2x.NextProtoH2 {
+		return []string{http2x.NextProtoH2, tlsmitm.ALPN}
+	}
 	return []string{tlsmitm.ALPN}
 }
 
@@ -659,7 +679,9 @@ func badGatewayH2() *http.Response {
 
 // roundTripInnerH2 runs match/capture/origin for one h2 stream (D53).
 // It never writes HTTP/1.1 to the client TLS conn and never closes CONNECT.
-func (s *Server) roundTripInnerH2(ctx context.Context, tr *http.Transport, originMu *sync.Mutex, upTLS *tls.Conn, in http2x.Stream, host, port string, res resolved, info *model.TLSInfo, pinned *ruleSession) (*http.Response, []model.Header, error) {
+// originH2 multiplexes on the already-dialed origin TCP (D64); D44 mutex
+// is only used when origin is HTTP/1.1.
+func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, originMu *sync.Mutex, upTLS *tls.Conn, in http2x.Stream, host, port string, res resolved, info *model.TLSInfo, pinned *ruleSession, originH2 bool) (*http.Response, []model.Header, error) {
 	if h2InnerForbidden(in) {
 		s.metrics.reject("http2")
 		return nil, nil, http2x.ErrInnerCONNECT
@@ -681,11 +703,12 @@ func (s *Server) roundTripInnerH2(ctx context.Context, tr *http.Transport, origi
 		return syn, nil, nil
 	}
 
-	sess.reqTrailers = s.dropH2RequestTrailers(inner, in)
-
-	if originMu == nil {
-		originMu = &sync.Mutex{}
+	if !originH2 {
+		sess.reqTrailers = s.dropH2RequestTrailers(inner, in)
+	} else if len(in.Trailers) > 0 {
+		sess.reqTrailers = append([]model.Header(nil), in.Trailers...)
 	}
+
 	var (
 		resp     *http.Response
 		trailers []model.Header
@@ -694,8 +717,11 @@ func (s *Server) roundTripInnerH2(ctx context.Context, tr *http.Transport, origi
 	func() {
 		// D44: mutex covers RoundTrip and the full origin body drain so a
 		// second stream cannot Dial while resp.Body still owns the conn.
-		originMu.Lock()
-		defer originMu.Unlock()
+		// Origin h2 multiplexes on one TCP; do not hold this lock (D64).
+		if originMu != nil {
+			originMu.Lock()
+			defer originMu.Unlock()
+		}
 		upCtx, upCancel := s.upstreamCtxSess(ctx, sess)
 		defer upCancel()
 		out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap, sess)
@@ -703,7 +729,10 @@ func (s *Server) roundTripInnerH2(ctx context.Context, tr *http.Transport, origi
 			sess.reqCap = cap
 		}
 		stripLeadingColonHeaders(out.Header)
-		resp, err = tr.RoundTrip(out)
+		if originH2 && out.URL != nil {
+			out.URL.Scheme = "https"
+		}
+		resp, err = rt.RoundTrip(out)
 		if err != nil {
 			drainBody(inner)
 			if upTLS != nil {
@@ -744,8 +773,9 @@ func randomWebSocketKey() string {
 
 // innerH2Tunnel handles inner CONNECT / :protocol when extendedConnect is on.
 // Nested CONNECT without :protocol and other :protocol values RST with no flow
-// (D48 remainder). :protocol=websocket transcodes to origin HTTP/1.1 Upgrade.
-func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu *sync.Mutex, upTLS *tls.Conn, in http2x.Stream, host, port string, res resolved, info *model.TLSInfo, pinned *ruleSession) (http2x.Tunnel, error) {
+// (D48 remainder). :protocol=websocket transcodes to origin HTTP/1.1 Upgrade
+// when origin is h1, or RFC 8441 Extended CONNECT when origin negotiated h2.
+func (s *Server) innerH2Tunnel(ctx context.Context, rt http.RoundTripper, originMu *sync.Mutex, upTLS *tls.Conn, in http2x.Stream, host, port string, res resolved, info *model.TLSInfo, pinned *ruleSession, originH2 bool) (http2x.Tunnel, error) {
 	proto := strings.TrimSpace(in.Protocol)
 	if proto == "" || !strings.EqualFold(in.Method, http.MethodConnect) || !strings.EqualFold(proto, "websocket") {
 		s.metrics.reject("http2")
@@ -789,11 +819,11 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 		return http2x.Tunnel{Status: status, Headers: hdrs}, nil
 	}
 
-	if originMu == nil {
-		originMu = &sync.Mutex{}
+	unlock := func() {}
+	if originMu != nil {
+		originMu.Lock()
+		unlock = sync.OnceFunc(originMu.Unlock)
 	}
-	originMu.Lock()
-	unlock := sync.OnceFunc(originMu.Unlock)
 
 	upCtx, upCancel := s.upstreamCtxSess(ctx, sess)
 	out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap, sess)
@@ -801,25 +831,54 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 		sess.reqCap = cap
 	}
 	stripLeadingColonHeaders(out.Header)
-	out.Method = http.MethodGet
-	out.Proto = "HTTP/1.1"
-	out.ProtoMajor = 1
-	out.ProtoMinor = 1
-	out.Body = nil
-	out.ContentLength = 0
-	out.TransferEncoding = nil
-	if out.Header.Get("Sec-WebSocket-Key") == "" {
-		out.Header.Set("Sec-WebSocket-Key", randomWebSocketKey())
+	var pw *io.PipeWriter
+	if originH2 {
+		if out.URL != nil {
+			out.URL.Scheme = "https"
+		}
+		out.Method = http.MethodConnect
+		out.Proto = "HTTP/2.0"
+		out.ProtoMajor = 2
+		out.ProtoMinor = 0
+		out.Header.Del("Upgrade")
+		out.Header.Del("Connection")
+		out.Header.Set(":protocol", "websocket")
+		pr, w := io.Pipe()
+		pw = w
+		out.Body = pr
+		out.ContentLength = -1
+		out.TransferEncoding = nil
+	} else {
+		out.Method = http.MethodGet
+		out.Proto = "HTTP/1.1"
+		out.ProtoMajor = 1
+		out.ProtoMinor = 1
+		out.Body = nil
+		out.ContentLength = 0
+		out.TransferEncoding = nil
+		if out.Header.Get("Sec-WebSocket-Key") == "" {
+			out.Header.Set("Sec-WebSocket-Key", randomWebSocketKey())
+		}
 	}
-	resp, err := tr.RoundTrip(out)
+	resp, err := rt.RoundTrip(out)
 	upCancel()
 	if err != nil {
+		if pw != nil {
+			_ = pw.Close()
+		}
 		unlock()
 		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, sess.reqCap, nil)
 		s.captureRule(f, inner, sess.reqCap, nil, nil, sess, sess.reqHit)
 		return http2x.Tunnel{}, err
 	}
-	if resp.StatusCode != http.StatusSwitchingProtocols {
+	want := http.StatusSwitchingProtocols
+	if originH2 {
+		want = http.StatusOK
+	}
+	if resp.StatusCode != want {
+		if pw != nil {
+			_ = pw.Close()
+		}
 		_ = drainOriginBody(resp)
 		unlock()
 		httputilx.PrepareResponse(resp.Header, false)
@@ -839,6 +898,9 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 	f.Status = http.StatusOK
 	s.metrics.session("ok")
 	origin := wrapOriginUpgrade(upTLS, fromUp)
+	if originH2 {
+		origin = newH2OriginStream(fromUp, pw)
+	}
 	return http2x.Tunnel{
 		Kind:    http2x.TunnelWebSocket,
 		Headers: tunnelResponseHeaders(resp.Header),
@@ -850,6 +912,9 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 				}
 			}()
 			if client == nil {
+				if pw != nil {
+					_ = pw.Close()
+				}
 				return
 			}
 			if inspect {
@@ -887,3 +952,57 @@ func wrapOriginUpgrade(up net.Conn, body io.Reader) net.Conn {
 
 func (c *upgradeBodyConn) Read(p []byte) (int, error)  { return c.rw.Read(p) }
 func (c *upgradeBodyConn) Write(p []byte) (int, error) { return c.rw.Write(p) }
+
+// h2OriginStream is one origin HTTP/2 stream as a net.Conn. Deadlines and
+// Close must not touch the parent TLS conn (other streams multiplex on it).
+type h2OriginStream struct {
+	r io.ReadCloser
+	w *io.PipeWriter
+}
+
+func newH2OriginStream(body io.ReadCloser, w *io.PipeWriter) *h2OriginStream {
+	if body == nil {
+		body = io.NopCloser(bytes.NewReader(nil))
+	}
+	return &h2OriginStream{r: body, w: w}
+}
+
+func (c *h2OriginStream) Read(p []byte) (int, error) {
+	if c == nil || c.r == nil {
+		return 0, io.EOF
+	}
+	return c.r.Read(p)
+}
+
+func (c *h2OriginStream) Write(p []byte) (int, error) {
+	if c == nil || c.w == nil {
+		return 0, io.ErrClosedPipe
+	}
+	return c.w.Write(p)
+}
+
+func (c *h2OriginStream) Close() error {
+	_ = c.CloseWrite()
+	if c != nil && c.r != nil {
+		return c.r.Close()
+	}
+	return nil
+}
+
+func (c *h2OriginStream) CloseWrite() error {
+	if c == nil || c.w == nil {
+		return nil
+	}
+	return c.w.Close()
+}
+
+func (c *h2OriginStream) LocalAddr() net.Addr              { return streamAddr{} }
+func (c *h2OriginStream) RemoteAddr() net.Addr             { return streamAddr{} }
+func (c *h2OriginStream) SetDeadline(time.Time) error      { return nil }
+func (c *h2OriginStream) SetReadDeadline(time.Time) error  { return nil }
+func (c *h2OriginStream) SetWriteDeadline(time.Time) error { return nil }
+
+type streamAddr struct{}
+
+func (streamAddr) Network() string { return "tcp" }
+func (streamAddr) String() string  { return "h2-origin-stream" }

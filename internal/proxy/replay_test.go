@@ -307,6 +307,92 @@ func TestReplayHTTPSInterceptOff(t *testing.T) {
 	}
 }
 
+func TestReplayHTTP2LiveOriginOnUsesH2(t *testing.T) {
+	var sawProto string
+	var leaked bool
+	origin := startTLSOriginH2(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawProto = r.Proto
+		for name := range r.Header {
+			if strings.HasPrefix(name, ":") {
+				leaked = true
+			}
+		}
+		if r.URL.Path != "/login" {
+			t.Errorf("path %q", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, "h2-replay")
+	}))
+	spec := loadSpec(t)
+	spec.TLS.Upstream.InsecureSkipVerify = true
+	spec.Protocols.HTTP2.Enabled = true
+	spec.Protocols.HTTP2.Origin = true
+	px := startProxy(t, Options{Spec: spec})
+	u := mustURL(t, "https://"+origin+"/login")
+	f, err := px.Replay(context.Background(), &model.Flow{
+		Method:   http.MethodGet,
+		URL:      "https://" + origin + "/login",
+		Host:     u.Host,
+		Scheme:   "https",
+		Protocol: model.FlowProtocolHTTP2,
+		Request: model.HTTPMessage{
+			Headers: []model.Header{
+				{Name: ":method", Value: "GET"},
+				{Name: ":scheme", Value: "https"},
+				{Name: ":authority", Value: u.Host},
+				{Name: ":path", Value: "/login"},
+				{Name: "User-Agent", Value: "lab"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leaked {
+		t.Fatal("origin saw leading-colon header")
+	}
+	if sawProto != "HTTP/2.0" {
+		t.Fatalf("live origin on must replay h2, proto %q", sawProto)
+	}
+	if f == nil || f.Status != 200 || f.Protocol != model.FlowProtocolHTTP2 || string(f.Response.Body) != "h2-replay" {
+		t.Fatalf("replay flow %+v", f)
+	}
+}
+
+func TestReplayHTTP2LiveOriginOffStaysH1(t *testing.T) {
+	var sawProto string
+	origin := startTLSOriginH2(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawProto = r.Proto
+		_, _ = io.WriteString(w, "h1-replay")
+	}))
+	spec := loadSpec(t)
+	spec.TLS.Upstream.InsecureSkipVerify = true
+	spec.Protocols.HTTP2.Enabled = true
+	px := startProxy(t, Options{Spec: spec})
+	u := mustURL(t, "https://"+origin+"/login")
+	f, err := px.Replay(context.Background(), &model.Flow{
+		Method:   http.MethodGet,
+		URL:      "https://" + origin + "/login",
+		Host:     u.Host,
+		Scheme:   "https",
+		Protocol: model.FlowProtocolHTTP2,
+		Request: model.HTTPMessage{
+			Headers: []model.Header{
+				{Name: ":method", Value: "GET"},
+				{Name: ":path", Value: "/login"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sawProto != "HTTP/1.1" {
+		t.Fatalf("live origin off must strip : and speak h1, proto %q", sawProto)
+	}
+	if f == nil || f.Status != 200 || f.Protocol != model.FlowProtocolHTTP11 || string(f.Response.Body) != "h1-replay" {
+		t.Fatalf("replay flow %+v", f)
+	}
+}
+
 func TestReplayHTTPSInterceptOn(t *testing.T) {
 	cert := originCert(t)
 	pem, err := os.ReadFile(testdataTLS(t, "origin.pem"))
