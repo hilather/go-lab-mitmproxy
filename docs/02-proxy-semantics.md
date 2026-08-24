@@ -42,7 +42,7 @@ SOCKS detection is **not** possible in the Handler and **must not** run on the A
 
 When `listeners.originalDestination.enabled` is true (Linux only; default off), `Start` binds a **second** listener (empty address → `127.0.0.1:8890`, D38) and `http.Server.ConnContext` tags recovered dest. Non-linux `enabled: true` fails closed and binds **nothing**. iptables/nft REDIRECT is sidecar/host only; the default image stays UID 65532 without `NET_ADMIN` (D30, D50). Publishing `8890` is not transparent.
 
-Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
+Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → closeBinds → wait dispatch goroutines → `chanListener.Close` → `http.Server.Shutdown` → hijack drain.
 
 ## Request classification
 
@@ -98,7 +98,9 @@ RFC 1928 CMD `0x02`. SOCKS4 CD `0x02` shares semantics. BIND is **always a raw t
 
 RFC residual: unspecified DST is rejected (RFC 1928 allows unknown DST). FTP clients must name the expected peer. See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md).
 
-Tests live in `internal/proxy/socks_test.go` (second inbound TCP). `proxytest.PlayTranscript` cannot Accept the peer — do not use it for BIND success. Required: BIND success two-reply; IMDS DST no Listen; unspecified DST no Listen; hairpin BND; SOCKS4 BIND; `acceptSOCKS5` on + `acceptBind` off still `05 07`.
+Tests live in `internal/proxy/socks_test.go` (second inbound TCP). `proxytest.PlayTranscript` cannot Accept the peer — do not use it for BIND success. Required: BIND success two-reply; IMDS DST no Listen; unspecified DST no Listen; hairpin BND; wrong-peer Accept second-reply `05 02` (no tunnel); SOCKS4 BIND; `acceptSOCKS5` on + `acceptBind` off still `05 07`.
+
+Shutdown `closeBinds` unblocks BIND `Accept` before waiting dispatch/hijack goroutines (D42); BIND must not wait out `sessionTimeout` on process stop.
 
 See [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D58.
 
@@ -231,7 +233,7 @@ Reject → `403 Forbidden` (or CONNECT 403 after Hijack if the 200 has not been 
 
 Over admission → `429` (HTTP) or CONNECT `429` (unusual; use `503` for CONNECT if the response has not started). Metric `labmitm_proxy_rejected_total{reason="admission"}`. Admission `maxInFlight` includes paused breakpoint sessions.
 
-`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `headerTimeout` also bounds the per-conn first-byte peek. `Shutdown` (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines (ctx-bounded; force-close remaining peeks) → `chanListener.Close` → `http.Server.Shutdown` → wait for hijacked sessions up to `--shutdown-timeout`, then force-close them.
+`sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `headerTimeout` also bounds the per-conn first-byte peek. `Shutdown` (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → closeBinds → wait dispatch goroutines (ctx-bounded; force-close remaining peeks) → `chanListener.Close` → `http.Server.Shutdown` → wait for hijacked sessions up to `--shutdown-timeout`, then force-close them.
 
 Hairpin (D34) compares the pinned IP:port to every live data-plane bind (`s.Addr()`, orig-dest `Addr()`, both spec addresses, and every active SOCKS BIND listen `IP:port` for the lifetime of the control conn) via `sameEndpoint`. Orig-dest **direct-connect**: dest port equals the orig-dest listen port **and** dest IP is local/unspecified → close, no Dial.
 

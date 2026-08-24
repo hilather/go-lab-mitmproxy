@@ -461,7 +461,7 @@ func (s *Server) Metrics() *Metrics {
 }
 
 // Shutdown: accepting=false → close rawLn → wait acceptLoop →
-// close in-peek dispatch conns → wait dispatch goroutines →
+// close in-peek dispatch conns → closeBinds → wait dispatch goroutines →
 // chanListener.Close → http.Server.Shutdown → hijack drain (D42).
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.accepting.Store(false)

@@ -750,6 +750,67 @@ func TestSOCKS5BindHairpinBND(t *testing.T) {
 	}
 }
 
+func TestSOCKS5BindWrongPeer(t *testing.T) {
+	// DST resolves to 10.0.0.1; inbound Accept from 127.0.0.1 must fail (K5 step 7).
+	sink := NewNull()
+	px := startProxy(t, Options{
+		Spec:     socks5BindSpec(t),
+		Sink:     sink,
+		Resolver: mapResolver{"peer.lab": {net.ParseIP("10.0.0.1")}},
+	})
+	c := socksDial(t, px.Addr().String())
+	socks5GreetingOK(t, c)
+	host := "peer.lab"
+	req := []byte{0x05, 0x02, 0x00, 0x03, byte(len(host))}
+	req = append(req, host...)
+	req = append(req, bePort(80)...)
+	writeAll(t, c, req)
+	got := readN(t, c, 10)
+	if got[1] != 0x00 {
+		t.Fatalf("first reply %x", got)
+	}
+	ip := net.IP(got[4:8])
+	port := int(binary.BigEndian.Uint16(got[8:10]))
+	bnd := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+	peer, err := net.DialTimeout("tcp", bnd, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = peer.Close() }()
+	got2 := readN(t, c, 10)
+	if got2[1] != 0x02 {
+		t.Fatalf("wrong peer %x want 05 02", got2)
+	}
+	_ = peer.SetDeadline(time.Now().Add(200 * time.Millisecond))
+	_, _ = c.Write([]byte("ping")) // control may already be closing
+	buf := make([]byte, 4)
+	n, rerr := peer.Read(buf)
+	if n > 0 {
+		t.Fatalf("tunneled %q", buf[:n])
+	}
+	if rerr == nil {
+		t.Fatal("expected peer close, no tunnel")
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.SOCKS != nil && f.SOCKS.Command == model.SOCKSCmdBind {
+			found = true
+			if f.Error != "target_denied" || f.Intercepted {
+				t.Fatalf("flow %+v", f)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing bind flow: %+v", sink.Last())
+	}
+	if px.Metrics().Rejected("target_denied") < 1 || px.Metrics().Socks("denied") < 1 {
+		t.Fatal("expected target_denied")
+	}
+	if px.Metrics().Socks("ok") != 0 {
+		t.Fatal("wrong peer must not count socks ok")
+	}
+}
+
 func TestSOCKS4Bind(t *testing.T) {
 	sink := NewNull()
 	px := startProxy(t, Options{Spec: socks4BindSpec(t), Sink: sink})
