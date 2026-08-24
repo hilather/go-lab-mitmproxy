@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
@@ -319,7 +320,9 @@ func (s *Server) roundTripReplay(ctx context.Context, req *http.Request, res res
 			_ = tlsConn.Close()
 			return nil, err
 		}
-		return resp, nil
+		return closeReplayOrigin(resp, func() {
+			_ = tlsConn.Close()
+		}), nil
 	}
 	proto := http1Only()
 	tr := &http.Transport{
@@ -327,6 +330,7 @@ func (s *Server) roundTripReplay(ctx context.Context, req *http.Request, res res
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
 			return tlsConn, nil
 		},
+		DisableKeepAlives:  true,
 		ForceAttemptHTTP2:  false,
 		DisableCompression: true,
 		TLSNextProto:       map[string]func(string, *tls.Conn) http.RoundTripper{},
@@ -340,7 +344,43 @@ func (s *Server) roundTripReplay(ctx context.Context, req *http.Request, res res
 		_ = tlsConn.Close()
 		return nil, err
 	}
-	return resp, nil
+	return closeReplayOrigin(resp, func() {
+		tr.CloseIdleConnections()
+		_ = tlsConn.Close()
+	}), nil
+}
+
+// closeReplayOrigin closes the one-shot origin TLS conn after the caller
+// drains Body. IdleConnTimeout 0 would otherwise keep persistConn forever.
+func closeReplayOrigin(resp *http.Response, after func()) *http.Response {
+	if resp == nil {
+		if after != nil {
+			after()
+		}
+		return resp
+	}
+	if resp.Body == nil {
+		if after != nil {
+			after()
+		}
+		return resp
+	}
+	resp.Body = &closeAfterBody{ReadCloser: resp.Body, after: after}
+	return resp
+}
+
+type closeAfterBody struct {
+	io.ReadCloser
+	once  sync.Once
+	after func()
+}
+
+func (c *closeAfterBody) Close() error {
+	err := c.ReadCloser.Close()
+	if c.after != nil {
+		c.once.Do(c.after)
+	}
+	return err
 }
 
 func replayTLSConfig(auth *tlsmitm.Authority, sni string, spec model.Spec) *tls.Config {

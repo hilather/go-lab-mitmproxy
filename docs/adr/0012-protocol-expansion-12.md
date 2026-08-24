@@ -70,7 +70,7 @@ Re-open only with a new ADR:
 
 ### Replay (K9)
 
-Replay uses the **live** snapshot, not capture-time flags. D21 stands: `Transport.RoundTrip` / origin Framer, no `http.Client`, `isHairpin`, no second resolve. `Protocol=websocket`, `Method=CONNECT`, SOCKS BIND/UDP metadata-only, and `HTTP2.Pushed=true` remain rejected. Intercepted SOCKS inner GET/POST remain replayable. gRPC decoded tree is not re-encoded (raw captured body). Live origin flag off keeps 1.1 origin-form replay (leading-`:` stripped). Live origin flag on may send HTTP/2 to origin.
+Replay uses the **live** snapshot, not capture-time flags. D21 stands: `Transport.RoundTrip` / origin Framer, no `http.Client`, `isHairpin`, no second resolve. HTTPS replay closes the one-shot origin TLS conn after the response body is drained (HTTP/1.1 Transport and `NewOriginTransport` h2). `Protocol=websocket`, `Method=CONNECT`, SOCKS BIND/UDP metadata-only, and `HTTP2.Pushed=true` remain rejected. Intercepted SOCKS inner GET/POST remain replayable. gRPC decoded tree is not re-encoded (raw captured body). Live origin flag off keeps 1.1 origin-form replay (leading-`:` stripped). Live origin flag on may send HTTP/2 to origin.
 
 ## Consequences
 

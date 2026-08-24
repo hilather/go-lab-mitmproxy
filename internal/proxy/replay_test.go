@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
@@ -390,6 +392,80 @@ func TestReplayHTTP2LiveOriginOffStaysH1(t *testing.T) {
 	}
 	if f == nil || f.Status != 200 || f.Protocol != model.FlowProtocolHTTP11 || string(f.Response.Body) != "h1-replay" {
 		t.Fatalf("replay flow %+v", f)
+	}
+}
+
+func TestReplayHTTPSReleasesOriginConn(t *testing.T) {
+	t.Run("http11", func(t *testing.T) {
+		replayHTTPSReleasesOriginConn(t, false)
+	})
+	t.Run("http2", func(t *testing.T) {
+		replayHTTPSReleasesOriginConn(t, true)
+	})
+}
+
+func replayHTTPSReleasesOriginConn(t *testing.T, originH2 bool) {
+	t.Helper()
+	var mu sync.Mutex
+	open := 0
+	state := func(_ net.Conn, st http.ConnState) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch st {
+		case http.StateNew:
+			open++
+		case http.StateClosed:
+			open--
+		}
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	})
+	var addr string
+	if originH2 {
+		addr = startTLSOriginH2State(t, originCert(t), handler, state)
+	} else {
+		addr = startTLSOriginState(t, originCert(t), handler, state)
+	}
+	spec := loadSpec(t)
+	spec.TLS.Intercept = false
+	spec.TLS.Upstream.InsecureSkipVerify = true
+	if originH2 {
+		spec.Protocols.HTTP2.Enabled = true
+		spec.Protocols.HTTP2.Origin = true
+	}
+	px := startProxy(t, Options{Spec: spec})
+	proto := model.FlowProtocolHTTP11
+	if originH2 {
+		proto = model.FlowProtocolHTTP2
+	}
+	for i := 0; i < 3; i++ {
+		f, err := px.Replay(context.Background(), &model.Flow{
+			Method:   http.MethodGet,
+			URL:      "https://" + addr + "/",
+			Host:     addr,
+			Scheme:   "https",
+			Protocol: proto,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(f.Response.Body) != "ok" {
+			t.Fatalf("replay %d body=%q", i, f.Response.Body)
+		}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := open
+		mu.Unlock()
+		if n == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("HTTPS replay leaked %d origin connections (want 0)", n)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
