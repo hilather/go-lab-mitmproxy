@@ -75,7 +75,7 @@ func (s *Server) roundTripH2C(ctx context.Context, in http2x.Stream, pinned *rul
 				"CONNECT is not supported on original-destination", "")
 			return rw.response(), nil, nil
 		}
-		// RFC 9113 CONNECT to the proxy is PR 9.
+		// RFC 9113 CONNECT (D62) is not tunneled on h2c yet; RST.
 		return nil, nil, http2x.ErrInnerCONNECT
 	}
 	if h2cForbidden(in) {
@@ -94,6 +94,11 @@ func (s *Server) roundTripH2C(ctx context.Context, in http2x.Stream, pinned *rul
 		inner.URL.Path = "/"
 	}
 	stripLeadingColonHeaders(inner.Header)
+	// captureRW is not a Hijacker; do not take serveExpectAbsolute.
+	// Strip Expect and RoundTrip (never emit 100), same as cleartext.
+	if inner.Header != nil {
+		inner.Header.Del("Expect")
+	}
 	inner = inner.WithContext(ctx)
 
 	if scheme == "https" {
