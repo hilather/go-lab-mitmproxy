@@ -71,7 +71,7 @@ mitm.audit.read    audit ring
 | `session.get` | `GET /v1/session` | — | cookie or bearer | REST_ONLY |
 | `events.stream` | `GET /v1/events/stream` | `subscriptions/listen` on `labmitm://flows` | `mitm.read` | PARITY_DIFFERENT_BINDING |
 | `flows.list` | `GET /v1/flows` | `mitm_flows_list`, `labmitm://flows` | `mitm.read` | cursor pagination |
-| `flows.get` | `GET /v1/flows/{id}` | `mitm_flow_get`, `labmitm://flows/{id}` | `mitm.read` | headers + truncated bodies |
+| `flows.get` | `GET /v1/flows/{id}` | `mitm_flow_get`, `labmitm://flows/{id}` | `mitm.read` | headers + truncated bodies; websocket frames and grpc messages on GET-by-id (list omits both arrays) |
 | `flows.request` | `GET /v1/flows/{id}/request` | `mitm_flow_request_get` | `mitm.read` | raw request body |
 | `flows.response` | `GET /v1/flows/{id}/response` | `mitm_flow_response_get` | `mitm.read` | raw response body |
 | `flows.delete` | `DELETE /v1/flows/{id}` | `mitm_flow_delete` | `mitm.write` | |

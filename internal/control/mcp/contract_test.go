@@ -316,6 +316,59 @@ func TestContractWebSocketFrames(t *testing.T) {
 	}
 }
 
+func TestContractGRPC(t *testing.T) {
+	s, svc := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	res, err := svc.Inbox().Insert(context.Background(), svc.Inbox().Epoch(), &model.Flow{
+		Host:     "grpc.lab",
+		Method:   "POST",
+		URL:      "https://grpc.lab/svc/Method",
+		Scheme:   "https",
+		Protocol: model.FlowProtocolHTTP2,
+		State:    model.FlowStateCompleted,
+		Status:   200,
+		GRPC: &model.GRPCInfo{
+			ContentType: "application/grpc",
+			Messages: []model.GRPCMessage{{
+				Length: 4,
+				Fields: []model.ProtoField{{Number: 1, WireType: 2, Text: "hi"}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res.ID
+
+	list := structuredMap(t, callTool(t, cs, "mitm_flows_list", map[string]any{"limit": 1}))
+	items, _ := list["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items=%v", list)
+	}
+	g, _ := items[0].(map[string]any)["grpc"].(map[string]any)
+	if g == nil {
+		t.Fatalf("list missing grpc: %v", list)
+	}
+	if _, ok := g["messages"]; ok {
+		t.Fatal("list item must omit messages")
+	}
+	if g["contentType"] != "application/grpc" {
+		t.Fatalf("contentType=%v", g["contentType"])
+	}
+
+	got := structuredMap(t, callTool(t, cs, "mitm_flow_get", map[string]any{"id": id}))
+	gg, _ := got["grpc"].(map[string]any)
+	msgs, _ := gg["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("get messages=%v", got)
+	}
+	fields, _ := msgs[0].(map[string]any)["fields"].([]any)
+	if len(fields) != 1 || fields[0].(map[string]any)["text"] != "hi" {
+		t.Fatalf("fields=%v", fields)
+	}
+}
+
 func TestHealthNotRegisteredAsTools(t *testing.T) {
 	s, _ := newTestServer(t)
 	ts := startHTTP(t, s)

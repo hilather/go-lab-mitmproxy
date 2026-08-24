@@ -178,6 +178,7 @@ type flowJSON struct {
 	HTTP2         *http2InfoJSON     `json:"http2,omitempty"`
 	SOCKS         *socksInfoJSON     `json:"socks,omitempty"`
 	WebSocket     *webSocketInfoJSON `json:"websocket,omitempty"`
+	GRPC          *grpcInfoJSON      `json:"grpc,omitempty"`
 	Via           string             `json:"via,omitempty"`
 	OriginalDest  string             `json:"originalDest,omitempty"`
 	Timings       timingsJSON        `json:"timings"`
@@ -231,6 +232,28 @@ type webSocketFrameJSON struct {
 	BND       string `json:"bnd,omitempty"`
 	LastDest  string `json:"lastDest,omitempty"`
 	Datagrams int    `json:"datagrams,omitempty"`
+}
+
+type grpcInfoJSON struct {
+	ContentType string            `json:"contentType,omitempty"`
+	Compressed  bool              `json:"compressed,omitempty"`
+	Messages    []grpcMessageJSON `json:"messages,omitempty"`
+	Truncated   bool              `json:"truncated"`
+	DecodeError string            `json:"decodeError,omitempty"`
+}
+
+type grpcMessageJSON struct {
+	Compressed bool             `json:"compressed"`
+	Length     int              `json:"length"`
+	Fields     []protoFieldJSON `json:"fields,omitempty"`
+}
+
+type protoFieldJSON struct {
+	Number   int              `json:"number"`
+	WireType int              `json:"wireType"`
+	Text     string           `json:"text,omitempty"`
+	Uint     uint64           `json:"uint,omitempty"`
+	Nested   []protoFieldJSON `json:"nested,omitempty"`
 }
 
 type headerJSON struct {
@@ -383,6 +406,7 @@ func fromFlow(f *model.Flow, listItem bool) flowJSON {
 		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command, BND: f.SOCKS.BND, User: f.SOCKS.User}
 	}
 	out.WebSocket = fromWebSocket(f.WebSocket, listItem)
+	out.GRPC = fromGRPC(f.GRPC, listItem)
 	return out
 }
 
@@ -415,6 +439,50 @@ func fromWebSocket(ws *model.WebSocketInfo, listItem bool) *webSocketInfoJSON {
 			Truncated: fr.Truncated,
 		}
 		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command, BND: f.SOCKS.BND, LastDest: f.SOCKS.LastDest, Datagrams: f.SOCKS.Datagrams}
+	}
+	return out
+}
+
+func fromGRPC(g *model.GRPCInfo, listItem bool) *grpcInfoJSON {
+	if g == nil {
+		return nil
+	}
+	out := &grpcInfoJSON{
+		ContentType: g.ContentType,
+		Compressed:  g.Compressed,
+		Truncated:   g.Truncated,
+		DecodeError: g.DecodeError,
+	}
+	if listItem {
+		return out
+	}
+	if len(g.Messages) == 0 {
+		return out
+	}
+	out.Messages = make([]grpcMessageJSON, len(g.Messages))
+	for i, m := range g.Messages {
+		out.Messages[i] = grpcMessageJSON{
+			Compressed: m.Compressed,
+			Length:     m.Length,
+			Fields:     fromProtoFields(m.Fields),
+		}
+	}
+	return out
+}
+
+func fromProtoFields(in []model.ProtoField) []protoFieldJSON {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]protoFieldJSON, len(in))
+	for i, f := range in {
+		out[i] = protoFieldJSON{
+			Number:   f.Number,
+			WireType: f.WireType,
+			Text:     f.Text,
+			Uint:     f.Uint,
+			Nested:   fromProtoFields(f.Nested),
+		}
 	}
 	return out
 }

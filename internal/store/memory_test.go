@@ -111,6 +111,36 @@ func TestMemoryTruncateWebSocketFrames(t *testing.T) {
 	}
 }
 
+func TestMemoryTruncateGRPCTree(t *testing.T) {
+	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, MaxBodyBytes: 20, FullPolicy: model.FullPolicyReject})
+	res, err := s.Insert(context.Background(), s.Epoch(), &model.Flow{
+		Host:     "h",
+		Method:   "POST",
+		Protocol: model.FlowProtocolHTTP2,
+		State:    model.FlowStateCompleted,
+		GRPC: &model.GRPCInfo{
+			ContentType: "application/grpc",
+			Messages: []model.GRPCMessage{
+				{Length: 8, Fields: []model.ProtoField{{Number: 1, WireType: 2, Text: "abcdefgh"}}},
+				{Length: 8, Fields: []model.ProtoField{{Number: 2, WireType: 2, Text: "ijklmnop"}}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Truncated || got.GRPC == nil || !got.GRPC.Truncated {
+		t.Fatalf("truncated %+v", got.GRPC)
+	}
+	if got.GRPC.DecodeError != model.GRPCDecodeTruncated {
+		t.Fatalf("decodeError=%q", got.GRPC.DecodeError)
+	}
+}
+
 func TestMemoryEvictOldest(t *testing.T) {
 	s := newTestStore(t, Options{MaxFlows: 2, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyEvictOldest})
 	a, err := s.Insert(context.Background(), s.Epoch(), sampleFlow("GET", "http://h/a", 200, []byte("1")))

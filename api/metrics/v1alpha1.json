@@ -74,6 +74,14 @@
       ]
     },
     {
+      "name": "labmitm_grpc_decode_total",
+      "kind": "counter",
+      "help": "Best-effort gRPC protobuf decode outcomes.",
+      "labels": [
+        "result"
+      ]
+    },
+    {
       "name": "labmitm_h2_trailer_dropped_total",
       "kind": "counter",
       "help": "HTTP/2 request trailers dropped when transcoding onto HTTP/1.1 origin.",

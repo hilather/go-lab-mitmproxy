@@ -173,6 +173,9 @@ func applyBodyCaps(f *model.Flow, max int64) {
 	if truncateWebSocket(f.WebSocket, max) {
 		f.Truncated = true
 	}
+	if truncateGRPC(f.GRPC, max) {
+		f.Truncated = true
+	}
 }
 
 func truncateWebSocket(ws *model.WebSocketInfo, max int64) bool {
@@ -205,6 +208,27 @@ func truncateWebSocket(ws *model.WebSocketInfo, max int64) bool {
 		used += int64(len(p))
 		if ws.Frames[i].Size == 0 {
 			ws.Frames[i].Size = len(p)
+		}
+	}
+	return truncated
+}
+
+func truncateGRPC(g *model.GRPCInfo, max int64) bool {
+	if g == nil || max <= 0 {
+		return false
+	}
+	truncated := g.Truncated
+	for g.TreeBytes() > max && len(g.Messages) > 0 {
+		last := &g.Messages[len(g.Messages)-1]
+		if len(last.Fields) > 0 {
+			last.Fields = last.Fields[:len(last.Fields)-1]
+		} else {
+			g.Messages = g.Messages[:len(g.Messages)-1]
+		}
+		g.Truncated = true
+		truncated = true
+		if g.DecodeError == "" {
+			g.DecodeError = model.GRPCDecodeTruncated
 		}
 	}
 	return truncated

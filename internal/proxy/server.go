@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/grpcx"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/observability"
 	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
@@ -618,6 +619,22 @@ func (s *Server) closeDispatching() {
 	}
 }
 
+func (s *Server) maybeDecodeGRPC(f *model.Flow, sess *ruleSession) {
+	if s == nil || f == nil {
+		return
+	}
+	if !s.specOf(sess).Protocols.HTTP2.GRPCDecode {
+		return
+	}
+	info, result := grpcx.DecodeFlow(f)
+	if result != "" {
+		s.metrics.grpcDecode(result)
+	}
+	if info != nil {
+		f.GRPC = info
+	}
+}
+
 func stampSession(f *model.Flow, sess *ruleSession) {
 	if f == nil || sess == nil {
 		return
@@ -632,6 +649,7 @@ func stampSession(f *model.Flow, sess *ruleSession) {
 
 func (s *Server) capture(f *model.Flow, sess *ruleSession) {
 	stampSession(f, sess)
+	s.maybeDecodeGRPC(f, sess)
 	if s.sink == nil || f == nil {
 		return
 	}

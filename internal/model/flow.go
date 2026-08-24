@@ -29,6 +29,11 @@ const (
 	WSFrameOverhead = 64
 	WSErrorProtocol = "websocket"
 	SOCKSCmdUDP     = "udp"
+
+	GRPCMaxNestDepth    = 8
+	GRPCFieldOverhead   = 16
+	GRPCDecodeTruncated = "truncated"
+	GRPCDecodeMalformed = "malformed"
 )
 
 // Flow is one captured HTTP exchange (or CONNECT metadata).
@@ -53,6 +58,7 @@ type Flow struct {
 	HTTP2        *HTTP2Info
 	SOCKS        *SOCKSInfo
 	WebSocket    *WebSocketInfo
+	GRPC         *GRPCInfo
 	Via          string
 	OriginalDest string
 	Timings      Timings
@@ -111,6 +117,34 @@ type WebSocketFrame struct {
 	BND       string
 	LastDest  string
 	Datagrams int
+}
+
+// GRPCInfo is a best-effort gRPC length-prefix + protobuf wire tree (D66).
+// DecodeError is a bounded token (truncated | malformed | "").
+type GRPCInfo struct {
+	ContentType string
+	Compressed  bool
+	Messages    []GRPCMessage
+	Truncated   bool
+	DecodeError string
+}
+
+// GRPCMessage is one length-prefixed gRPC message. Compressed messages
+// keep Fields empty (no decompressor).
+type GRPCMessage struct {
+	Compressed bool
+	Length     int
+	Fields     []ProtoField
+}
+
+// ProtoField is one protobuf key. Bytes are not stored as hex (ResidentBytes
+// would double-count); GET may hex-encode non-text at encode time.
+type ProtoField struct {
+	Number   int
+	WireType int
+	Text     string
+	Uint     uint64
+	Nested   []ProtoField
 }
 
 // Header is an ordered, case-preserving HTTP header.
@@ -222,13 +256,14 @@ func (f *Flow) Path() string {
 }
 
 // ResidentBytes is request+response bodies plus a header budget
-// plus captured WebSocket frames (64 bytes + payload each).
+// plus captured WebSocket frames (64 bytes + payload each)
+// plus the gRPC field tree (no parallel hex copy of the same bytes).
 // Spilled bodies (nil Body, Size set) still count.
 func (f *Flow) ResidentBytes() int64 {
 	if f == nil {
 		return 0
 	}
-	return messageResident(f.Request) + messageResident(f.Response) + websocketResident(f.WebSocket)
+	return messageResident(f.Request) + messageResident(f.Response) + websocketResident(f.WebSocket) + grpcResident(f.GRPC)
 }
 
 func messageResident(m HTTPMessage) int64 {
@@ -257,6 +292,44 @@ func websocketResident(ws *WebSocketInfo) int64 {
 		} else {
 			n += int64(ws.Frames[i].Size)
 		}
+	}
+	return n
+}
+
+// TreeBytes is the gRPC field-tree resident size (no hex copy of the body).
+func (g *GRPCInfo) TreeBytes() int64 {
+	return grpcResident(g)
+}
+
+func grpcResident(g *GRPCInfo) int64 {
+	if g == nil {
+		return 0
+	}
+	n := int64(len(g.ContentType) + len(g.DecodeError))
+	for i := range g.Messages {
+		n += grpcMessageResident(&g.Messages[i])
+	}
+	return n
+}
+
+func grpcMessageResident(m *GRPCMessage) int64 {
+	if m == nil {
+		return 0
+	}
+	n := int64(GRPCFieldOverhead)
+	for i := range m.Fields {
+		n += protoFieldResident(&m.Fields[i])
+	}
+	return n
+}
+
+func protoFieldResident(f *ProtoField) int64 {
+	if f == nil {
+		return 0
+	}
+	n := int64(GRPCFieldOverhead) + int64(len(f.Text))
+	for i := range f.Nested {
+		n += protoFieldResident(&f.Nested[i])
 	}
 	return n
 }

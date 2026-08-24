@@ -340,6 +340,8 @@ See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blo
 - SOCKS5/4 CONNECT is opt-in, NO AUTH, CONNECT only. BIND/UDP/GSSAPI/password are out.
 - 1.1 flags (`acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `protocols.http2`, `compat.flowREST`) are bootstrap + **Reset only** (D51).
 - WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Inner and client-facing RFC 8441 `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); nested inner CONNECT without `:protocol` still RST, **no flow**. Client-facing h2c CONNECT (RFC 9113 §8.5) is on when `clientCleartext` is on (D62).
+- WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Inner RFC 8441 `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); nested inner CONNECT without `:protocol` still RST, **no flow**. Client-facing Extended CONNECT / h2c is still out.
+- gRPC protobuf decode: flag-off is HTTP/2 headers + DATA only; flag-on `protocols.http2.grpcDecode` (Reset-only, D66) is an in-tree length-prefix + wire tree. **grpc-web stays opaque.**
 - Generate-mode CA rotates on every restart/reset.
 - Store-full still forwards (capture dropped).
 - Single replica; no shared flow store.

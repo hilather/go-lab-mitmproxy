@@ -12,6 +12,8 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - WebSocket frame inspect (`protocols.websocket.inspectFrames`, default off, Reset-only, D67). Flag-off stays 101 + copy. Flag-on captures RFC 6455 frames under existing store caps (`maxBodyBytes`, 4096 frames, `{ULID}-ws.body` spill). REST/MCP `websocket` on GET-by-id; list omits `frames`. Inspector Frames tab. `labmitm_ws_frames_total{opcode}`.
 - RFC 8441 Extended CONNECT websocket on the **inner** hop and client-facing h2c (`protocols.http2.extendedConnect`, default off, Reset-only, D63). Nested inner CONNECT without `:protocol` still RST, no flow. Success is `:status=200`; origin stays HTTP/1.1 Upgrade.
 - RFC 9113 §8.5 CONNECT on client-facing h2c (`protocols.http2.clientCleartext`, D62). Per-stream origin TCP. http2x writes 2xx HEADERS then raw DATA splice or intercept AfterAck (`serveInterceptConn`; no HTTP/1.1 200). Handshake failure does not DATA-tunnel (D20). Orig-dest tagged CONNECT stays 400.
+- RFC 8441 Extended CONNECT websocket on the **inner** hop (`protocols.http2.extendedConnect`, default off, Reset-only, D63). Nested inner CONNECT without `:protocol` still RST, no flow. Success is inner `:status=200`; origin stays HTTP/1.1 Upgrade. Client-facing h2c / CONNECT to the proxy is still out.
+- Best-effort gRPC protobuf decode (`protocols.http2.grpcDecode`, default off, Reset-only, D66). In-tree length-prefix + wire tree (no `google.golang.org/protobuf`). Fail-open. grpc-web stays opaque. REST/MCP `grpc` on GET-by-id; list omits `messages`. Inspector gRPC tab. `labmitm_grpc_decode_total{result}`.
 
 ### Changed
 
