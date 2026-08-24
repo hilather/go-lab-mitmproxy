@@ -45,6 +45,24 @@ export type SOCKSInfo = {
   user?: string;
 };
 
+export type WebSocketFrame = {
+  direction: string;
+  opcode: string;
+  opcodeNum: number;
+  fin: boolean;
+  masked: boolean;
+  closeCode?: number;
+  payload?: string;
+  size: number;
+  truncated: boolean;
+};
+
+export type WebSocketInfo = {
+  frameCount: number;
+  truncated: boolean;
+  frames?: WebSocketFrame[];
+};
+
 export type TLSInfo = {
   sni?: string;
   version?: string;
@@ -82,6 +100,7 @@ export type Flow = {
   tls?: TLSInfo;
   http2?: HTTP2Info;
   socks?: SOCKSInfo;
+  websocket?: WebSocketInfo;
   via?: string;
   originalDest?: string;
   timings: Timings;

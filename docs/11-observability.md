@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-19 (1.1 docs overlay)
+Last reviewed: 2026-08-23 (D67 labmitm_ws_frames_total)
 Related ADRs: 0001
 
 ## Logs (`log/slog` JSON)
@@ -47,6 +47,7 @@ Bounded labels only.
 | `labmitm_audit_events_total` | counter | `event` |
 | `labmitm_telemetry_dropped_total` | counter | `reason` |
 | `labmitm_h2_trailer_dropped_total` | counter | — |
+| `labmitm_ws_frames_total` | counter | `opcode` (`continuation`, `text`, `binary`, `close`, `ping`, `pong`, `other`) |
 
 ## Health
 

@@ -10,12 +10,12 @@ import {
   responseBodyURL,
   type FlowBodySide,
 } from "../api/client";
-import type { Flow, Header, HTTPMessage } from "../api/types";
+import type { Flow, Header, HTTPMessage, WebSocketFrame } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE, formatBytes } from "../auth/scopes";
 import { contentTypeOf, shouldRenderAsText, toHexDump } from "../ui/bodyView";
 
-type Tab = "request" | "response" | "trailers" | "tls";
+type Tab = "request" | "response" | "trailers" | "tls" | "frames";
 
 function FlowCaptureMeta({ flow }: { flow: Flow }) {
   const socksDest = flow.socks?.dest ?? "";
@@ -91,6 +91,59 @@ function HeadersTable({ headers }: { headers: Header[] }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+function FramePayload({ frame }: { frame: WebSocketFrame }) {
+  const body = frame.payload ?? "";
+  if (body === "" && frame.size === 0) {
+    return <p className="muted">Empty payload.</p>;
+  }
+  if (shouldRenderAsText("", body)) {
+    return <pre className="raw">{body || "(empty)"}</pre>;
+  }
+  return (
+    <>
+      <p className="muted">
+        Binary payload. Showing hex preview of {formatBytes(body.length)}
+        {frame.size > 0 && frame.size !== body.length ? ` (reported ${formatBytes(frame.size)})` : ""}.
+      </p>
+      <pre className="raw">{toHexDump(body)}</pre>
+    </>
+  );
+}
+
+function FramesPanel({ flow }: { flow: Flow }) {
+  const frames = flow.websocket?.frames ?? [];
+  if (flow.websocket == null) {
+    return <p>No WebSocket frames. Enable protocols.websocket.inspectFrames (Reset-only) to capture them.</p>;
+  }
+  if (frames.length === 0) {
+    return (
+      <p className="muted">
+        {flow.websocket.frameCount} frame{flow.websocket.frameCount === 1 ? "" : "s"} counted
+        {flow.websocket.truncated ? " · truncated" : ""}; none stored on this GET.
+      </p>
+    );
+  }
+  return (
+    <>
+      <p className="muted">
+        {flow.websocket.frameCount} frame{flow.websocket.frameCount === 1 ? "" : "s"}
+        {flow.websocket.truncated ? " · truncated" : ""}
+      </p>
+      {frames.map((fr, i) => (
+        <section key={`${fr.opcode}-${i}`}>
+          <h2>
+            {fr.direction} · {fr.opcode}
+            {fr.closeCode ? ` · ${fr.closeCode}` : ""}
+            {fr.truncated ? " · truncated" : ""}
+            {fr.masked ? " · masked" : ""}
+          </h2>
+          <FramePayload frame={fr} />
+        </section>
+      ))}
+    </>
   );
 }
 
@@ -189,6 +242,7 @@ export function FlowPage() {
     { id: "response", label: "Response" },
     { id: "trailers", label: "Trailers" },
     { id: "tls", label: "TLS" },
+    { id: "frames", label: "Frames" },
   ];
 
   return (
@@ -203,6 +257,7 @@ export function FlowPage() {
         {flow.status > 0 ? `HTTP ${flow.status}` : flow.state} · {flow.host} · {flow.scheme}{" "}
         <span className="badge">{flow.protocol || "?"}</span>
         {flow.http2 != null ? <span className="badge">stream {flow.http2.streamId}</span> : null}
+        {flow.websocket != null ? <span className="badge">{flow.websocket.frameCount} frames</span> : null}
         {flow.intercepted ? " · intercepted" : ""}
         {flow.truncated ? " · truncated" : ""}
       </p>
@@ -275,6 +330,7 @@ export function FlowPage() {
         </>
       ) : null}
       {tab === "trailers" ? <TrailersPanel request={flow.request} response={flow.response} /> : null}
+      {tab === "frames" ? <FramesPanel flow={flow} /> : null}
       {tab === "tls" ? (
         flow.tls ? (
           <dl>

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -246,6 +247,72 @@ func TestWaitTimeout(t *testing.T) {
 	})
 	if domainCode(t, timed) != "timeout" {
 		t.Fatalf("wait timeout=%v", timed)
+	}
+}
+
+func TestContractWebSocketFrames(t *testing.T) {
+	s, svc := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	res, err := svc.Inbox().Insert(context.Background(), svc.Inbox().Epoch(), &model.Flow{
+		Host:     "ws.lab",
+		Method:   "GET",
+		URL:      "http://ws.lab/ws",
+		Scheme:   "http",
+		Protocol: model.FlowProtocolWebSocket,
+		State:    model.FlowStateCompleted,
+		Status:   101,
+		WebSocket: &model.WebSocketInfo{
+			FrameCount: 1,
+			Frames: []model.WebSocketFrame{{
+				Direction: model.WSDirectionClient,
+				Opcode:    "text",
+				OpcodeNum: 1,
+				Fin:       true,
+				Masked:    true,
+				Payload:   []byte("hello"),
+				Size:      5,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res.ID
+
+	list := structuredMap(t, callTool(t, cs, "mitm_flows_list", map[string]any{"limit": 1}))
+	items, _ := list["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items=%v", list)
+	}
+	ws, _ := items[0].(map[string]any)["websocket"].(map[string]any)
+	if ws == nil {
+		t.Fatalf("list missing websocket: %v", list)
+	}
+	if _, ok := ws["frames"]; ok {
+		t.Fatal("list item must omit frames")
+	}
+	if ws["frameCount"] != float64(1) {
+		t.Fatalf("frameCount=%v", ws["frameCount"])
+	}
+
+	got := structuredMap(t, callTool(t, cs, "mitm_flow_get", map[string]any{"id": id}))
+	gws, _ := got["websocket"].(map[string]any)
+	frames, _ := gws["frames"].([]any)
+	if len(frames) != 1 {
+		t.Fatalf("get frames=%v", got)
+	}
+	fr := frames[0].(map[string]any)
+	if fr["payload"] != "hello" {
+		t.Fatalf("payload=%v (must be string, not base64)", fr["payload"])
+	}
+	if _, ok := fr["maskKey"]; ok {
+		t.Fatal("maskKey must not be exported")
+	}
+
+	err = callToolExpectError(t, cs, "mitm_flow_replay", map[string]any{"id": id})
+	if domainCode(t, err) != "validation_failed" {
+		t.Fatalf("replay=%v", err)
 	}
 }
 

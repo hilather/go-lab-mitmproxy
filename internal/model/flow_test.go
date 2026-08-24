@@ -34,6 +34,22 @@ func TestResidentBytes(t *testing.T) {
 	}
 }
 
+func TestResidentBytesWebSocket(t *testing.T) {
+	f := &Flow{
+		WebSocket: &WebSocketInfo{
+			FrameCount: 2,
+			Frames: []WebSocketFrame{
+				{Payload: []byte("hi"), Size: 2},
+				{Size: 5},
+			},
+		},
+	}
+	want := int64(WSFrameOverhead + 2 + WSFrameOverhead + 5)
+	if f.ResidentBytes() != want {
+		t.Fatalf("got %d want %d", f.ResidentBytes(), want)
+	}
+}
+
 func TestFlowPath(t *testing.T) {
 	f := &Flow{URL: "https://app.lab.test/login?x=1"}
 	if f.Path() != "/login" {

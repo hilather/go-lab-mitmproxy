@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-19 (inspector 1.1 metadata + compat flow REST)
-Related ADRs: 0004, 0005, 0007, 0011
+Last reviewed: 2026-08-23 (D67 WebSocket frames)
+Related ADRs: 0004, 0005, 0007, 0011, 0012
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
 
@@ -60,7 +60,7 @@ Default `limit=50`, max `200`. Sort: `StartedAt` descending, then id desc.
 
 Cursor: opaque `base64url(id || uint64 storeGeneration || HMAC-SHA256)`. MAC key is 32 random bytes at process start, never persisted. Reset/restart kills cursors. Generation mismatch → `400` `cursor_stale`.
 
-List items omit bodies (`requestBytes`, `responseBytes`, `truncated` flags only).
+List items omit bodies (`requestBytes`, `responseBytes`, `truncated` flags only). List items omit the WebSocket `frames` array (`frameCount` + `truncated` only). GET-by-id frame `payload` is `string(payload)` like HTTP bodies (not base64).
 
 `GET /v1/flows/{id}/request` and `GET /v1/flows/{id}/response` return the captured bytes as `application/octet-stream` with `Content-Disposition: attachment` and `Content-Security-Policy: default-src 'none'`. They never reflect the captured `Content-Type` (a browser GET of `text/html` would execute scripts on the management origin).
 
@@ -115,7 +115,7 @@ Required for GA / 1.0 (D13). Talks REST only.
 | Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie + CSRF. No Basic form. |
-| Pages | Flow list, flow detail (protocol badge, HTTP/2 stream id, trailers, SOCKS dest, original dest), CA download, status, audit (if scoped), gated reset |
+| Pages | Flow list, flow detail (protocol badge, HTTP/2 stream id, trailers, SOCKS dest, original dest, Frames tab), CA download, status, audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream`. Fallback: 3s poll of `GET /v1/flows` |
 | Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download links use `download=` plus a blob fetch (click is not a document navigation). Raw body GETs are `application/octet-stream` + `Content-Disposition: attachment`. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle |

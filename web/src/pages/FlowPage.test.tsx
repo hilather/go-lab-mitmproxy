@@ -175,4 +175,65 @@ describe("FlowPage", () => {
     expect(screen.getByText("x-resp-trailer")).toBeInTheDocument();
     expect(screen.getByText("omega")).toBeInTheDocument();
   });
+
+  it("renders Frames tab as escaped text, never as HTML", async () => {
+    const user = userEvent.setup();
+    const wsFlow = {
+      ...flow,
+      id: "01JWS",
+      protocol: "websocket",
+      status: 101,
+      websocket: {
+        frameCount: 1,
+        truncated: false,
+        frames: [
+          {
+            direction: "client",
+            opcode: "text",
+            opcodeNum: 1,
+            fin: true,
+            masked: true,
+            payload: "<script>alert(1)</script>",
+            size: 25,
+            truncated: false,
+          },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.includes("/v1/flows/01JWS") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, wsFlow);
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+
+    renderApp(
+      <Routes>
+        <Route path="/flows/:id" element={<FlowPage />} />
+      </Routes>,
+      { route: "/flows/01JWS" },
+    );
+
+    expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
+    expect(screen.getByText("1 frames")).toHaveClass("badge");
+    expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: /Frames/i }));
+    expect(await screen.findByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument();
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(document.querySelector("[dangerouslySetInnerHTML]")).toBeNull();
+  });
 });

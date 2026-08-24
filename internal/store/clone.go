@@ -12,6 +12,7 @@ func cloneFlow(in *model.Flow) *model.Flow {
 	out.TLS = cloneTLS(in.TLS)
 	out.HTTP2 = cloneHTTP2(in.HTTP2)
 	out.SOCKS = cloneSOCKS(in.SOCKS)
+	out.WebSocket = cloneWebSocket(in.WebSocket)
 	if in.RuleIDs != nil {
 		out.RuleIDs = append([]string(nil), in.RuleIDs...)
 	}
@@ -41,6 +42,23 @@ func cloneSOCKS(in *model.SOCKSInfo) *model.SOCKSInfo {
 		return nil
 	}
 	out := *in
+	return &out
+}
+
+func cloneWebSocket(in *model.WebSocketInfo) *model.WebSocketInfo {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Frames != nil {
+		out.Frames = make([]model.WebSocketFrame, len(in.Frames))
+		for i := range in.Frames {
+			out.Frames[i] = in.Frames[i]
+			if in.Frames[i].Payload != nil {
+				out.Frames[i].Payload = append([]byte(nil), in.Frames[i].Payload...)
+			}
+		}
+	}
 	return &out
 }
 

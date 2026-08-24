@@ -8,6 +8,7 @@
     "component",
     "event",
     "intercepted",
+    "opcode",
     "reason",
     "result",
     "scheme",
@@ -181,6 +182,14 @@
       "help": "TLS intercept handshake outcomes.",
       "labels": [
         "result"
+      ]
+    },
+    {
+      "name": "labmitm_ws_frames_total",
+      "kind": "counter",
+      "help": "WebSocket frames forwarded while inspectFrames is on.",
+      "labels": [
+        "opcode"
       ]
     }
   ],

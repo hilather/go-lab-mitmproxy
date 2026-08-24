@@ -310,10 +310,23 @@ func (s *Server) hijackUpgrade(w http.ResponseWriter, req *http.Request, resp *h
 		f.Request.Body = reqCap.buf
 		f.Request.Truncated = reqCap.truncated
 	}
-	s.capture(f, sess)
 	s.metrics.session("ok")
+	inspect := s.specOf(sess).Protocols.WebSocket.InspectFrames
+	var leftover []byte
+	if bufrw != nil {
+		leftover = takeBuffered(bufrw.Reader)
+	}
+	if inspect {
+		s.inspectUpgrade(client, leftover, upstream, resp.Body, sess, f)
+		s.capture(f, sess)
+		return
+	}
+	if len(leftover) > 0 {
+		_, _ = upstream.Write(leftover)
+	}
+	s.capture(f, sess)
 	// Read leftover 101 payload from resp.Body (Transport buffered it).
-	s.tunnelUpgrade(client, bufrw, upstream, resp.Body, s.specOf(sess).Proxy.Admission)
+	s.tunnelUpgrade(client, nil, upstream, resp.Body, s.specOf(sess).Proxy.Admission)
 }
 
 func (s *Server) tunnelUpgrade(client net.Conn, bufrw *bufio.ReadWriter, upstream net.Conn, fromUp io.Reader, ad model.AdmissionSpec) {

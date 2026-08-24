@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Store, Proxy, Application
-Last reviewed: 2026-08-23 (SOCKSInfo.User)
-Related ADRs: 0003
+Last reviewed: 2026-08-23 (D67 WebSocket frames)
+Related ADRs: 0003, 0012
 
 Package `internal/store`. Captured HTTP is runtime evidence, not desired state. Restart or reset wipes flows. Pattern is LabMail `docs/03-message-store.md`. SOCKS metadata may include `SOCKSInfo.User` as the matching YAML `userPass` id after RFC 1929 success; username and password are never stored on the flow.
 
@@ -79,12 +79,14 @@ store:
 Caps are **stacked**:
 
 ```
-resident          = Σ (len(reqBody) + len(respBody) + header budget)
+resident          = Σ (len(reqBody) + len(respBody) + header budget + WS frames)
 reservedInFlight  = Σ reservations at request start (each ≤ 2*maxBodyBytes + header slack)
 storeOK           ⇔ (resident + candidate) ≤ maxBytes ∧ flowCount < maxFlows
 inFlightOK        ⇔ reservedInFlight ≤ maxInFlightBytes
 insertAllowed     ⇔ storeOK ∧ inFlightOK
 ```
+
+WebSocket frames (D67, `inspectFrames`): each captured frame counts **64 bytes + `len(Payload)`** in `ResidentBytes`. All frame payloads on one flow share `store.maxBodyBytes`; the slice stops at 4096 frames. Concatenated captured payload over `spillThreshold` writes `{ULID}-ws.body` (Wipe unlinks `^[ULID]-(req|resp|ws)\.body`). List JSON omits the `frames` array (`frameCount` + `truncated` only).
 
 | Field | Default | Notes |
 |---|---|---|

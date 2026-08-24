@@ -16,6 +16,7 @@ type Metrics struct {
 	tls               map[string]int64
 	rules             map[string]int64
 	socksN            map[string]int64
+	wsN               map[string]int64
 	storeFull         int64
 	h2TrailersDropped int64
 	reg               *observability.Registry
@@ -39,6 +40,7 @@ func newMetrics() *Metrics {
 		tls:      make(map[string]int64),
 		rules:    make(map[string]int64),
 		socksN:   make(map[string]int64),
+		wsN:      make(map[string]int64),
 	}
 }
 
@@ -127,6 +129,23 @@ func (m *Metrics) socks(result string) {
 	m.mu.Unlock()
 	if reg != nil {
 		reg.Inc(observability.MetricSocksSessionsTotal, map[string]string{"result": result}, 1)
+	}
+}
+
+func (m *Metrics) wsFrame(opcode string) {
+	if m == nil {
+		return
+	}
+	opcode = observability.WSOpcodeLabel(opcode)
+	m.mu.Lock()
+	if m.wsN == nil {
+		m.wsN = make(map[string]int64)
+	}
+	m.wsN[opcode]++
+	reg := m.reg
+	m.mu.Unlock()
+	if reg != nil {
+		reg.Inc(observability.MetricWSFramesTotal, map[string]string{"opcode": opcode}, 1)
 	}
 }
 
@@ -229,6 +248,16 @@ func (m *Metrics) TLSIntercepts(result string) int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tls[result]
+}
+
+// WSFrames is labmitm_ws_frames_total{opcode}.
+func (m *Metrics) WSFrames(opcode string) int64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.wsN[observability.WSOpcodeLabel(opcode)]
 }
 
 // H2TrailerDropped is labmitm_h2_trailer_dropped_total.

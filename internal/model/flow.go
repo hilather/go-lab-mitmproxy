@@ -22,6 +22,12 @@ const (
 
 	SOCKSCmdConnect = "connect"
 	SOCKSCmdBind    = "bind"
+	WSDirectionClient = "client"
+	WSDirectionOrigin = "origin"
+
+	WSMaxFrames     = 4096
+	WSFrameOverhead = 64
+	WSErrorProtocol = "websocket"
 )
 
 // Flow is one captured HTTP exchange (or CONNECT metadata).
@@ -45,6 +51,7 @@ type Flow struct {
 	TLS          *TLSInfo
 	HTTP2        *HTTP2Info
 	SOCKS        *SOCKSInfo
+	WebSocket    *WebSocketInfo
 	Via          string
 	OriginalDest string
 	Timings      Timings
@@ -76,6 +83,26 @@ type SOCKSInfo struct {
 	// User is the matching YAML userPass id after RFC 1929 success. Never the
 	// username or password.
 	User string
+}
+
+// WebSocketInfo is captured RFC 6455 frames when inspectFrames is on (D67).
+type WebSocketInfo struct {
+	FrameCount int
+	Truncated  bool
+	Frames     []WebSocketFrame
+}
+
+// WebSocketFrame is one captured frame. Payload is unmasked.
+type WebSocketFrame struct {
+	Direction string
+	Opcode    string
+	OpcodeNum int
+	Fin       bool
+	Masked    bool
+	CloseCode int
+	Payload   []byte
+	Size      int
+	Truncated bool
 }
 
 // Header is an ordered, case-preserving HTTP header.
@@ -186,13 +213,14 @@ func (f *Flow) Path() string {
 	return u.Path
 }
 
-// ResidentBytes is request+response bodies plus a header budget.
+// ResidentBytes is request+response bodies plus a header budget
+// plus captured WebSocket frames (64 bytes + payload each).
 // Spilled bodies (nil Body, Size set) still count.
 func (f *Flow) ResidentBytes() int64 {
 	if f == nil {
 		return 0
 	}
-	return messageResident(f.Request) + messageResident(f.Response)
+	return messageResident(f.Request) + messageResident(f.Response) + websocketResident(f.WebSocket)
 }
 
 func messageResident(m HTTPMessage) int64 {
@@ -205,6 +233,22 @@ func messageResident(m HTTPMessage) int64 {
 	}
 	for i := range m.Trailers {
 		n += int64(len(m.Trailers[i].Name) + len(m.Trailers[i].Value) + 4)
+	}
+	return n
+}
+
+func websocketResident(ws *WebSocketInfo) int64 {
+	if ws == nil {
+		return 0
+	}
+	var n int64
+	for i := range ws.Frames {
+		n += WSFrameOverhead
+		if l := int64(len(ws.Frames[i].Payload)); l > 0 {
+			n += l
+		} else {
+			n += int64(ws.Frames[i].Size)
+		}
 	}
 	return n
 }

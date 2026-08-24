@@ -158,32 +158,33 @@ type flowListJSON struct {
 }
 
 type flowJSON struct {
-	ID            string         `json:"id"`
-	StartedAt     string         `json:"startedAt,omitempty"`
-	CompletedAt   string         `json:"completedAt,omitempty"`
-	State         string         `json:"state"`
-	PausedPhase   string         `json:"pausedPhase,omitempty"`
-	ClientAddr    string         `json:"clientAddr,omitempty"`
-	Method        string         `json:"method"`
-	URL           string         `json:"url"`
-	Host          string         `json:"host"`
-	Scheme        string         `json:"scheme"`
-	Protocol      string         `json:"protocol"`
-	Status        int            `json:"status"`
-	Error         string         `json:"error,omitempty"`
-	Intercepted   bool           `json:"intercepted"`
-	Request       messageJSON    `json:"request"`
-	Response      messageJSON    `json:"response"`
-	TLS           *tlsInfoJSON   `json:"tls,omitempty"`
-	HTTP2         *http2InfoJSON `json:"http2,omitempty"`
-	SOCKS         *socksInfoJSON `json:"socks,omitempty"`
-	Via           string         `json:"via,omitempty"`
-	OriginalDest  string         `json:"originalDest,omitempty"`
-	Timings       timingsJSON    `json:"timings"`
-	RuleIDs       []string       `json:"ruleIds,omitempty"`
-	Truncated     bool           `json:"truncated"`
-	RequestBytes  int            `json:"requestBytes"`
-	ResponseBytes int            `json:"responseBytes"`
+	ID            string             `json:"id"`
+	StartedAt     string             `json:"startedAt,omitempty"`
+	CompletedAt   string             `json:"completedAt,omitempty"`
+	State         string             `json:"state"`
+	PausedPhase   string             `json:"pausedPhase,omitempty"`
+	ClientAddr    string             `json:"clientAddr,omitempty"`
+	Method        string             `json:"method"`
+	URL           string             `json:"url"`
+	Host          string             `json:"host"`
+	Scheme        string             `json:"scheme"`
+	Protocol      string             `json:"protocol"`
+	Status        int                `json:"status"`
+	Error         string             `json:"error,omitempty"`
+	Intercepted   bool               `json:"intercepted"`
+	Request       messageJSON        `json:"request"`
+	Response      messageJSON        `json:"response"`
+	TLS           *tlsInfoJSON       `json:"tls,omitempty"`
+	HTTP2         *http2InfoJSON     `json:"http2,omitempty"`
+	SOCKS         *socksInfoJSON     `json:"socks,omitempty"`
+	WebSocket     *webSocketInfoJSON `json:"websocket,omitempty"`
+	Via           string             `json:"via,omitempty"`
+	OriginalDest  string             `json:"originalDest,omitempty"`
+	Timings       timingsJSON        `json:"timings"`
+	RuleIDs       []string           `json:"ruleIds,omitempty"`
+	Truncated     bool               `json:"truncated"`
+	RequestBytes  int                `json:"requestBytes"`
+	ResponseBytes int                `json:"responseBytes"`
 }
 
 type messageJSON struct {
@@ -205,6 +206,24 @@ type socksInfoJSON struct {
 	Command string `json:"command,omitempty"`
 	BND     string `json:"bnd,omitempty"`
 	User    string `json:"user,omitempty"`
+}
+
+type webSocketInfoJSON struct {
+	FrameCount int                  `json:"frameCount"`
+	Truncated  bool                 `json:"truncated"`
+	Frames     []webSocketFrameJSON `json:"frames,omitempty"`
+}
+
+type webSocketFrameJSON struct {
+	Direction string `json:"direction"`
+	Opcode    string `json:"opcode"`
+	OpcodeNum int    `json:"opcodeNum"`
+	Fin       bool   `json:"fin"`
+	Masked    bool   `json:"masked"`
+	CloseCode int    `json:"closeCode,omitempty"`
+	Payload   string `json:"payload,omitempty"`
+	Size      int    `json:"size"`
+	Truncated bool   `json:"truncated"`
 }
 
 type headerJSON struct {
@@ -355,6 +374,39 @@ func fromFlow(f *model.Flow, listItem bool) flowJSON {
 	}
 	if f.SOCKS != nil {
 		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command, BND: f.SOCKS.BND, User: f.SOCKS.User}
+	}
+	out.WebSocket = fromWebSocket(f.WebSocket, listItem)
+	return out
+}
+
+func fromWebSocket(ws *model.WebSocketInfo, listItem bool) *webSocketInfoJSON {
+	if ws == nil {
+		return nil
+	}
+	out := &webSocketInfoJSON{FrameCount: ws.FrameCount, Truncated: ws.Truncated}
+	if listItem {
+		return out
+	}
+	if len(ws.Frames) == 0 {
+		return out
+	}
+	out.Frames = make([]webSocketFrameJSON, len(ws.Frames))
+	for i, fr := range ws.Frames {
+		size := fr.Size
+		if size == 0 {
+			size = len(fr.Payload)
+		}
+		out.Frames[i] = webSocketFrameJSON{
+			Direction: fr.Direction,
+			Opcode:    fr.Opcode,
+			OpcodeNum: fr.OpcodeNum,
+			Fin:       fr.Fin,
+			Masked:    fr.Masked,
+			CloseCode: fr.CloseCode,
+			Payload:   string(fr.Payload),
+			Size:      size,
+			Truncated: fr.Truncated,
+		}
 	}
 	return out
 }

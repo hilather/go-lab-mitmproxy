@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -363,6 +364,71 @@ func TestWaitResumeDropReplay(t *testing.T) {
 
 	clear := doReq(t, h, http.MethodDelete, "/v1/flows", "")
 	requireStatus(t, clear, http.StatusOK)
+}
+
+func TestContractWebSocketFrames(t *testing.T) {
+	s, svc := newTestServer(t)
+	h := s.Handler()
+	res, err := svc.Inbox().Insert(context.Background(), svc.Inbox().Epoch(), &model.Flow{
+		Host:     "ws.lab",
+		Method:   "GET",
+		URL:      "http://ws.lab/ws",
+		Scheme:   "http",
+		Protocol: model.FlowProtocolWebSocket,
+		State:    model.FlowStateCompleted,
+		Status:   101,
+		WebSocket: &model.WebSocketInfo{
+			FrameCount: 1,
+			Frames: []model.WebSocketFrame{{
+				Direction: model.WSDirectionClient,
+				Opcode:    "text",
+				OpcodeNum: 1,
+				Fin:       true,
+				Masked:    true,
+				Payload:   []byte("hello"),
+				Size:      5,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res.ID
+
+	list := doReq(t, h, http.MethodGet, "/v1/flows?limit=1", "")
+	requireStatus(t, list, http.StatusOK)
+	items, _ := decodeJSON(t, list)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items=%s", list.Body.String())
+	}
+	ws, _ := items[0].(map[string]any)["websocket"].(map[string]any)
+	if ws == nil {
+		t.Fatalf("list missing websocket: %s", list.Body.String())
+	}
+	if _, ok := ws["frames"]; ok {
+		t.Fatal("list item must omit frames")
+	}
+	if ws["frameCount"] != float64(1) {
+		t.Fatalf("frameCount=%v", ws["frameCount"])
+	}
+
+	got := doReq(t, h, http.MethodGet, "/v1/flows/"+id, "")
+	requireStatus(t, got, http.StatusOK)
+	gws, _ := decodeJSON(t, got)["websocket"].(map[string]any)
+	frames, _ := gws["frames"].([]any)
+	if len(frames) != 1 {
+		t.Fatalf("get frames=%s", got.Body.String())
+	}
+	fr := frames[0].(map[string]any)
+	if fr["payload"] != "hello" {
+		t.Fatalf("payload=%v (must be string, not base64)", fr["payload"])
+	}
+	if _, ok := fr["maskKey"]; ok {
+		t.Fatal("maskKey must not be exported")
+	}
+
+	replay := doReq(t, h, http.MethodPost, "/v1/flows/"+id+":replay", "")
+	requireProblem(t, replay, http.StatusBadRequest, "validation_failed")
 }
 
 func TestNoCORSHeaders(t *testing.T) {

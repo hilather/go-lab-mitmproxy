@@ -78,6 +78,39 @@ func TestMemoryTruncateMaxBodyBytes(t *testing.T) {
 	}
 }
 
+func TestMemoryTruncateWebSocketFrames(t *testing.T) {
+	s := newTestStore(t, Options{MaxFlows: 10, MaxBytes: 1 << 20, MaxBodyBytes: 4, FullPolicy: model.FullPolicyReject})
+	res, err := s.Insert(context.Background(), s.Epoch(), &model.Flow{
+		Host:     "h",
+		Method:   "GET",
+		Protocol: model.FlowProtocolWebSocket,
+		State:    model.FlowStateCompleted,
+		WebSocket: &model.WebSocketInfo{
+			FrameCount: 2,
+			Frames: []model.WebSocketFrame{
+				{Opcode: "text", Payload: []byte("abc"), Size: 3},
+				{Opcode: "text", Payload: []byte("defg"), Size: 4},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Truncated || got.WebSocket == nil || !got.WebSocket.Truncated {
+		t.Fatalf("truncated %+v", got.WebSocket)
+	}
+	if len(got.WebSocket.Frames) != 2 || string(got.WebSocket.Frames[1].Payload) != "d" {
+		t.Fatalf("frames %+v", got.WebSocket.Frames)
+	}
+	if got.WebSocket.FrameCount != 2 {
+		t.Fatalf("frameCount=%d", got.WebSocket.FrameCount)
+	}
+}
+
 func TestMemoryEvictOldest(t *testing.T) {
 	s := newTestStore(t, Options{MaxFlows: 2, MaxBytes: 1 << 20, FullPolicy: model.FullPolicyEvictOldest})
 	a, err := s.Insert(context.Background(), s.Epoch(), sampleFlow("GET", "http://h/a", 200, []byte("1")))
@@ -289,10 +322,63 @@ func TestMemorySpillRoundTripAndWipe(t *testing.T) {
 	}
 }
 
+func TestMemorySpillWebSocketAndWipe(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestStore(t, Options{
+		MaxFlows:       10,
+		MaxBytes:       1 << 20,
+		FullPolicy:     model.FullPolicyReject,
+		SpillDirectory: dir,
+		SpillThreshold: 8,
+	})
+	payload := []byte(strings.Repeat("w", 40))
+	res, err := s.Insert(context.Background(), s.Epoch(), &model.Flow{
+		Host:     "h",
+		Method:   "GET",
+		Protocol: model.FlowProtocolWebSocket,
+		State:    model.FlowStateCompleted,
+		WebSocket: &model.WebSocketInfo{
+			FrameCount: 1,
+			Frames:     []model.WebSocketFrame{{Opcode: "text", Payload: payload, Size: len(payload)}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if strings.HasSuffix(e.Name(), "-ws.body") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected ws spill, ents=%v", ents)
+	}
+	got, err := s.Get(res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WebSocket == nil || !bytes.Equal(got.WebSocket.Frames[0].Payload, payload) {
+		t.Fatalf("ws after spill %+v", got.WebSocket)
+	}
+	s.Wipe()
+	ents, _ = os.ReadDir(dir)
+	for _, e := range ents {
+		if strings.HasSuffix(e.Name(), ".body") {
+			t.Fatalf("spill remained %s", e.Name())
+		}
+	}
+}
+
 func TestMemoryStartupWipesSpill(t *testing.T) {
 	dir := t.TempDir()
 	stale := filepath.Join(dir, "01HZYXWV7TSRQPJMKN76543210-req.body")
 	if err := os.WriteFile(stale, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staleWS := filepath.Join(dir, "01HZYXWV7TSRQPJMKN76543210-ws.body")
+	if err := os.WriteFile(staleWS, []byte("y"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_ = newTestStore(t, Options{
@@ -303,6 +389,9 @@ func TestMemoryStartupWipesSpill(t *testing.T) {
 	})
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("stale spill remained: %v", err)
+	}
+	if _, err := os.Stat(staleWS); !os.IsNotExist(err) {
+		t.Fatalf("stale ws spill remained: %v", err)
 	}
 }
 

@@ -270,11 +270,11 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		if hit := s.matchHit(sess, model.RulePhaseResponse, host, inner, resp.Header, false); hit != nil {
 			s.metrics.ruleHit(rules.ActionLateSkip)
 		}
-		if br != nil && br.Buffered() > 0 {
-			n := br.Buffered()
-			b, _ := br.Peek(n)
-			_, _ = upTLS.Write(b)
-			_, _ = br.Discard(n)
+		leftover := takeBuffered(br)
+		inspect := s.specOf(sess).Protocols.WebSocket.InspectFrames
+		if !inspect && len(leftover) > 0 {
+			_, _ = upTLS.Write(leftover)
+			leftover = nil
 		}
 		if err := writeSwitching(clientTLS, resp); err != nil {
 			s.capture(s.innerFlow(inner, host, port, resp.StatusCode, "client", started, info, sess.reqCap, nil), sess)
@@ -282,8 +282,13 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		}
 		f := s.innerFlow(inner, host, port, http.StatusSwitchingProtocols, "", started, info, sess.reqCap, nil)
 		f.Protocol = model.FlowProtocolWebSocket
-		s.capture(f, sess)
 		s.metrics.session("ok")
+		if inspect {
+			s.inspectUpgrade(clientTLS, leftover, upTLS, resp.Body, sess, f)
+			s.capture(f, sess)
+			return true
+		}
+		s.capture(f, sess)
 		s.tunnelUpgrade(clientTLS, nil, upTLS, resp.Body, s.specOf(sess).Proxy.Admission)
 		return true
 	}
