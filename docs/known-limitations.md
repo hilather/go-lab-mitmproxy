@@ -92,7 +92,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 
 ## Not a public edge proxy (unchanged)
 
-- No Proxy-Authorization. The proxy data plane is unauthenticated; publishing `:8888` on a LAN is an operator choice with documented risk.
+- No `Proxy-Authorization`. The HTTP hop is unauthenticated; SOCKS user-pass is opt-in (`acceptUserPass`) and is **not** a network boundary. Publishing `:8888` on a LAN is an operator choice with documented risk.
 - Intercept **breaks origin mTLS and certificate pinning**.
 - Not a general attack tool. No fuzzer, payload generator, SSL-strip, or exploit UX.
 - Default standalone binds stay loopback `127.0.0.1:8888` / `127.0.0.1:8088` (D10). The lab overlay is the place that publishes `:8888`/`:8088`.

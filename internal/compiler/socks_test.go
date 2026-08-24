@@ -189,3 +189,29 @@ func TestCompileStartFailsWhenUserPassFileMissing(t *testing.T) {
 		t.Fatal("missing username file compiled")
 	}
 }
+
+func TestCompileStartFailsOnDuplicateSOCKSDigests(t *testing.T) {
+	st, uf, pf := userPassState(t, "labuser", "labpass12")
+	st.Spec.Listeners.Proxy.UserPass.Users = append(st.Spec.Listeners.Proxy.UserPass.Users, model.UserPassUserSpec{
+		ID:           "lab-socks-2",
+		UsernameFile: uf,
+		PasswordFile: pf,
+	})
+	_, err := Compile(context.Background(), st, CompileOpts{})
+	if err == nil {
+		t.Fatal("duplicate SOCKS credentials compiled")
+	}
+	de, ok := domainerr.As(err)
+	if !ok || de.Code != domainerr.CodeValidationFailed {
+		t.Fatalf("err=%v", err)
+	}
+	found := false
+	for _, v := range de.FieldViolations {
+		if v.Path == "spec.listeners.proxy.userPass.users[1]" && v.Code == "duplicate_id" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want duplicate digest violation, got %+v", de.FieldViolations)
+	}
+}

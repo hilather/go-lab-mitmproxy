@@ -78,6 +78,8 @@ Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. The
 SOCKS5 method select ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D60):
 
 ```text
+NMETHODS=0
+  → close, no 05 FF (1.1 greeting; same with acceptUserPass)
 methods include 0x02 and acceptUserPass
   → write 05 02
   → read RFC 1929 VER=1 ULEN UNAME PLEN PASSWD

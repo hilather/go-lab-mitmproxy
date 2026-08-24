@@ -28,6 +28,7 @@ func loadSOCKSUserFiles(spec model.Spec) ([]snapshot.SOCKSUserDigest, error) {
 	}
 	users := spec.Listeners.Proxy.UserPass.Users
 	out := make([]snapshot.SOCKSUserDigest, 0, len(users))
+	seen := map[[32]byte]string{}
 	for i, u := range users {
 		base := "spec.listeners.proxy.userPass.users[" + strconv.Itoa(i) + "]"
 		user, err := readRFC1929File(u.UsernameFile)
@@ -56,7 +57,13 @@ func loadSOCKSUserFiles(spec model.Spec) ([]snapshot.SOCKSUserDigest, error) {
 		d := snapshot.DigestSOCKSUser(user, pass)
 		zeroSecret(user)
 		zeroSecret(pass)
-		out = append(out, snapshot.SOCKSUserDigest{ID: strings.TrimSpace(u.ID), Digest: d})
+		id := strings.TrimSpace(u.ID)
+		if prev, ok := seen[d]; ok {
+			return nil, domainerr.ValidationFailed("duplicate SOCKS user credentials",
+				domainerr.FieldViolation{Path: base, Code: "duplicate_id", Message: "SOCKS user credentials match " + prev})
+		}
+		seen[d] = id
+		out = append(out, snapshot.SOCKSUserDigest{ID: id, Digest: d})
 	}
 	return out, nil
 }

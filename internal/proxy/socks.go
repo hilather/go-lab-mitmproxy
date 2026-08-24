@@ -430,10 +430,7 @@ func matchSOCKSUsers(users []snapshot.SOCKSUserDigest, digest [32]byte) (id stri
 	found := 0
 	idx := 0
 	for i, u := range users {
-		eq := 0
-		if subtle.ConstantTimeCompare(u.Digest[:], digest[:]) == 1 {
-			eq = 1
-		}
+		eq := subtle.ConstantTimeCompare(u.Digest[:], digest[:])
 		idx = idx*(1-eq) + i*eq
 		found += eq
 	}
