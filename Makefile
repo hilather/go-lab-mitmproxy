@@ -26,7 +26,7 @@ help:
 		'  test                go test ./...' \
 		'  test-race           go test -race ./...' \
 		'  test-fuzz-smoke     buildinfo + config + HTTP request fuzz corpora (5s each)' \
-		'  test-docs           required documents, metadata, and links' \
+		'  test-docs           required documents, metadata, links, and leftover invariants' \
 		'  security-scan       govulncheck' \
 		'  test-parity         REST/MCP capability parity and MCP goldens' \
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \

@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- AGENTS.md and the numbered pack no longer concatenate 1.1/1.2 keep-both leftovers (D48 remainder, live `protocols.http2.origin` replay, SOCKS BIND/UDP/user-pass). `make test-docs` rejects stale “later PR” / duplicate table-row invariants.
 
 ### Removed or deprecated
 
