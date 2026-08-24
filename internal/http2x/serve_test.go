@@ -529,6 +529,32 @@ func TestServeConnPrefaceTailDoesNotReadRawConn(t *testing.T) {
 		{Name: ":scheme", Value: "http"},
 		{Name: ":authority", Value: "app.lab"},
 		{Name: ":path", Value: "/hello"},
+	} {
+		if err := enc.WriteField(hf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fr.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: hdr.Bytes(),
+		EndHeaders:    true,
+		EndStream:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case in := <-got:
+		if in.Method != http.MethodGet || in.Path != "/hello" {
+			t.Fatalf("stream %+v", in)
+		}
+	case err := <-errc:
+		t.Fatalf("ServeConn: %v", err)
+	case <-ctx.Done():
+		t.Fatal("handler not invoked; leftover SETTINGS was eaten as a 24-byte preface")
+	}
+}
+
 func TestServeConnEnableConnectProtocolSetting(t *testing.T) {
 	client, server := h2TLSPair(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -672,37 +698,6 @@ func TestServeConnSurfacesProtocolAndTunnel(t *testing.T) {
 		StreamID:      1,
 		BlockFragment: hdr.Bytes(),
 		EndHeaders:    true,
-		EndStream:     true,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	select {
-	case in := <-got:
-		if in.Method != http.MethodGet || in.Path != "/hello" {
-			t.Fatalf("stream %+v", in)
-		}
-	case err := <-errc:
-		t.Fatalf("ServeConn: %v", err)
-	case <-ctx.Done():
-		t.Fatal("handler not invoked; leftover SETTINGS was eaten as a 24-byte preface")
-	}
-}
-
-func TestServeConnPrefaceTailRequiresLeftover(t *testing.T) {
-	a, b := net.Pipe()
-	t.Cleanup(func() {
-		_ = a.Close()
-		_ = b.Close()
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	err := ServeConn(ctx, a, nil, ServeOpts{Preface: PrefaceTail}, func(context.Context, Stream) (*http.Response, []model.Header, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil, nil
-	}, nil)
-	if err == nil {
-		t.Fatal("expected PrefaceTail without leftover to fail")
-	}
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -723,6 +718,22 @@ func TestServeConnPrefaceTailRequiresLeftover(t *testing.T) {
 	gotData := readH2Data(t, fr, 1)
 	if string(gotData) != "hi" {
 		t.Fatalf("echo %q", gotData)
+	}
+}
+
+func TestServeConnPrefaceTailRequiresLeftover(t *testing.T) {
+	a, b := net.Pipe()
+	t.Cleanup(func() {
+		_ = a.Close()
+		_ = b.Close()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := ServeConn(ctx, a, nil, ServeOpts{Preface: PrefaceTail}, func(context.Context, Stream) (*http.Response, []model.Header, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil, nil
+	}, nil)
+	if err == nil {
+		t.Fatal("expected PrefaceTail without leftover to fail")
 	}
 }
 
