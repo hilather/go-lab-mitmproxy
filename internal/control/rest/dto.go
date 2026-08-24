@@ -203,6 +203,7 @@ type socksInfoJSON struct {
 	ATYP    string `json:"atyp,omitempty"`
 	Dest    string `json:"dest,omitempty"`
 	Command string `json:"command,omitempty"`
+	BND     string `json:"bnd,omitempty"`
 }
 
 type headerJSON struct {
@@ -352,7 +353,7 @@ func fromFlow(f *model.Flow, listItem bool) flowJSON {
 		out.HTTP2 = &http2InfoJSON{StreamID: f.HTTP2.StreamID}
 	}
 	if f.SOCKS != nil {
-		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command}
+		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command, BND: f.SOCKS.BND}
 	}
 	return out
 }

@@ -21,6 +21,7 @@ const (
 	socks5NoAuth         = 0x00
 	socks5NoAcceptable   = 0xff
 	socks5CmdConnect     = 0x01
+	socks5CmdBind        = 0x02
 	socks5ATYPIPv4       = 0x01
 	socks5ATYPDomain     = 0x03
 	socks5ATYPIPv6       = 0x04
@@ -37,7 +38,6 @@ const (
 	socksATYPIPv4        = "ipv4"
 	socksATYPIPv6        = "ipv6"
 	socksATYPDomain      = "domain"
-	socksCmdConnect      = "connect"
 )
 
 var errSOCKSATYP = errors.New("socks address type not supported")
@@ -57,7 +57,7 @@ func (d socksDest) info() *model.SOCKSInfo {
 		Version: d.ver,
 		ATYP:    d.atyp,
 		Dest:    net.JoinHostPort(d.host, d.port),
-		Command: socksCmdConnect,
+		Command: model.SOCKSCmdConnect,
 	}
 }
 
@@ -116,7 +116,8 @@ func (s *Server) serveSOCKS5(c net.Conn) {
 		_ = writeSOCKS5Reply(c, socks5RepGeneral, socks5ATYPIPv4)
 		return
 	}
-	if hdr[1] != socks5CmdConnect {
+	bind := hdr[1] == socks5CmdBind && s.socksAcceptBind()
+	if hdr[1] != socks5CmdConnect && !bind {
 		_ = writeSOCKS5Reply(c, socks5RepCommand, socks5ATYPIPv4)
 		s.metrics.reject("socks_command")
 		s.metrics.socks("command")
@@ -130,7 +131,7 @@ func (s *Server) serveSOCKS5(c net.Conn) {
 		}
 		return
 	}
-	s.serveSOCKSConnect(c, br, socksDest{
+	dest := socksDest{
 		host:    host,
 		port:    port,
 		atyp:    atyp,
@@ -138,7 +139,12 @@ func (s *Server) serveSOCKS5(c net.Conn) {
 		via:     "socks5",
 		proto:   model.FlowProtocolSOCKS5,
 		ver:     5,
-	})
+	}
+	if bind {
+		s.serveSOCKSBind(c, br, dest)
+		return
+	}
+	s.serveSOCKSConnect(c, br, dest)
 }
 
 func (s *Server) serveSOCKS4(c net.Conn) {
@@ -162,7 +168,8 @@ func (s *Server) serveSOCKS4(c net.Conn) {
 	if hdr[0] != socks4Ver {
 		return
 	}
-	if hdr[1] != 1 {
+	bind := hdr[1] == socks5CmdBind && s.socksAcceptBind()
+	if hdr[1] != 1 && !bind {
 		_ = writeSOCKS4Reply(c, socks4Rejected)
 		s.metrics.reject("socks_command")
 		s.metrics.socks("command")
@@ -184,7 +191,7 @@ func (s *Server) serveSOCKS4(c net.Conn) {
 		host = string(name)
 		atyp = socksATYPDomain
 	}
-	s.serveSOCKSConnect(c, br, socksDest{
+	dest := socksDest{
 		host:    host,
 		port:    strconv.Itoa(int(port)),
 		atyp:    atyp,
@@ -192,7 +199,12 @@ func (s *Server) serveSOCKS4(c net.Conn) {
 		via:     "socks4",
 		proto:   model.FlowProtocolSOCKS4,
 		ver:     4,
-	})
+	}
+	if bind {
+		s.serveSOCKSBind(c, br, dest)
+		return
+	}
+	s.serveSOCKSConnect(c, br, dest)
 }
 
 func (s *Server) socksReader(c net.Conn) (*bufio.Reader, error) {

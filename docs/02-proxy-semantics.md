@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-19 (h2 transcode + SOCKS5 + orig-dest)
-Related ADRs: 0002, 0009, 0010
+Last reviewed: 2026-08-23
+Related ADRs: 0002, 0009, 0010, 0012
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 
@@ -57,8 +57,8 @@ Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest li
 | Tagged orig-dest absolute-form (incl. `GET http://169.254.169.254/`) | Dial dest IP:port only; never `serveAbsolute` / never Dial Host. |
 | `PRI * HTTP/2.0` on `:8888` **or** orig-dest | Close connection. Metric `reason="http2"`. Before `gate.acquire`. |
 | First byte `0x05` / `0x04` (per-conn peek; `acceptSOCKS5`/`acceptSOCKS4` off) | Close. Metric `reason="socks"`. |
-| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT, NO AUTH only (D29). Peeked `0x05` is replayed. BIND/UDP → `05 07`. |
-| First byte `0x04` and `acceptSOCKS4: true` | SOCKS4/4a CONNECT. USERID discarded. |
+| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT, NO AUTH. Peeked `0x05` is replayed. BIND if `acceptBind`; else CMD `05 07`. UDP still `05 07`. |
+| First byte `0x04` and `acceptSOCKS4: true` | SOCKS4/4a CONNECT. USERID discarded. BIND if `acceptBind` and CD=2; else CD≠1 → `91`. |
 | HTTP/1.0 | Accept if absolute-form `http://` or CONNECT with port; respond HTTP/1.1. |
 
 Authority resolution:
@@ -73,7 +73,34 @@ Hop-by-hop headers stripped on both legs: `Proxy-Connection`, `Keep-Alive`, `TE`
 
 No third-party SOCKS library. `gate.acquire` runs after a valid CONNECT request is parsed and **before** Dial (same gate as `ServeHTTP`). Hairpin → SOCKS5 `05 02` / SOCKS4 `91`, no Dial. IMDS/link-local CIDR deny does not Dial `169.254.169.254`.
 
-Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`. Intercepted inner flows copy `Via`/`SOCKS`. Username/password and GSSAPI are never selected.
+Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`, `SOCKS.Command="connect"`. Intercepted inner flows copy `Via`/`SOCKS`. Username/password and GSSAPI are never selected. UDP ASSOCIATE stays `05 07` until a later PR.
+
+## SOCKS BIND (1.2, opt-in)
+
+Requires `listeners.proxy.acceptBind` (default false, Reset-only, D58) **and** `acceptSOCKS5` or `acceptSOCKS4`. A 1.1 CONNECT-only config must not grow ephemeral listeners on upgrade. Flag-off keeps today: SOCKS5 BIND → `05 07` (`TestSOCKS5BindCommand`); SOCKS4 CD=2 → `91` (`TestSOCKS4CommandRejected`). `acceptSOCKS5` false is peek-close `reason=socks` with **no** reply.
+
+RFC 1928 CMD `0x02`. SOCKS4 CD `0x02` shares semantics. BIND is **always a raw tunnel** (`intercepted=false`). No inner HTTP, no TLS MITM. Production `net.Listen` for BIND is `listenEphemeralTCP` in `internal/proxy` only (D68). Overlay examples stay flags-off.
+
+```text
+1. Parse DST.ADDR/DST.PORT. Unspecified (0.0.0.0:0 / [::]:0 / empty) → 05 02 / 91, no Listen.
+2. gate.acquire (same as CONNECT) before Listen.
+3. resolveThenGuard(DST). Denied → 05 02 / SOCKS4 91, no Listen. IMDS/link-local deny.
+4. controlIP := unicast host of c.LocalAddr(); reject if unspecified / metadata / link-local.
+   net.Listen("tcp", JoinHostPort(controlIP, "0")) — never ":0", never 0.0.0.0:0, never [::]:0.
+   Track bind in the live hairpin set for the lifetime of the control conn.
+5. First reply: BND = that same controlIP : boundPort (never IMDS / fe80:: / listeners.proxy.address / orig-dest listen).
+6. Accept one inbound with deadline = sessionTimeout.
+7. Guard peer IP (CIDR) AND membership in the resolved DST set. Mismatch → second reply failure, no tunnel.
+8. Second reply success or failure. On success: bidirectional copy; capture
+   Protocol=socks5|socks4, SOCKS.Command="bind", SOCKS.BND=advertised bind, intercepted=false.
+9. Close listen; untrack hairpin; release gate.
+```
+
+RFC residual: unspecified DST is rejected (RFC 1928 allows unknown DST). FTP clients must name the expected peer. See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md).
+
+Tests live in `internal/proxy/socks_test.go` (second inbound TCP). `proxytest.PlayTranscript` cannot Accept the peer — do not use it for BIND success. Required: BIND success two-reply; IMDS DST no Listen; unspecified DST no Listen; hairpin BND; SOCKS4 BIND; `acceptSOCKS5` on + `acceptBind` off still `05 07`.
+
+See [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D58.
 
 ## CONNECT Hijack and inner session
 
@@ -206,7 +233,7 @@ Over admission → `429` (HTTP) or CONNECT `429` (unusual; use `503` for CONNECT
 
 `sessionTimeout` is an absolute deadline on hijacked CONNECT and WebSocket tunnels (default 10m). `idleTimeout` refreshes on each copied byte on those legs and is also `http.Server.IdleTimeout` on the cleartext hop. `headerTimeout` also bounds the per-conn first-byte peek. `Shutdown` (D42): `accepting=false` → close `rawLn` → close orig-dest listener if bound → wait acceptLoop → close in-peek dispatch conns → wait dispatch goroutines (ctx-bounded; force-close remaining peeks) → `chanListener.Close` → `http.Server.Shutdown` → wait for hijacked sessions up to `--shutdown-timeout`, then force-close them.
 
-Hairpin (D34) compares the pinned IP:port to every live data-plane bind (`s.Addr()`, orig-dest `Addr()`, both spec addresses) via `sameEndpoint`. Orig-dest **direct-connect**: dest port equals the orig-dest listen port **and** dest IP is local/unspecified → close, no Dial.
+Hairpin (D34) compares the pinned IP:port to every live data-plane bind (`s.Addr()`, orig-dest `Addr()`, both spec addresses, and every active SOCKS BIND listen `IP:port` for the lifetime of the control conn) via `sameEndpoint`. Orig-dest **direct-connect**: dest port equals the orig-dest listen port **and** dest IP is local/unspecified → close, no Dial.
 
 ## Original-destination listener (1.1, opt-in)
 
@@ -224,3 +251,4 @@ Topologies and iptables: [docs/13-deployment.md](https://github.com/hilather/go-
 - Store: [docs/04-flow-store.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/04-flow-store.md)
 - Rules: [docs/05-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/05-rules.md)
 - SOCKS / orig-dest: [docs/adr/0010-socks-and-original-destination.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md)
+- 1.2 BIND / UDP / user-pass: [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)
