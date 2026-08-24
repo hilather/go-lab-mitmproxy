@@ -453,7 +453,6 @@ func fromWebSocket(ws *model.WebSocketInfo, listItem bool) *webSocketInfoJSON {
 			Size:      size,
 			Truncated: fr.Truncated,
 		}
-		out.SOCKS = &socksInfoJSON{Version: f.SOCKS.Version, ATYP: f.SOCKS.ATYP, Dest: f.SOCKS.Dest, Command: f.SOCKS.Command, BND: f.SOCKS.BND, LastDest: f.SOCKS.LastDest, Datagrams: f.SOCKS.Datagrams}
 	}
 	return out
 }

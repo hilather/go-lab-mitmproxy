@@ -20,8 +20,8 @@ const (
 	FlowProtocolSOCKS5    = "socks5"
 	FlowProtocolSOCKS4    = "socks4"
 
-	SOCKSCmdConnect = "connect"
-	SOCKSCmdBind    = "bind"
+	SOCKSCmdConnect   = "connect"
+	SOCKSCmdBind      = "bind"
 	WSDirectionClient = "client"
 	WSDirectionOrigin = "origin"
 
@@ -92,7 +92,9 @@ type SOCKSInfo struct {
 	BND     string
 	// User is the matching YAML userPass id after RFC 1929 success. Never the
 	// username or password.
-	User string
+	User      string
+	LastDest  string
+	Datagrams int
 }
 
 // WebSocketInfo is captured RFC 6455 frames when inspectFrames is on (D67).
@@ -113,13 +115,6 @@ type WebSocketFrame struct {
 	Payload   []byte
 	Size      int
 	Truncated bool
-	Version   int
-	ATYP      string
-	Dest      string
-	Command   string
-	BND       string
-	LastDest  string
-	Datagrams int
 }
 
 // GRPCInfo is a best-effort gRPC length-prefix + protobuf wire tree (D66).

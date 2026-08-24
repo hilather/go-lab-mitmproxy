@@ -157,6 +157,9 @@ func GRPCDecodeResult(result string) string {
 		return strings.ToLower(strings.TrimSpace(result))
 	default:
 		return "skipped"
+	}
+}
+
 // H2PushCapturedResult collapses a PUSH_PROMISE capture outcome to a bounded label.
 func H2PushCapturedResult(result string) string {
 	switch strings.ToLower(strings.TrimSpace(result)) {

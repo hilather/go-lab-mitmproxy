@@ -33,6 +33,9 @@ func TestFromFlowSOCKSUser(t *testing.T) {
 	}
 	if strings.Contains(string(eb), `"user"`) {
 		t.Fatalf("empty user should omit: %s", eb)
+	}
+}
+
 func TestFromFlowHTTP2Push(t *testing.T) {
 	f := &model.Flow{
 		Method:      "GET",

@@ -25,6 +25,9 @@ func TestFromFlowSOCKSUser(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"user":"lab-socks"`) {
 		t.Fatalf("json=%s", b)
+	}
+}
+
 func TestFromFlowHTTP2Push(t *testing.T) {
 	out := fromFlow(&model.Flow{
 		Method:      "GET",

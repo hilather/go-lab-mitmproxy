@@ -12,10 +12,8 @@ func TestCloneFlowCopiesHTTP2SOCKSTrailers(t *testing.T) {
 		Protocol:     model.FlowProtocolHTTP2,
 		Via:          "socks5",
 		OriginalDest: "10.0.0.1:443",
-		HTTP2:        &model.HTTP2Info{StreamID: 7},
-		SOCKS:        &model.SOCKSInfo{Version: 5, ATYP: "domain", Dest: "app.lab:443", Command: "connect", BND: "127.0.0.1:54321", User: "lab-socks"},
 		HTTP2:        &model.HTTP2Info{StreamID: 7, ParentStreamID: 1, PromisedID: 2, Pushed: true},
-		SOCKS:        &model.SOCKSInfo{Version: 5, ATYP: "domain", Dest: "app.lab:443", Command: "connect"},
+		SOCKS:        &model.SOCKSInfo{Version: 5, ATYP: "domain", Dest: "app.lab:443", Command: "connect", BND: "127.0.0.1:54321", User: "lab-socks"},
 		WebSocket: &model.WebSocketInfo{
 			FrameCount: 1,
 			Frames:     []model.WebSocketFrame{{Opcode: "text", Payload: []byte("hi"), Size: 2}},
