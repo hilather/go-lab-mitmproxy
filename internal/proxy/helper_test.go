@@ -40,6 +40,11 @@ func originCert(t *testing.T) tls.Certificate {
 
 func startTLSOrigin(t *testing.T, cert tls.Certificate, h http.Handler) (addr string) {
 	t.Helper()
+	return startTLSOriginState(t, cert, h, nil)
+}
+
+func startTLSOriginState(t *testing.T, cert tls.Certificate, h http.Handler, state func(net.Conn, http.ConnState)) (addr string) {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -55,6 +60,7 @@ func startTLSOrigin(t *testing.T, cert tls.Certificate, h http.Handler) (addr st
 		ReadHeaderTimeout: 5 * time.Second,
 		Protocols:         proto,
 		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
+		ConnState:         state,
 	}
 	go func() { _ = srv.Serve(tlsLn) }()
 	t.Cleanup(func() {
