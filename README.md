@@ -17,7 +17,7 @@ bootstrap and an empty store.
 [![Go](https://img.shields.io/github/go-mod/go-version/hilather/go-lab-mitmproxy?label=Go)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/hilather/go-lab-mitmproxy/blob/main/LICENSE)
 
-Status: **v1.1.1** · Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-lab-mitmproxy) · Binary `labmitm` · Image `ghcr.io/hilather/labmitm` · Schema `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`
+Status: **v1.2.0** · Module [`github.com/hilather/go-lab-mitmproxy`](https://github.com/hilather/go-lab-mitmproxy) · Binary `labmitm` · Image `ghcr.io/hilather/labmitm` · Schema `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`
 
 New here? [START-HERE.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/START-HERE.md). Architecture, ADRs, and the program board are in [Documentation](#documentation).
 
@@ -446,7 +446,8 @@ Cross-file links below are absolute.
 | [docs/12-testing-strategy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/12-testing-strategy.md) | Test layers |
 | [docs/13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md) | Image, compose, CLI |
 | [docs/14-integration-lab.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/14-integration-lab.md) | Overlay BOM for mcp-integration-lab |
-| [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) | 1.0 defaults + 1.1 residuals |
+| [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) | 1.0 defaults + 1.2 residuals |
+| [docs/releases/v1.2.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.2.0.md) | 1.2.0 tag notes |
 | [docs/releases/v1.1.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.1.md) | 1.1.1 tag notes |
 | [docs/releases/v1.1.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.0.md) | 1.1.0 tag notes |
 | [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) | Untagged 1.0 candidate notes |
@@ -464,6 +465,7 @@ Cross-file links below are absolute.
 - [0009 HTTP/2 via http2x](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md)
 - [0010 SOCKS and original destination](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md)
 - [0011 Optional compat flow REST](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md)
+- [0012 1.2 protocol expansion](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)
 
 ### Task lists and program board
 

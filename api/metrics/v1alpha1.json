@@ -77,6 +77,11 @@
       "name": "labmitm_grpc_decode_total",
       "kind": "counter",
       "help": "Best-effort gRPC protobuf decode outcomes.",
+      "labels": [
+        "result"
+      ]
+    },
+    {
       "name": "labmitm_h2_push_captured_total",
       "kind": "counter",
       "help": "HTTP/2 PUSH_PROMISE streams captured or RST on the origin hop.",
