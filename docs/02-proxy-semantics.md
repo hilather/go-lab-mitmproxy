@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-23 (D67 WebSocket frame inspect)
+Last reviewed: 2026-08-23 (D61 client-facing h2c leftover)
 Related ADRs: 0002, 0009, 0010, 0012
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -35,10 +35,10 @@ srv := &http.Server{
 // 0x05 && acceptSOCKS5 → serveSOCKS5 (replay peeked byte).
 // 0x04 && acceptSOCKS4 → serveSOCKS4.
 // else 0x04 / 0x05 → close; metric reason="socks" (1.0 default).
-// else → httpLn.Push(c)  // HTTP/1.1 including PRI
+// else → httpLn.Push(c)  // HTTP/1.1 including PRI (0x50, same as POST)
 ```
 
-SOCKS detection is **not** possible in the Handler and **must not** run on the Accept goroutine (a silent peer would stall the next client until `HeaderTimeout`). Peeked bytes are the subsequent Read source. HTTP/2 preface **is** handled in the Handler (`Method == "PRI"`). `chanListener.Close` unblocks Accept with `net.ErrClosed` and closes queued conns.
+SOCKS detection is **not** possible in the Handler and **must not** run on the Accept goroutine (a silent peer would stall the next client until `HeaderTimeout`). Peeked bytes are the subsequent Read source. HTTP/2 preface **is** handled in the Handler (`Method == "PRI"`). Peek stays **1 byte** (D49); do **not** peek 24 bytes of the HTTP/2 preface on `dispatchConn`. `chanListener.Close` unblocks Accept with `net.ErrClosed` and closes queued conns. `http.Server` stays HTTP/1.1-only (`Protocols` HTTP/2 off, including unencrypted). Do **not** enable stdlib `http.Protocols` HTTP/2.
 
 When `listeners.originalDestination.enabled` is true (Linux only; default off), `Start` binds a **second** listener (empty address → `127.0.0.1:8890`, D38) and `http.Server.ConnContext` tags recovered dest. Non-linux `enabled: true` fails closed and binds **nothing**. iptables/nft REDIRECT is sidecar/host only; the default image stays UID 65532 without `NET_ADMIN` (D30, D50). Publishing `8890` is not transparent.
 
@@ -55,7 +55,7 @@ Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest li
 | Origin-form on orig-dest `:8890` with recovered dest | Legal (D31). Dial dest IP:port only (D57). |
 | Tagged orig-dest `CONNECT` | `400`, no Dial. |
 | Tagged orig-dest absolute-form (incl. `GET http://169.254.169.254/`) | Dial dest IP:port only; never `serveAbsolute` / never Dial Host. |
-| `PRI * HTTP/2.0` on `:8888` **or** orig-dest | Close connection. Metric `reason="http2"`. Before `gate.acquire`. |
+| `PRI * HTTP/2.0` on `:8888` **or** orig-dest | Flag-off (`protocols.http2.clientCleartext` false): close. Metric `reason="http2"`. **Before** `gate.acquire`. Flag-on: Hijack (D19) with no Write; leftover `SM\r\n\r\n` plus SETTINGS in `bufio.ReadWriter`; `gate.acquire` **once per TCP**; `http2x.ServeConn(..., PrefaceTail)`. Never return the conn to `http.Server`. |
 | First byte `0x05` / `0x04` (per-conn peek; `acceptSOCKS5`/`acceptSOCKS4` off) | Close. Metric `reason="socks"`. |
 | First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT. Peeked `0x05` is replayed. Method select: `acceptUserPass` false → NO AUTH (`0x00`) only; `acceptUserPass` true → RFC 1929 (`0x02`) only (never `0x00` even if offered). GSSAPI (`0x01`) is never selected. BIND if `acceptBind`; else CMD `05 07`. UDP still `05 07`. |
 | First byte `0x04` and `acceptSOCKS4: true` | SOCKS4/4a CONNECT. USERID discarded. BIND if `acceptBind` and CD=2; else CD≠1 → `91`. |
@@ -259,11 +259,26 @@ Hairpin (D34) compares the pinned IP:port to every live data-plane bind (`s.Addr
 
 Linux REDIRECT + `SO_ORIGINAL_DST` / `IP6T_SO_ORIGINAL_DST` on a separate listener. Dest recover first (no acquire): fail dest / direct-connect / hairpin / CIDR deny → close, no Dial. Peek 1 byte: `0x04`/`0x05` close; `0x16` TLS acquires in dispatch, parses ClientHello (SNI+ALPN) with byte replay, matches `tls.hosts` against **SNI**, Dials dest IP only; else Push `taggedConn` and `ServeHTTP` acquires (D55). Do **not** branch on a single `'P'` (`POST`/`PUT`/`PATCH` share `0x50` with `PRI`).
 
-`ServeHTTP` D57 splice, after PRI and after `gate.acquire`: if orig-dest context is set, `CONNECT` → 400 no Dial; every other method → `serveOrigDestHTTP` (never `serveCONNECT` / `serveAbsolute`). `gate.acquire` once per orig-dest TCP.
+`ServeHTTP` D57 splice, after PRI and after `gate.acquire`: if orig-dest context is set, `CONNECT` → 400 no Dial; every other method → `serveOrigDestHTTP` (never `serveCONNECT` / `serveAbsolute`). `gate.acquire` once per orig-dest TCP. Flag-on h2c on orig-dest: tagged CONNECT streams are still 400 (D57); regular streams Dial dest IP only.
 
 Ready (D56): `OrigDestBound || OrigDestOff`. 1.0 default is `OrigDestOff: true`. Warning `origdest_unbound` only when required and unbound.
 
 Topologies and iptables: [docs/13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md#original-destination-linux-redirect). Compose: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml).
+
+## Client-facing h2c (D61)
+
+Default-off `protocols.http2.clientCleartext` (Reset-only). Requires [ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) superseding D26's hop list only. **D7 stands.**
+
+| Stream | Behavior |
+|---|---|
+| Flag-off `PRI * HTTP/2.0` | Hard close before `gate.acquire`. Metric `reason="http2"`. Transcript [testdata/proxy/pri-close.txt](https://github.com/hilather/go-lab-mitmproxy/blob/main/testdata/proxy/pri-close.txt). |
+| Flag-on PRI | Hijack, no Write. `http.Server` already consumed `PRI * HTTP/2.0\r\n\r\n`. Leftover is `SM\r\n\r\n` plus SETTINGS in the `bufio.ReadWriter`. `ServeConn` must **not** `ReadFull` the 24-byte preface from the raw conn. Transcript [testdata/proxy/h2c-pri-leftover.txt](https://github.com/hilather/go-lab-mitmproxy/blob/main/testdata/proxy/h2c-pri-leftover.txt) must fail if the preface is re-read from the conn after Hijack. |
+| Regular `GET`/`POST` `:scheme=http` `:authority` `:path` | Absolute-form equivalent. Same guards as `serveAbsolute`. **Allowed** (not CONNECT-only). |
+| `:scheme=https` regular | `400` `validation_failed`. Metric `reason="absolute_https"`. |
+| `:method=CONNECT` (RFC 9113 §8.5) | RST until the CONNECT PR. Orig-dest tagged CONNECT is `400`, no Dial (D57). |
+| Missing `:authority` | `400`; no Dial. |
+
+`http2x.ServeClient` remains the inner ALPN-`h2` wrapper (`PrefaceFull` on the TLS conn). Production Dial stays in `internal/proxy`.
 
 ## Related documents
 
@@ -272,3 +287,4 @@ Topologies and iptables: [docs/13-deployment.md](https://github.com/hilather/go-
 - Rules: [docs/05-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/05-rules.md)
 - SOCKS / orig-dest: [docs/adr/0010-socks-and-original-destination.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md)
 - 1.2 BIND / user-pass: [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)
+- 1.2 h2c: [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)

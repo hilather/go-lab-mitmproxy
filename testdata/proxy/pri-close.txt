@@ -1,0 +1,5 @@
+# Flag-off PRI is a hard close before gate.acquire. No HTTP/1.1 400.
+C: PRI * HTTP/2.0
+C:
+C: SM
+C:

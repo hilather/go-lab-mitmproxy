@@ -4,5 +4,7 @@
 // (no Dial / DialContext / DialTimeout / net.Dialer). http2.Transport.DialTLS
 // stays nil; origin connections use a ClientConnPool bound to an already
 // dialed conn that errors `proxy: intercepted CONNECT refuses redial` on a
-// second open.
+// second open. ServeConn PrefaceTail consumes PRI leftover from bufrw
+// (SM\r\n\r\n plus SETTINGS) and must not ReadFull ClientPreface from the
+// raw conn after Hijack (D61).
 package http2x

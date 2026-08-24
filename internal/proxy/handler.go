@@ -14,8 +14,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if req.Method == "PRI" {
-		s.metrics.reject("http2")
-		s.closeNow(w)
+		sess := s.beginSession()
+		if !sess.spec.Protocols.HTTP2.ClientCleartext {
+			s.metrics.reject("http2")
+			s.closeNow(w)
+			return
+		}
+		s.serveH2C(w, req, sess)
 		return
 	}
 

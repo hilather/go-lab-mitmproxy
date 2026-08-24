@@ -116,6 +116,9 @@ func TestHTTP2PrefaceCloses(t *testing.T) {
 	if px.Metrics().Rejected("http2") < 1 {
 		t.Fatal("expected http2 reject metric")
 	}
+	if px.sessionCount() != 0 {
+		t.Fatalf("PRI acquired a session: %d", px.sessionCount())
+	}
 }
 
 func TestHTTP2PrefaceNotParsedAsRequest(t *testing.T) {

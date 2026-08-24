@@ -332,7 +332,7 @@ TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`,
 
 See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). 1.0 defaults remain the process defaults.
 
-- HTTP/3 / QUIC still out. HTTP/2 is inner+origin only (`protocols.http2`, default off). Client-facing `:8888` / orig-dest cleartext stay HTTP/1.1; `PRI` is a hard close.
+- HTTP/3 / QUIC still out. HTTP/2 inner is `protocols.http2.enabled` (default off). Client-facing h2c is `protocols.http2.clientCleartext` (default off, Reset-only); flag-off `PRI` is still a hard close.
 - No Python VM, mitmweb, dumpfile, CLI-flag clone, or wrapping Python mitmproxy.
 - No TPROXY in the appliance (`tproxy` reserved). No reverse-proxy.
 - Orig-dest is Linux-only REDIRECT + `SO_ORIGINAL_DST`, default off. Supported topologies are shared-netns + sidecar iptables or host-network REDIRECT (D50). Publishing `8890` is not transparent.

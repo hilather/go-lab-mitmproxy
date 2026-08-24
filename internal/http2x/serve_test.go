@@ -1,8 +1,11 @@
 package http2x
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 )
 
 func TestServeClientGET(t *testing.T) {
@@ -398,5 +402,129 @@ func TestServeClientLargeResponse(t *testing.T) {
 	}
 	if string(got) != payload {
 		t.Fatalf("len=%d", len(got))
+	}
+}
+
+func TestServeConnPrefaceTailDoesNotReadRawConn(t *testing.T) {
+	if http2.ClientPreface != prefaceHead+prefaceTailSM {
+		t.Fatalf("ClientPreface %q", http2.ClientPreface)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	type acc struct {
+		c   net.Conn
+		err error
+	}
+	ac := make(chan acc, 1)
+	go func() {
+		c, err := ln.Accept()
+		ac <- acc{c: c, err: err}
+	}()
+	client, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	gotAcc := <-ac
+	if gotAcc.err != nil {
+		t.Fatal(gotAcc.err)
+	}
+	server := gotAcc.c
+	t.Cleanup(func() { _ = server.Close() })
+
+	var settingsBuf bytes.Buffer
+	if err := http2.NewFramer(&settingsBuf, nil).WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	leftover := append([]byte(prefaceTailSM), settingsBuf.Bytes()...)
+	br := bufio.NewReader(io.MultiReader(bytes.NewReader(leftover), server))
+	bufrw := bufio.NewReadWriter(br, bufio.NewWriter(server))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := make(chan Stream, 1)
+	errc := make(chan error, 1)
+	go func() {
+		errc <- ServeConn(ctx, server, bufrw, ServeOpts{Preface: PrefaceTail}, func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
+			inCopy := in
+			inCopy.Body = nil
+			got <- inCopy
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("ok")),
+			}, nil, nil
+		}, nil)
+	}()
+
+	fr := http2.NewFramer(client, bufio.NewReader(client))
+	deadline := time.Now().Add(3 * time.Second)
+	sawSettings := false
+	for time.Now().Before(deadline) {
+		_ = client.SetReadDeadline(time.Now().Add(time.Second))
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatalf("server SETTINGS: %v (ServeConn must not ReadFull ClientPreface from the raw conn)", err)
+		}
+		if sf, ok := f.(*http2.SettingsFrame); ok && !sf.IsAck() {
+			if err := fr.WriteSettingsAck(); err != nil {
+				t.Fatal(err)
+			}
+			sawSettings = true
+			break
+		}
+	}
+	if !sawSettings {
+		t.Fatal("no server SETTINGS; leftover preface was probably re-read from the raw conn")
+	}
+
+	var hdr bytes.Buffer
+	enc := hpack.NewEncoder(&hdr)
+	for _, hf := range []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodGet},
+		{Name: ":scheme", Value: "http"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/hello"},
+	} {
+		if err := enc.WriteField(hf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fr.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: hdr.Bytes(),
+		EndHeaders:    true,
+		EndStream:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case in := <-got:
+		if in.Method != http.MethodGet || in.Path != "/hello" {
+			t.Fatalf("stream %+v", in)
+		}
+	case err := <-errc:
+		t.Fatalf("ServeConn: %v", err)
+	case <-ctx.Done():
+		t.Fatal("handler not invoked; leftover SETTINGS was eaten as a 24-byte preface")
+	}
+}
+
+func TestServeConnPrefaceTailRequiresLeftover(t *testing.T) {
+	a, b := net.Pipe()
+	t.Cleanup(func() {
+		_ = a.Close()
+		_ = b.Close()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := ServeConn(ctx, a, nil, ServeOpts{Preface: PrefaceTail}, func(context.Context, Stream) (*http.Response, []model.Header, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil, nil
+	}, nil)
+	if err == nil {
+		t.Fatal("expected PrefaceTail without leftover to fail")
 	}
 }
