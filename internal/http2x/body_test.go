@@ -1,7 +1,9 @@
 package http2x
 
 import (
+	"errors"
 	"io"
+	"os"
 	"testing"
 	"time"
 )
@@ -34,4 +36,28 @@ func TestBodyBufWriteDoesNotBlockOnUnread(t *testing.T) {
 	if err != io.EOF {
 		t.Fatalf("err=%v", err)
 	}
+}
+
+func TestBodyBufReadDeadline(t *testing.T) {
+	b := newBodyBuf(nil)
+	if err := b.SetReadDeadline(time.Now().Add(30 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := b.Read(make([]byte, 8))
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !isTimeout(err) {
+			t.Fatalf("err=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Read deadline did not fire")
+	}
+}
+
+func isTimeout(err error) bool {
+	return errors.Is(err, os.ErrDeadlineExceeded)
 }

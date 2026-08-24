@@ -345,31 +345,48 @@ func serveTunnel(ctx context.Context, tun TunnelHandler, in Stream, parent net.C
 		_ = write(func() error { return fr.WriteRSTStream(in.ID, code) })
 		return
 	}
-	switch tunv.Kind {
-	case TunnelWebSocket, TunnelIntercept:
-		if tunv.AfterAck == nil {
-			_ = write(func() error { return fr.WriteRSTStream(in.ID, http2.ErrCodeInternal) })
+	status := tunv.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if tunv.AfterAck != nil {
+		switch tunv.Kind {
+		case TunnelWebSocket, TunnelIntercept:
+			_ = writeStatus(fr, enc, encBuf, write, in.ID, status, false, tunv.Headers)
+			tunv.AfterAck(&framedStreamConn{
+				parent: parent,
+				id:     in.ID,
+				body:   in.Body,
+				out:    out,
+				fr:     fr,
+				write:  write,
+			})
 			return
 		}
-		_ = writeStatus(fr, enc, encBuf, write, in.ID, http.StatusOK, false)
-		tunv.AfterAck(&framedStreamConn{
-			parent: parent,
-			id:     in.ID,
-			body:   in.Body,
-			out:    out,
-			fr:     fr,
-			write:  write,
-		})
-	default:
 		_ = write(func() error { return fr.WriteRSTStream(in.ID, http2.ErrCodeInternal) })
+		return
 	}
+	if tunv.Status != 0 {
+		_ = writeStatus(fr, enc, encBuf, write, in.ID, tunv.Status, true, tunv.Headers)
+		return
+	}
+	_ = write(func() error { return fr.WriteRSTStream(in.ID, http2.ErrCodeInternal) })
 }
 
-func writeStatus(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, write func(func() error) error, id uint32, status int, endStream bool) error {
+func writeStatus(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, write func(func() error) error, id uint32, status int, endStream bool, headers []model.Header) error {
 	return write(func() error {
 		buf.Reset()
 		if err := enc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)}); err != nil {
 			return err
+		}
+		for _, h := range headers {
+			name := strings.ToLower(h.Name)
+			if name == "" || name == ":status" || hopHeaders[name] {
+				continue
+			}
+			if err := enc.WriteField(hpack.HeaderField{Name: name, Value: h.Value}); err != nil {
+				return err
+			}
 		}
 		return writeHeaderBlock(fr, id, buf.Bytes(), endStream)
 	})
