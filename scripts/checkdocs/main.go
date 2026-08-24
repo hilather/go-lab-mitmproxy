@@ -136,6 +136,9 @@ func Check(root string) error {
 	if err := checkMetadata(root); err != nil {
 		return err
 	}
+	if err := checkKeepBothLeftovers(root); err != nil {
+		return err
+	}
 	// Fixture trees used by checkdocs tests have no fuzz packages.
 	if _, err := os.Stat(filepath.Join(root, "internal", "config", "fuzz_test.go")); err == nil {
 		if err := checkFuzzCorpora(root); err != nil {
@@ -231,6 +234,165 @@ func checkMetadata(root string) error {
 		return fmt.Errorf("documentation metadata missing:\n  %s", strings.Join(missing, "\n  "))
 	}
 	return nil
+}
+
+// Stale keep-both phrases that shipped on v1.2.0 after concatenated 1.1/1.2
+// paragraphs. Numbered pack + AGENTS.md only; ADRs and release notes may
+// describe historical “later PR” sequencing.
+var staleKeepBothPhrases = []string{
+	"until a later PR",
+	"in the implementing PRs",
+	"UDP still `05 07`",
+	"Username/password and GSSAPI are never selected",
+	"BIND/UDP/GSSAPI/password are out",
+	"Client-facing Extended CONNECT / h2c is still out",
+}
+
+const keepBothSharedPrefix = 80
+
+func checkKeepBothLeftovers(root string) error {
+	paths := []string{"AGENTS.md"}
+	ents, err := os.ReadDir(filepath.Join(root, "docs"))
+	if err != nil {
+		return err
+	}
+	for _, e := range ents {
+		rel := "docs/" + e.Name()
+		if numberedDoc.MatchString(rel) {
+			paths = append(paths, rel)
+		}
+	}
+	var problems []string
+	for _, rel := range paths {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			return err
+		}
+		problems = append(problems, keepBothProblems(rel, string(body))...)
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("keep-both leftovers:\n  %s", strings.Join(problems, "\n  "))
+	}
+	return nil
+}
+
+func keepBothProblems(rel, text string) []string {
+	var out []string
+	inFence := false
+	inTable := false
+	headerSkipped := false
+	prevLine := ""
+	prevBullet := ""
+	prevBulletNo := 0
+	seenCell := map[string]int{}
+	for i, raw := range strings.Split(text, "\n") {
+		lineNo := i + 1
+		trim := strings.TrimSpace(raw)
+		if strings.HasPrefix(trim, "```") {
+			inFence = !inFence
+			prevLine = ""
+			prevBullet = ""
+			inTable = false
+			continue
+		}
+		if inFence {
+			continue
+		}
+		for _, phrase := range staleKeepBothPhrases {
+			if strings.Contains(raw, phrase) {
+				out = append(out, fmt.Sprintf("%s:%d: stale leftover %q", rel, lineNo, phrase))
+			}
+		}
+		if trim != "" && trim == prevLine {
+			out = append(out, fmt.Sprintf("%s:%d: consecutive duplicate line", rel, lineNo))
+		}
+		if trim != "" {
+			prevLine = trim
+		}
+		if isTableSep(trim) {
+			continue
+		}
+		if isTableRow(trim) {
+			if !inTable {
+				seenCell = map[string]int{}
+				inTable = true
+				headerSkipped = false
+			}
+			if !headerSkipped {
+				headerSkipped = true
+				prevBullet = ""
+				continue
+			}
+			cell := tableFirstCell(trim)
+			if cell != "" {
+				if prev, ok := seenCell[cell]; ok {
+					out = append(out, fmt.Sprintf("%s:%d: duplicate table first cell %q (also line %d)", rel, lineNo, cell, prev))
+				} else {
+					seenCell[cell] = lineNo
+				}
+			}
+			prevBullet = ""
+			continue
+		}
+		inTable = false
+		bullet, ok := listItemText(trim)
+		if !ok {
+			prevBullet = ""
+			continue
+		}
+		if prevBullet != "" && sharedPrefixLen(prevBullet, bullet) >= keepBothSharedPrefix {
+			out = append(out, fmt.Sprintf("%s:%d: consecutive keep-both list items (also line %d)", rel, lineNo, prevBulletNo))
+		}
+		prevBullet = bullet
+		prevBulletNo = lineNo
+	}
+	return out
+}
+
+func isTableRow(trim string) bool {
+	return strings.HasPrefix(trim, "|") && strings.HasSuffix(trim, "|") && len(trim) >= 2
+}
+
+func isTableSep(trim string) bool {
+	if !isTableRow(trim) || !strings.Contains(trim, "-") {
+		return false
+	}
+	for _, r := range trim {
+		switch r {
+		case '|', '-', ':', ' ':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func tableFirstCell(trim string) string {
+	for _, part := range strings.Split(trim, "|") {
+		if s := strings.TrimSpace(part); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func listItemText(trim string) (string, bool) {
+	switch {
+	case strings.HasPrefix(trim, "- "):
+		return strings.TrimSpace(trim[2:]), true
+	case strings.HasPrefix(trim, "* "):
+		return strings.TrimSpace(trim[2:]), true
+	default:
+		return "", false
+	}
+}
+
+func sharedPrefixLen(a, b string) int {
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		n++
+	}
+	return n
 }
 
 func hasMeta(text, key string) bool {

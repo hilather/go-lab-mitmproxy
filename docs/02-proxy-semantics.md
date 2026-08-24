@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-23 (D65 PUSH_PROMISE capture-only)
+Last reviewed: 2026-08-24 (issue 45 keep-both leftovers)
 Related ADRs: 0002, 0009, 0010, 0012
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -57,8 +57,7 @@ Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest li
 | Tagged orig-dest absolute-form (incl. `GET http://169.254.169.254/`) | Dial dest IP:port only; never `serveAbsolute` / never Dial Host. |
 | `PRI * HTTP/2.0` on `:8888` **or** orig-dest | Flag-off (`protocols.http2.clientCleartext` false): close. Metric `reason="http2"`. **Before** `gate.acquire`. Flag-on: Hijack (D19) with no Write; leftover `SM\r\n\r\n` plus SETTINGS in `bufio.ReadWriter`; `gate.acquire` **once per TCP**; `http2x.ServeConn(..., PrefaceTail)`. Never return the conn to `http.Server`. |
 | First byte `0x05` / `0x04` (per-conn peek; `acceptSOCKS5`/`acceptSOCKS4` off) | Close. Metric `reason="socks"`. |
-| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT. Peeked `0x05` is replayed. Method select: `acceptUserPass` false → NO AUTH (`0x00`) only; `acceptUserPass` true → RFC 1929 (`0x02`) only (never `0x00` even if offered). GSSAPI (`0x01`) is never selected. BIND if `acceptBind`; else CMD `05 07`. UDP still `05 07`. |
-| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT, NO AUTH. Peeked `0x05` is replayed. BIND if `acceptBind`; UDP ASSOCIATE if `acceptUDPAssociate`; else CMD `05 07`. |
+| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT. Peeked `0x05` is replayed. Method select: `acceptUserPass` false → NO AUTH (`0x00`) only; `acceptUserPass` true → RFC 1929 (`0x02`) only (never `0x00` even if offered). GSSAPI (`0x01`) is never selected. BIND if `acceptBind`; UDP ASSOCIATE if `acceptUDPAssociate`; else CMD `05 07`. |
 | First byte `0x04` and `acceptSOCKS4: true` | SOCKS4/4a CONNECT. USERID discarded. BIND if `acceptBind` and CD=2; else CD≠1 → `91`. |
 | HTTP/1.0 | Accept if absolute-form `http://` or CONNECT with port; respond HTTP/1.1. |
 
@@ -73,8 +72,6 @@ Hop-by-hop headers stripped on both legs: `Proxy-Connection`, `Keep-Alive`, `TE`
 ## SOCKS CONNECT (opt-in)
 
 No third-party SOCKS library. `gate.acquire` runs after a valid CONNECT request is parsed and **before** Dial (same gate as `ServeHTTP`). Hairpin → SOCKS5 `05 02` / SOCKS4 `91`, no Dial. IMDS/link-local CIDR deny does not Dial `169.254.169.254`.
-
-Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`, `SOCKS.Command="connect"`. Intercepted inner flows copy `Via`/`SOCKS`. Matching YAML `userPass` `id` may appear on `SOCKSInfo.User`; username and password are never stored on the flow. GSSAPI is never selected. UDP ASSOCIATE stays `05 07` until a later PR.
 
 SOCKS5 method select ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D60):
 
@@ -93,7 +90,7 @@ acceptUserPass false
   → existing NO AUTH only
 GSSAPI (0x01) is never selected
 ```
-Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`, `SOCKS.Command="connect"`. Intercepted inner flows copy `Via`/`SOCKS`. Username/password and GSSAPI are never selected. UDP ASSOCIATE is a separate flag (`acceptUDPAssociate`); flag-off stays `05 07`.
+Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`, `SOCKS.Command="connect"`. Intercepted inner flows copy `Via`/`SOCKS`. Matching YAML `userPass` `id` may appear on `SOCKSInfo.User`; username and password are never stored on the flow. GSSAPI is never selected. UDP ASSOCIATE is a separate flag (`acceptUDPAssociate`); flag-off stays `05 07`.
 
 ## SOCKS BIND (1.2, opt-in)
 
