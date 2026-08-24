@@ -2,7 +2,9 @@ package http2x
 
 import (
 	"io"
+	"os"
 	"sync"
+	"time"
 )
 
 const defaultHTTP2Window = 65535
@@ -96,14 +98,35 @@ func (f *outFlow) close() {
 }
 
 func (f *outFlow) take(id uint32, want int) (int, error) {
+	return f.takeDeadline(id, want, time.Time{})
+}
+
+func (f *outFlow) takeDeadline(id uint32, want int, deadline time.Time) (int, error) {
 	if want <= 0 {
 		return 0, nil
+	}
+	var timedOut bool
+	if !deadline.IsZero() {
+		d := time.Until(deadline)
+		if d <= 0 {
+			return 0, os.ErrDeadlineExceeded
+		}
+		timer := time.AfterFunc(d, func() {
+			f.mu.Lock()
+			timedOut = true
+			f.cond.Broadcast()
+			f.mu.Unlock()
+		})
+		defer timer.Stop()
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for {
 		if f.closed {
 			return 0, io.ErrClosedPipe
+		}
+		if timedOut || (!deadline.IsZero() && !time.Now().Before(deadline)) {
+			return 0, os.ErrDeadlineExceeded
 		}
 		s, ok := f.stream[id]
 		if !ok {

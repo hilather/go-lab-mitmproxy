@@ -11,6 +11,7 @@ import (
 
 // framedStreamConn is one HTTP/2 stream as a net.Conn. Read is DATA into
 // body; Write honors the send window via outFlow.take.
+// Deadlines apply to this stream only and must not touch the parent TLS conn.
 type framedStreamConn struct {
 	parent net.Conn
 	id     uint32
@@ -19,8 +20,9 @@ type framedStreamConn struct {
 	fr     *http2.Framer
 	write  func(func() error) error
 
-	mu          sync.Mutex
-	writeClosed bool
+	mu            sync.Mutex
+	writeClosed   bool
+	writeDeadline time.Time
 }
 
 func (c *framedStreamConn) Read(p []byte) (int, error) {
@@ -38,11 +40,12 @@ func (c *framedStreamConn) Write(p []byte) (int, error) {
 	for n < len(p) {
 		c.mu.Lock()
 		closed := c.writeClosed
+		dl := c.writeDeadline
 		c.mu.Unlock()
 		if closed {
 			return n, io.ErrClosedPipe
 		}
-		take, err := c.out.take(c.id, len(p)-n)
+		take, err := c.out.takeDeadline(c.id, len(p)-n, dl)
 		if err != nil {
 			return n, err
 		}
@@ -92,9 +95,31 @@ func (c *framedStreamConn) RemoteAddr() net.Addr {
 	return streamAddr{}
 }
 
-func (c *framedStreamConn) SetDeadline(time.Time) error      { return nil }
-func (c *framedStreamConn) SetReadDeadline(time.Time) error  { return nil }
-func (c *framedStreamConn) SetWriteDeadline(time.Time) error { return nil }
+func (c *framedStreamConn) SetDeadline(t time.Time) error {
+	if err := c.SetReadDeadline(t); err != nil {
+		return err
+	}
+	return c.SetWriteDeadline(t)
+}
+
+func (c *framedStreamConn) SetReadDeadline(t time.Time) error {
+	if b, ok := c.body.(*bodyBuf); ok {
+		return b.SetReadDeadline(t)
+	}
+	return nil
+}
+
+func (c *framedStreamConn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.writeDeadline = t
+	c.mu.Unlock()
+	if c.out != nil {
+		c.out.mu.Lock()
+		c.out.cond.Broadcast()
+		c.out.mu.Unlock()
+	}
+	return nil
+}
 
 type streamAddr struct{}
 

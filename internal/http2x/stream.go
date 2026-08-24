@@ -24,7 +24,7 @@ const (
 	prefaceTailSM = "SM\r\n\r\n"
 
 	// SettingEnableConnectProtocol is SETTINGS_ENABLE_CONNECT_PROTOCOL (RFC 8441).
-	SettingEnableConnectProtocol http2.SettingID = 0x8
+	SettingEnableConnectProtocol = http2.SettingEnableConnectProtocol
 )
 
 // ErrRefuseRedial is returned when the origin pool would need a second Dial.
@@ -108,8 +108,11 @@ const (
 
 // Tunnel is the CONNECT handoff. http2x never Dials.
 // Tunnel is the CONNECT handoff. http2x writes :status=200 then AfterAck.
+// Tunnel is the CONNECT handoff. http2x writes HEADERS then AfterAck when set.
 type Tunnel struct {
 	Kind     TunnelKind
 	Origin   net.Conn
+	Status   int            // 0 → 200
+	Headers  []model.Header // extra HEADERS on the ack / synthetic response
 	AfterAck func(client net.Conn)
 }

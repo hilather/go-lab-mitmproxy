@@ -754,7 +754,6 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 	started := time.Now()
 	sess := pinned.fork()
 	inner := reconstructH2Request(in)
-	inner.Method = http.MethodGet
 	inner.Body = http.NoBody
 	inner.ContentLength = 0
 	if inner.Header == nil {
@@ -774,10 +773,20 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 		pseudos:  append([]model.Header(nil), in.Pseudos...),
 	})
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
-	handled := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(*http.Response) {})
+	var syn *http.Response
+	handled := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(resp *http.Response) {
+		syn = resp
+	})
 	if handled {
-		s.metrics.reject("http2")
-		return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+		status := http.StatusForbidden
+		var hdrs []model.Header
+		if syn != nil {
+			if syn.StatusCode != 0 {
+				status = syn.StatusCode
+			}
+			hdrs = headersFrom(syn.Header)
+		}
+		return http2x.Tunnel{Status: status, Headers: hdrs}, nil
 	}
 
 	if originMu == nil {
@@ -792,38 +801,32 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 		sess.reqCap = cap
 	}
 	stripLeadingColonHeaders(out.Header)
-	key := out.Header.Get("Sec-WebSocket-Key")
-	if key == "" {
-		key = randomWebSocketKey()
+	out.Method = http.MethodGet
+	out.Proto = "HTTP/1.1"
+	out.ProtoMajor = 1
+	out.ProtoMinor = 1
+	out.Body = nil
+	out.ContentLength = 0
+	out.TransferEncoding = nil
+	if out.Header.Get("Sec-WebSocket-Key") == "" {
+		out.Header.Set("Sec-WebSocket-Key", randomWebSocketKey())
 	}
-	upURL := ""
-	if out.URL != nil {
-		upURL = out.URL.String()
-	}
-	clean, err := http.NewRequestWithContext(upCtx, http.MethodGet, upURL, nil)
-	if err != nil {
-		upCancel()
-		unlock()
-		s.metrics.reject("http2")
-		return http2x.Tunnel{}, http2x.ErrInnerCONNECT
-	}
-	clean.Host = out.Host
-	clean.Header.Set("Upgrade", "websocket")
-	clean.Header.Set("Connection", "Upgrade")
-	clean.Header.Set("Sec-WebSocket-Version", "13")
-	clean.Header.Set("Sec-WebSocket-Key", key)
-	if proto := out.Header.Get("Sec-WebSocket-Protocol"); proto != "" {
-		clean.Header.Set("Sec-WebSocket-Protocol", proto)
-	}
-	resp, err := tr.RoundTrip(clean)
+	resp, err := tr.RoundTrip(out)
 	upCancel()
-	if err != nil || resp == nil || resp.StatusCode != http.StatusSwitchingProtocols {
+	if err != nil {
 		unlock()
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		s.metrics.reject("http2")
-		return http2x.Tunnel{}, http2x.ErrInnerCONNECT
+		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, sess.reqCap, nil)
+		s.captureRule(f, inner, sess.reqCap, nil, nil, sess, sess.reqHit)
+		return http2x.Tunnel{}, err
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		_ = drainOriginBody(resp)
+		unlock()
+		httputilx.PrepareResponse(resp.Header, false)
+		f := s.innerFlow(inner, host, port, resp.StatusCode, "", started, info, sess.reqCap, nil)
+		f.Response.Headers = headersFrom(resp.Header)
+		s.capture(f, sess)
+		return http2x.Tunnel{Status: resp.StatusCode, Headers: tunnelResponseHeaders(resp.Header)}, nil
 	}
 	fromUp := resp.Body
 	if hit := s.matchHit(sess, model.RulePhaseResponse, host, inner, resp.Header, false); hit != nil {
@@ -837,7 +840,8 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 	s.metrics.session("ok")
 	origin := wrapOriginUpgrade(upTLS, fromUp)
 	return http2x.Tunnel{
-		Kind: http2x.TunnelWebSocket,
+		Kind:    http2x.TunnelWebSocket,
+		Headers: tunnelResponseHeaders(resp.Header),
 		AfterAck: func(client net.Conn) {
 			defer unlock()
 			defer func() {
@@ -857,6 +861,15 @@ func (s *Server) innerH2Tunnel(ctx context.Context, tr *http.Transport, originMu
 			s.tunnelUpgrade(client, nil, origin, origin, s.specOf(sess).Proxy.Admission)
 		},
 	}, nil
+}
+
+func tunnelResponseHeaders(h http.Header) []model.Header {
+	if h == nil {
+		return nil
+	}
+	cp := h.Clone()
+	httputilx.PrepareResponse(cp, false)
+	return headersFrom(cp)
 }
 
 type upgradeBodyConn struct {
