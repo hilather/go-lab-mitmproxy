@@ -1,0 +1,27 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: protocol-flags-12
+spec:
+  listeners:
+    proxy:
+      acceptSOCKS5: true
+      acceptSOCKS4: true
+      acceptBind: true
+      acceptUDPAssociate: true
+      acceptUserPass: true
+      userPass:
+        users:
+          - id: lab-socks
+            usernameFile: testdata/config/valid/socks-username
+            passwordFile: testdata/config/valid/socks-password
+  protocols:
+    http2:
+      enabled: true
+      clientCleartext: true
+      origin: true
+      extendedConnect: true
+      capturePush: true
+      grpcDecode: true
+    websocket:
+      inspectFrames: true

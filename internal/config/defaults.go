@@ -43,6 +43,8 @@ const (
 	minStoreMaxBytes = int64(1 << 20)
 	minMaxBodyBytes  = int64(1 << 10)
 	minTokenSecret   = 32
+	minRFC1929Secret = 1
+	maxRFC1929Secret = 255
 	defaultTLSPort   = 443
 
 	violationUnknownField       = "unknown_field"

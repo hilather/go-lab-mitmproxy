@@ -39,6 +39,9 @@ func materializeDefaults(sp *model.Spec) {
 	if strings.TrimSpace(sp.Listeners.Proxy.Address) == "" {
 		sp.Listeners.Proxy.Address = DefaultProxyAddress
 	}
+	if sp.Listeners.Proxy.UserPass.Users == nil {
+		sp.Listeners.Proxy.UserPass.Users = []model.UserPassUserSpec{}
+	}
 	if strings.TrimSpace(sp.Listeners.Management.Address) == "" {
 		sp.Listeners.Management.Address = DefaultMgmtAddress
 	}

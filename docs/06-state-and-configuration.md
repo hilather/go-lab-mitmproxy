@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-19 (accept mux D42 + compat flow REST)
-Related ADRs: 0003, 0008
+Last reviewed: 2026-08-23 (1.2 protocol flags, default off, D51)
+Related ADRs: 0003, 0008, 0012
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
 
@@ -27,9 +27,9 @@ publicca, trustedroot, mitmproxyaddon, addon, pythonaddon, exploit,
 payloadgen, attack, sslstrip, hstsstrip
 ```
 
-Plus any key that would imply wrapping the Python binary (`mitmproxy`, `mitmdump`, `mitmweb` as config sections). Reserved keys are **not a LabMITM surface** (D41). Legal 1.1 names are camelCase only (`acceptSOCKS5` is legal; `accept-socks5` fails KnownFields; `spec.socks` / `spec.compat.mitmproxyREST` stay reserved).
+Plus any key that would imply wrapping the Python binary (`mitmproxy`, `mitmdump`, `mitmweb` as config sections). Reserved keys are **not a LabMITM surface** (D41). Legal names are camelCase only (`acceptSOCKS5` / `acceptBind` are legal; `accept-socks5` / `accept-bind` fail KnownFields; `spec.socks` / `socksBind` / `socksUserPass` / `spec.compat.mitmproxyREST` stay reserved).
 
-## Bootstrap schema (v1alpha1; 1.1 fields default off)
+## Bootstrap schema (v1alpha1; 1.1/1.2 fields default off)
 
 ```yaml
 apiVersion: labmitm.dev/v1alpha1
@@ -42,6 +42,11 @@ spec:
       address: "127.0.0.1:8888"
       acceptSOCKS5: false          # 1.1; Reset-only
       acceptSOCKS4: false
+      acceptBind: false            # 1.2; Reset-only; requires acceptSOCKS5 or acceptSOCKS4
+      acceptUDPAssociate: false    # 1.2; Reset-only; requires acceptSOCKS5
+      acceptUserPass: false        # 1.2; Reset-only; requires acceptSOCKS5 and ≥1 user
+      userPass:
+        users: []
     originalDestination:           # 1.1; Reset-only bind
       enabled: false
       address: ""                  # empty + enabled → 127.0.0.1:8890
@@ -126,9 +131,16 @@ spec:
     audit:
       ring: 128
 
-  protocols:                       # 1.1; Reset-only
+  protocols:                       # 1.1/1.2; Reset-only
     http2:
       enabled: false
+      clientCleartext: false
+      origin: false
+      extendedConnect: false
+      capturePush: false
+      grpcDecode: false
+    websocket:
+      inspectFrames: false
 
   compat:                          # 1.1; Reset-only; no /compat on catalog() / native compileRoutes
     flowREST:
@@ -152,6 +164,8 @@ The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://githu
 - `store.maxBodyBytes` ≥ 1 KiB and ≤ `store.maxBytes`. `maxFlows` ≥ 1. `maxBytes` ≥ 1 MiB.
 - Loader: `management.auth.mode: bearer` with **zero tokens is valid** (empty `spec: {}` must load). Each listed token requires `id`, `secretFile`, and `role`. Overlay `secretFile` paths that are not mounted do not fail validate; if the file exists, the first non-comment line must be ≥32 bytes (256 bits) after trim. `scopes` materialize to `[]` when omitted.
 - Serve/bind (SEC-001): binding management with `mode: bearer` and zero usable tokens is **refused**. `dev-loopback-unauth` is rejected in the container default fixture (`testdata/container/config.yaml` is `mode: bearer`). Keep ADR 0005’s listen-refuse sentence as serve-time. Token files are reread on reset and apply.
+- `acceptBind: true` requires `acceptSOCKS5` or `acceptSOCKS4`. `acceptUDPAssociate: true` and `acceptUserPass: true` require `acceptSOCKS5`. `acceptUserPass: true` also requires ≥1 `userPass.users[]` entry. User `id` is unique `[a-z0-9-]{1,64}`; `usernameFile` / `passwordFile` must exist at load and the first non-comment line must be 1–255 bytes (RFC 1929). File refs only — no inline username/password. Users present while `acceptUserPass` is false are still validated.
+- `protocols.http2.origin: true` requires `http2.enabled`. `extendedConnect: true` requires `http2.enabled` or `clientCleartext`. `capturePush: true` requires `origin`. `grpcDecode: true` requires `http2.enabled` or `origin`. Empty `spec: {}` materializes every 1.2 flag **false**.
 
 ## Revisions
 
@@ -214,18 +228,20 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 
 `:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset.
 
-### 1.1 flags (Reset only, D51)
+### 1.1 / 1.2 flags (Reset only, D51)
 
 | Field | How to change |
 |---|---|
 | `acceptSOCKS5` / `acceptSOCKS4` | Bootstrap YAML + **Reset** (wipes flows) |
+| `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` | Reset-only (1.2; no `replaceProxyAccept`) |
 | `listeners.originalDestination` | Reset-only (bind) |
-| `protocols.http2` | Reset-only |
+| `protocols.http2` (including `clientCleartext` / `origin` / `extendedConnect` / `capturePush` / `grpcDecode`) | Reset-only |
+| `protocols.websocket.inspectFrames` | Reset-only |
 | `compat.flowREST` | Reset-only |
 | `proxy.admission.maxConcurrentStreams` | **`replaceAdmission`**. New TCP sessions only |
 | Listener **addresses** | Reset-only (unchanged) |
 
-Last reviewed: 2026-08-19 (accept mux + compat + orig-dest)
+Last reviewed: 2026-08-23 (1.2 protocol flags, default off, D51)
 
 Idempotency LRU default 256; reset clears it.
 

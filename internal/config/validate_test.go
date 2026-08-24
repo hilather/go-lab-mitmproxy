@@ -184,6 +184,104 @@ func TestValidateCompatPathPrefixCollidesWithConfiguredMCP(t *testing.T) {
 	_ = requireValidation(t, err, violationInvalidValue)
 }
 
+func TestValidateProtocolFlagDependencies(t *testing.T) {
+	cases := []struct {
+		name string
+		doc  string
+		path string
+	}{
+		{"acceptBind", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      acceptBind: true\n", "spec.listeners.proxy.acceptBind"},
+		{"acceptUDPAssociate", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      acceptSOCKS4: true\n      acceptUDPAssociate: true\n", "spec.listeners.proxy.acceptUDPAssociate"},
+		{"acceptUserPass-socks5", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      acceptUserPass: true\n", "spec.listeners.proxy.acceptUserPass"},
+		{"origin", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    http2:\n      origin: true\n", "spec.protocols.http2.origin"},
+		{"extendedConnect", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    http2:\n      extendedConnect: true\n", "spec.protocols.http2.extendedConnect"},
+		{"capturePush", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    http2:\n      enabled: true\n      capturePush: true\n", "spec.protocols.http2.capturePush"},
+		{"grpcDecode", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    http2:\n      grpcDecode: true\n", "spec.protocols.http2.grpcDecode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load([]byte(tc.doc))
+			de := requireValidation(t, err, violationInvalidValue)
+			found := false
+			for _, v := range de.FieldViolations {
+				if v.Path == tc.path {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("want path %q in %+v", tc.path, de.FieldViolations)
+			}
+		})
+	}
+}
+
+func TestValidateUserPassEntriesWhenFlagOff(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      userPass:\n        users:\n          - id: BadID\n"
+	_, err := Load([]byte(doc))
+	de := requireValidation(t, err, violationInvalidValue, violationRequired)
+	foundID, foundUser, foundPass := false, false, false
+	for _, v := range de.FieldViolations {
+		switch v.Path {
+		case "spec.listeners.proxy.userPass.users[0].id":
+			foundID = true
+		case "spec.listeners.proxy.userPass.users[0].usernameFile":
+			foundUser = true
+		case "spec.listeners.proxy.userPass.users[0].passwordFile":
+			foundPass = true
+		}
+	}
+	if !foundID || !foundUser || !foundPass {
+		t.Fatalf("want id/usernameFile/passwordFile violations, got %+v", de.FieldViolations)
+	}
+}
+
+func TestValidateUserPassRFC1929Length(t *testing.T) {
+	dir := t.TempDir()
+	user := filepath.Join(dir, "user")
+	pass := filepath.Join(dir, "pass")
+	if err := os.WriteFile(user, []byte("labuser\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("x", 256)
+	if err := os.WriteFile(pass, []byte(long+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      acceptSOCKS5: true\n      acceptUserPass: true\n      userPass:\n        users:\n          - id: lab-socks\n            usernameFile: " + user + "\n            passwordFile: " + pass + "\n"
+	_, err := Load([]byte(doc))
+	de := requireValidation(t, err, violationInvalidValue)
+	found := false
+	for _, v := range de.FieldViolations {
+		if v.Path == "spec.listeners.proxy.userPass.users[0].passwordFile" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want passwordFile length violation in %+v", de.FieldViolations)
+	}
+}
+
+func TestValidateAcceptBindWithSOCKS4Only(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  listeners:\n    proxy:\n      acceptSOCKS4: true\n      acceptBind: true\n"
+	st, err := Load([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Listeners.Proxy.AcceptBind || !st.Spec.Listeners.Proxy.AcceptSOCKS4 || st.Spec.Listeners.Proxy.AcceptSOCKS5 {
+		t.Fatalf("proxy=%+v", st.Spec.Listeners.Proxy)
+	}
+}
+
+func TestValidateExtendedConnectWithClientCleartext(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    http2:\n      clientCleartext: true\n      extendedConnect: true\n"
+	st, err := Load([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Spec.Protocols.HTTP2.Enabled || !st.Spec.Protocols.HTTP2.ClientCleartext || !st.Spec.Protocols.HTTP2.ExtendedConnect {
+		t.Fatalf("http2=%+v", st.Spec.Protocols.HTTP2)
+	}
+}
+
 func TestValidateUnknownRuleProtocol(t *testing.T) {
 	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  rules:\n    items:\n      - id: proto\n        phase: request\n        match:\n          protocol: http2\n        action:\n          type: drop\n"
 	_, err := Load([]byte(doc))

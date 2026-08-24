@@ -46,9 +46,25 @@ type ListenersSpec struct {
 
 // ProxyListenerSpec is the data-plane listener.
 type ProxyListenerSpec struct {
-	Address      string `json:"address"`
-	AcceptSOCKS5 bool   `json:"acceptSOCKS5"`
-	AcceptSOCKS4 bool   `json:"acceptSOCKS4"`
+	Address            string       `json:"address"`
+	AcceptSOCKS5       bool         `json:"acceptSOCKS5"`
+	AcceptSOCKS4       bool         `json:"acceptSOCKS4"`
+	AcceptBind         bool         `json:"acceptBind"`
+	AcceptUDPAssociate bool         `json:"acceptUDPAssociate"`
+	AcceptUserPass     bool         `json:"acceptUserPass"`
+	UserPass           UserPassSpec `json:"userPass"`
+}
+
+// UserPassSpec is SOCKS5 username/password file refs. Empty when acceptUserPass is false.
+type UserPassSpec struct {
+	Users []UserPassUserSpec `json:"users"`
+}
+
+// UserPassUserSpec is one RFC 1929 principal. Secrets are file refs only.
+type UserPassUserSpec struct {
+	ID           string `json:"id"`
+	UsernameFile string `json:"usernameFile"`
+	PasswordFile string `json:"passwordFile"`
 }
 
 // OriginalDestListenerSpec is the optional Linux REDIRECT listener.
@@ -152,14 +168,25 @@ type RuleMatchSpec struct {
 	Protocol       string `json:"protocol"`
 }
 
-// ProtocolsSpec is hop-protocol policy. HTTP/2 defaults off.
+// ProtocolsSpec is hop-protocol policy. Fields default off.
 type ProtocolsSpec struct {
-	HTTP2 HTTP2Spec `json:"http2"`
+	HTTP2     HTTP2Spec     `json:"http2"`
+	WebSocket WebSocketSpec `json:"websocket"`
 }
 
-// HTTP2Spec enables inner+origin HTTP/2. Default off.
+// HTTP2Spec is hop-protocol HTTP/2 policy. All fields default off.
 type HTTP2Spec struct {
-	Enabled bool `json:"enabled"`
+	Enabled         bool `json:"enabled"`
+	ClientCleartext bool `json:"clientCleartext"`
+	Origin          bool `json:"origin"`
+	ExtendedConnect bool `json:"extendedConnect"`
+	CapturePush     bool `json:"capturePush"`
+	GRPCDecode      bool `json:"grpcDecode"`
+}
+
+// WebSocketSpec is WebSocket capture policy. inspectFrames defaults off.
+type WebSocketSpec struct {
+	InspectFrames bool `json:"inspectFrames"`
 }
 
 // CompatSpec is optional first-party compat adapters. Default off.

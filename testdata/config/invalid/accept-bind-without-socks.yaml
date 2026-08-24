@@ -1,0 +1,8 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: accept-bind-without-socks
+spec:
+  listeners:
+    proxy:
+      acceptBind: true

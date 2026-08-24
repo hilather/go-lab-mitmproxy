@@ -51,11 +51,20 @@ type statusResponse struct {
 }
 
 type statusFeaturesJSON struct {
-	HTTP2               bool `json:"http2"`
-	SOCKS5              bool `json:"socks5"`
-	SOCKS4              bool `json:"socks4"`
-	OriginalDestination bool `json:"originalDestination"`
-	CompatFlowREST      bool `json:"compatFlowREST"`
+	HTTP2                  bool `json:"http2"`
+	HTTP2ClientCleartext   bool `json:"http2ClientCleartext"`
+	HTTP2Origin            bool `json:"http2Origin"`
+	HTTP2ExtendedConnect   bool `json:"http2ExtendedConnect"`
+	HTTP2CapturePush       bool `json:"http2CapturePush"`
+	HTTP2GRPCDecode        bool `json:"http2GRPCDecode"`
+	InspectWebSocketFrames bool `json:"inspectWebSocketFrames"`
+	SOCKS5                 bool `json:"socks5"`
+	SOCKS4                 bool `json:"socks4"`
+	AcceptBind             bool `json:"acceptBind"`
+	AcceptUDPAssociate     bool `json:"acceptUDPAssociate"`
+	AcceptUserPass         bool `json:"acceptUserPass"`
+	OriginalDestination    bool `json:"originalDestination"`
+	CompatFlowREST         bool `json:"compatFlowREST"`
 }
 
 type listenerJSON struct {
@@ -369,11 +378,20 @@ func featuresFromSpec(sp *model.Spec) statusFeaturesJSON {
 		return statusFeaturesJSON{}
 	}
 	return statusFeaturesJSON{
-		HTTP2:               sp.Protocols.HTTP2.Enabled,
-		SOCKS5:              sp.Listeners.Proxy.AcceptSOCKS5,
-		SOCKS4:              sp.Listeners.Proxy.AcceptSOCKS4,
-		OriginalDestination: sp.Listeners.OriginalDestination.Enabled,
-		CompatFlowREST:      sp.Compat.FlowREST.Enabled,
+		HTTP2:                  sp.Protocols.HTTP2.Enabled,
+		HTTP2ClientCleartext:   sp.Protocols.HTTP2.ClientCleartext,
+		HTTP2Origin:            sp.Protocols.HTTP2.Origin,
+		HTTP2ExtendedConnect:   sp.Protocols.HTTP2.ExtendedConnect,
+		HTTP2CapturePush:       sp.Protocols.HTTP2.CapturePush,
+		HTTP2GRPCDecode:        sp.Protocols.HTTP2.GRPCDecode,
+		InspectWebSocketFrames: sp.Protocols.WebSocket.InspectFrames,
+		SOCKS5:                 sp.Listeners.Proxy.AcceptSOCKS5,
+		SOCKS4:                 sp.Listeners.Proxy.AcceptSOCKS4,
+		AcceptBind:             sp.Listeners.Proxy.AcceptBind,
+		AcceptUDPAssociate:     sp.Listeners.Proxy.AcceptUDPAssociate,
+		AcceptUserPass:         sp.Listeners.Proxy.AcceptUserPass,
+		OriginalDestination:    sp.Listeners.OriginalDestination.Enabled,
+		CompatFlowREST:         sp.Compat.FlowREST.Enabled,
 	}
 }
 

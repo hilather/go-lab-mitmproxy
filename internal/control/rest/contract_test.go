@@ -76,9 +76,17 @@ func TestContractReads(t *testing.T) {
 	if feat == nil {
 		t.Fatalf("status missing features: %s", st.Body.String())
 	}
-	for _, k := range []string{"http2", "socks5", "socks4", "originalDestination", "compatFlowREST"} {
-		if _, ok := feat[k]; !ok {
+	for _, k := range []string{
+		"http2", "socks5", "socks4", "originalDestination", "compatFlowREST",
+		"http2ClientCleartext", "http2Origin", "http2ExtendedConnect", "http2CapturePush", "http2GRPCDecode",
+		"inspectWebSocketFrames", "acceptBind", "acceptUDPAssociate", "acceptUserPass",
+	} {
+		v, ok := feat[k]
+		if !ok {
 			t.Fatalf("status.features missing %s: %s", k, st.Body.String())
+		}
+		if v != false {
+			t.Fatalf("status.features.%s=%v want false", k, v)
 		}
 	}
 
