@@ -34,6 +34,9 @@ export type HTTPMessage = {
 
 export type HTTP2Info = {
   streamId: number;
+  parentStreamId?: number;
+  promisedId?: number;
+  pushed?: boolean;
 };
 
 export type SOCKSInfo = {

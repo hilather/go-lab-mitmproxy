@@ -48,6 +48,18 @@ func TestReplayAllowsHTTP2Protocol(t *testing.T) {
 	}
 }
 
+func TestReplayRejectsPushed(t *testing.T) {
+	err := validateReplay(&model.Flow{
+		Method:   "GET",
+		Protocol: model.FlowProtocolHTTP2,
+		HTTP2:    &model.HTTP2Info{StreamID: 2, ParentStreamID: 1, PromisedID: 2, Pushed: true},
+	})
+	if err == nil {
+		t.Fatal("pushed flows must not be replayable")
+	}
+	requireCode(t, err, domainerr.CodeValidationFailed)
+}
+
 func TestReplayUnwired(t *testing.T) {
 	svc, _ := mustBoot(t)
 	id := insertRaw(t, svc, "app.lab")

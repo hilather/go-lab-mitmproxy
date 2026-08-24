@@ -20,6 +20,7 @@ type Metrics struct {
 	grpcN             map[string]int64
 	storeFull         int64
 	h2TrailersDropped int64
+	h2Push            map[string]int64
 	reg               *observability.Registry
 	log               *observability.Logger
 }
@@ -43,6 +44,7 @@ func newMetrics() *Metrics {
 		socksN:   make(map[string]int64),
 		wsN:      make(map[string]int64),
 		grpcN:    make(map[string]int64),
+		h2Push:   make(map[string]int64),
 	}
 }
 
@@ -165,6 +167,20 @@ func (m *Metrics) grpcDecode(result string) {
 	m.mu.Unlock()
 	if reg != nil {
 		reg.Inc(observability.MetricGRPCDecodeTotal, map[string]string{"result": result}, 1)
+func (m *Metrics) h2PushCaptured(result string) {
+	if m == nil {
+		return
+	}
+	result = observability.H2PushCapturedResult(result)
+	m.mu.Lock()
+	if m.h2Push == nil {
+		m.h2Push = make(map[string]int64)
+	}
+	m.h2Push[result]++
+	reg := m.reg
+	m.mu.Unlock()
+	if reg != nil {
+		reg.Inc(observability.MetricH2PushCapturedTotal, map[string]string{"result": result}, 1)
 	}
 }
 
@@ -281,12 +297,15 @@ func (m *Metrics) WSFrames(opcode string) int64 {
 
 // GRPCDecode is labmitm_grpc_decode_total{result}.
 func (m *Metrics) GRPCDecode(result string) int64 {
+// H2PushCaptured is labmitm_h2_push_captured_total{result}.
+func (m *Metrics) H2PushCaptured(result string) int64 {
 	if m == nil {
 		return 0
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.grpcN[observability.GRPCDecodeResult(result)]
+	return m.h2Push[observability.H2PushCapturedResult(result)]
 }
 
 // H2TrailerDropped is labmitm_h2_trailer_dropped_total.

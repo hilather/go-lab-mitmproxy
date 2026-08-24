@@ -33,5 +33,35 @@ func TestFromFlowSOCKSUser(t *testing.T) {
 	}
 	if strings.Contains(string(eb), `"user"`) {
 		t.Fatalf("empty user should omit: %s", eb)
+func TestFromFlowHTTP2Push(t *testing.T) {
+	f := &model.Flow{
+		Method:      "GET",
+		Protocol:    model.FlowProtocolHTTP2,
+		Intercepted: true,
+		HTTP2: &model.HTTP2Info{
+			StreamID:       2,
+			ParentStreamID: 1,
+			PromisedID:     2,
+			Pushed:         true,
+		},
+	}
+	out := fromFlow(f, false)
+	if out.HTTP2 == nil || out.HTTP2.StreamID != 2 || out.HTTP2.ParentStreamID != 1 || out.HTTP2.PromisedID != 2 || !out.HTTP2.Pushed {
+		t.Fatalf("http2=%+v", out.HTTP2)
+	}
+	b, err := json.Marshal(out.HTTP2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); got != `{"streamId":2,"parentStreamId":1,"promisedId":2,"pushed":true}` {
+		t.Fatalf("json %s", got)
+	}
+	plain := fromFlow(&model.Flow{HTTP2: &model.HTTP2Info{StreamID: 7}}, true)
+	b, err = json.Marshal(plain.HTTP2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); got != `{"streamId":7}` {
+		t.Fatalf("omit empty push fields: %s", got)
 	}
 }

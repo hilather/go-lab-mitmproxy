@@ -183,7 +183,13 @@ func (s *Server) innerHTTP(clientTLS, upTLS *tls.Conn, creq *http.Request, host,
 		originH2 := upTLS.ConnectionState().NegotiatedProtocol == http2x.NextProtoH2
 		var serialize *sync.Mutex
 		if originH2 {
-			h2tr, err := http2x.NewOriginTransport(upTLS)
+			spec := s.specOf(sess)
+			h2tr, err := http2x.NewOriginConn(upTLS, http2x.OriginOpts{
+				CapturePush: spec.Protocols.HTTP2.CapturePush,
+				MaxBody:     int(s.maxBodyOf(sess)),
+				OnPush:      s.onOriginPush(host, port, info, sess),
+				OnRST:       func() { s.metrics.h2PushCaptured("rst") },
+			})
 			if err != nil {
 				s.failIntercept(creq, host, started, tlsmitm.ResultUpstreamTLS, sess)
 				_ = clientTLS.Close()
@@ -483,6 +489,53 @@ func requestProtocol(req *http.Request) string {
 		return model.FlowProtocolHTTP2
 	}
 	return model.FlowProtocolHTTP11
+}
+
+func (s *Server) onOriginPush(host, port string, info *model.TLSInfo, pinned *ruleSession) func(http2x.Pushed) {
+	return func(p http2x.Pushed) {
+		sess := pinned.fork()
+		started := time.Now()
+		rawPath := p.Path
+		if rawPath == "" {
+			rawPath = "/"
+		}
+		u := &url.URL{Scheme: "https", Host: httpsOriginHost(host, port)}
+		if parsed, err := url.ParseRequestURI(rawPath); err == nil {
+			u.Path = parsed.Path
+			u.RawQuery = parsed.RawQuery
+		} else {
+			u.Path = rawPath
+		}
+		f := &model.Flow{
+			StartedAt:   started.UTC(),
+			CompletedAt: time.Now().UTC(),
+			State:       model.FlowStateCompleted,
+			Method:      p.Method,
+			URL:         u.String(),
+			Host:        host,
+			Scheme:      "https",
+			Protocol:    model.FlowProtocolHTTP2,
+			Status:      p.Status,
+			Intercepted: true,
+			TLS:         info,
+			HTTP2: &model.HTTP2Info{
+				StreamID:       p.PromisedID,
+				ParentStreamID: p.ParentStreamID,
+				PromisedID:     p.PromisedID,
+				Pushed:         true,
+			},
+			Request: model.HTTPMessage{Headers: p.RequestHeaders},
+			Response: model.HTTPMessage{
+				Headers:   p.ResponseHeaders,
+				Body:      p.ResponseBody,
+				Size:      len(p.ResponseBody),
+				Truncated: p.ResponseTruncated,
+			},
+			Truncated: p.ResponseTruncated,
+		}
+		s.metrics.h2PushCaptured("ok")
+		s.capture(f, sess)
+	}
 }
 
 func applyH2Meta(f *model.Flow, req *http.Request) {

@@ -32,6 +32,14 @@ function FlowCaptureMeta({ flow }: { flow: Flow }) {
           <dd>{flow.http2.streamId}</dd>
         </div>
       ) : null}
+      {flow.http2?.pushed ? (
+        <div>
+          <dt>Pushed</dt>
+          <dd>
+            yes (parent {flow.http2.parentStreamId}, promised {flow.http2.promisedId})
+          </dd>
+        </div>
+      ) : null}
       {flow.via ? (
         <div>
           <dt>Via</dt>

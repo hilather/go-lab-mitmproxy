@@ -11,6 +11,6 @@
 // SETTINGS) and must not ReadFull ClientPreface from the raw conn after
 // Hijack (D61).
 // websocket uses ServeConn with a TunnelHandler (D63). Origin h2 (D64)
-// multiplexes inner streams on that one TCP via NewOriginTransport;
-// PUSH_PROMISE is not captured here (EnablePush stays 0).
+// multiplexes inner streams on that one TCP via OriginConn;
+// PUSH_PROMISE is capture-only when CapturePush (D65). Inner EnablePush stays 0.
 package http2x
