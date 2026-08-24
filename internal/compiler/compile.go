@@ -20,14 +20,16 @@ type CompileOpts struct {
 	BootstrapRevision model.Revision
 	Generation        model.Generation
 	// Previous, when set, lets Compile reuse the CA handle if the TLS spec
-	// is unchanged. Reset leaves this nil so generate-mode rotates.
+	// is unchanged and copy SOCKSUsers without rereading password files.
+	// Reset leaves this nil so generate-mode rotates and SOCKS files reload.
 	Previous *snapshot.Snapshot
 	// RotateCA forces a new generate-mode CA (and a files-mode reload).
 	RotateCA bool
 }
 
 // Compile normalizes and validates st (copy-on-write), hashes canonical JSON,
-// compiles the rules engine, and generates or loads the lab CA.
+// compiles the rules engine, generates or loads the lab CA, and compiles the
+// SOCKS user-pass digest table (copy Previous.SOCKSUsers when Previous != nil).
 func Compile(ctx context.Context, st *model.State, opts CompileOpts) (*snapshot.Snapshot, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -39,7 +41,7 @@ func Compile(ctx context.Context, st *model.State, opts CompileOpts) (*snapshot.
 	if err != nil {
 		return nil, err
 	}
-	if err := config.Validate(n); err != nil {
+	if err := validateForCompile(n, opts); err != nil {
 		return nil, err
 	}
 	rev, err := config.Revision(n)
@@ -58,6 +60,10 @@ func Compile(ctx context.Context, st *model.State, opts CompileOpts) (*snapshot.
 	if err != nil {
 		return nil, err
 	}
+	socksUsers, err := compileSOCKSUsers(n.Spec, opts)
+	if err != nil {
+		return nil, err
+	}
 	return &snapshot.Snapshot{
 		Canonical:         n,
 		Revision:          rev,
@@ -66,7 +72,15 @@ func Compile(ctx context.Context, st *model.State, opts CompileOpts) (*snapshot.
 		CompiledAt:        now,
 		Rules:             rules.New(n.Spec.Rules),
 		CA:                ca,
+		SOCKSUsers:        socksUsers,
 	}, nil
+}
+
+func validateForCompile(n *model.State, opts CompileOpts) error {
+	if opts.Previous != nil {
+		return config.ValidateLiveApply(n)
+	}
+	return config.Validate(n)
 }
 
 func compileCA(spec model.TLSSpec, opts CompileOpts) (*tlsmitm.Authority, error) {

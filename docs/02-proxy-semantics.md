@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-23 (SOCKS BIND + user-pass)
 Related ADRs: 0002, 0009, 0010, 0012
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -57,7 +57,7 @@ Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest li
 | Tagged orig-dest absolute-form (incl. `GET http://169.254.169.254/`) | Dial dest IP:port only; never `serveAbsolute` / never Dial Host. |
 | `PRI * HTTP/2.0` on `:8888` **or** orig-dest | Close connection. Metric `reason="http2"`. Before `gate.acquire`. |
 | First byte `0x05` / `0x04` (per-conn peek; `acceptSOCKS5`/`acceptSOCKS4` off) | Close. Metric `reason="socks"`. |
-| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT, NO AUTH. Peeked `0x05` is replayed. BIND if `acceptBind`; else CMD `05 07`. UDP still `05 07`. |
+| First byte `0x05` and `acceptSOCKS5: true` | SOCKS5 CONNECT. Peeked `0x05` is replayed. Method select: `acceptUserPass` false → NO AUTH (`0x00`) only; `acceptUserPass` true → RFC 1929 (`0x02`) only (never `0x00` even if offered). GSSAPI (`0x01`) is never selected. BIND if `acceptBind`; else CMD `05 07`. UDP still `05 07`. |
 | First byte `0x04` and `acceptSOCKS4: true` | SOCKS4/4a CONNECT. USERID discarded. BIND if `acceptBind` and CD=2; else CD≠1 → `91`. |
 | HTTP/1.0 | Accept if absolute-form `http://` or CONNECT with port; respond HTTP/1.1. |
 
@@ -73,7 +73,23 @@ Hop-by-hop headers stripped on both legs: `Proxy-Connection`, `Keep-Alive`, `TE`
 
 No third-party SOCKS library. `gate.acquire` runs after a valid CONNECT request is parsed and **before** Dial (same gate as `ServeHTTP`). Hairpin → SOCKS5 `05 02` / SOCKS4 `91`, no Dial. IMDS/link-local CIDR deny does not Dial `169.254.169.254`.
 
-Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`, `SOCKS.Command="connect"`. Intercepted inner flows copy `Via`/`SOCKS`. Username/password and GSSAPI are never selected. UDP ASSOCIATE stays `05 07` until a later PR.
+Success BND: IPv4 or domain ATYP → `0.0.0.0:0`; IPv6 ATYP → `::` port 0. Then `shouldIntercept` → `serveInterceptConn` (no HTTP 200). Else bidirectional copy; metadata flow `Protocol=socks5|socks4`, `Via` matching, `Method=CONNECT`, `SOCKS.Command="connect"`. Intercepted inner flows copy `Via`/`SOCKS`. Matching YAML `userPass` `id` may appear on `SOCKSInfo.User`; username and password are never stored on the flow. GSSAPI is never selected. UDP ASSOCIATE stays `05 07` until a later PR.
+
+SOCKS5 method select ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D60):
+
+```text
+methods include 0x02 and acceptUserPass
+  → write 05 02
+  → read RFC 1929 VER=1 ULEN UNAME PLEN PASSWD
+  → constant-time compare of SHA-256(len||username||len||password) against
+    EVERY snapshot SOCKSUsers digest
+  → 01 00 success or 01 01 failure + close (reason=socks_auth)
+acceptUserPass and client did not offer 0x02
+  → 05 FF (even if 0x00 was offered)
+acceptUserPass false
+  → existing NO AUTH only
+GSSAPI (0x01) is never selected
+```
 
 ## SOCKS BIND (1.2, opt-in)
 
@@ -253,4 +269,4 @@ Topologies and iptables: [docs/13-deployment.md](https://github.com/hilather/go-
 - Store: [docs/04-flow-store.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/04-flow-store.md)
 - Rules: [docs/05-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/05-rules.md)
 - SOCKS / orig-dest: [docs/adr/0010-socks-and-original-destination.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md)
-- 1.2 BIND / UDP / user-pass: [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)
+- 1.2 BIND / user-pass: [docs/adr/0012-protocol-expansion-12.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)

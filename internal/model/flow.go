@@ -73,6 +73,9 @@ type SOCKSInfo struct {
 	Dest    string
 	Command string
 	BND     string
+	// User is the matching YAML userPass id after RFC 1929 success. Never the
+	// username or password.
+	User string
 }
 
 // Header is an ordered, case-preserving HTTP header.

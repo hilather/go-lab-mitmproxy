@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -13,13 +14,18 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 )
 
 const (
 	socks5Ver            = 0x05
 	socks4Ver            = 0x04
 	socks5NoAuth         = 0x00
+	socks5UserPass       = 0x02
 	socks5NoAcceptable   = 0xff
+	socks5UserPassVer    = 0x01
+	socks5UserPassOK     = 0x00
+	socks5UserPassFail   = 0x01
 	socks5CmdConnect     = 0x01
 	socks5CmdBind        = 0x02
 	socks5ATYPIPv4       = 0x01
@@ -50,6 +56,7 @@ type socksDest struct {
 	via     string
 	proto   string
 	ver     int
+	user    string
 }
 
 func (d socksDest) info() *model.SOCKSInfo {
@@ -58,6 +65,7 @@ func (d socksDest) info() *model.SOCKSInfo {
 		ATYP:    d.atyp,
 		Dest:    net.JoinHostPort(d.host, d.port),
 		Command: model.SOCKSCmdConnect,
+		User:    d.user,
 	}
 }
 
@@ -95,13 +103,8 @@ func (s *Server) serveSOCKS5(c net.Conn) {
 	if _, err := io.ReadFull(br, methods); err != nil {
 		return
 	}
-	if !socks5OffersNoAuth(methods) {
-		_, _ = c.Write([]byte{socks5Ver, socks5NoAcceptable})
-		s.metrics.reject("socks_auth")
-		s.metrics.socks("auth")
-		return
-	}
-	if _, err := c.Write([]byte{socks5Ver, socks5NoAuth}); err != nil {
+	user, ok := s.socks5NegotiateAuth(c, br, methods)
+	if !ok {
 		return
 	}
 
@@ -139,6 +142,7 @@ func (s *Server) serveSOCKS5(c net.Conn) {
 		via:     "socks5",
 		proto:   model.FlowProtocolSOCKS5,
 		ver:     5,
+		user:    user,
 	}
 	if bind {
 		s.serveSOCKSBind(c, br, dest)
@@ -322,12 +326,127 @@ func replySOCKS(c net.Conn, dest socksDest, rep byte) error {
 }
 
 func socks5OffersNoAuth(methods []byte) bool {
+	return socks5OffersMethod(methods, socks5NoAuth)
+}
+
+func socks5OffersMethod(methods []byte, method byte) bool {
 	for _, m := range methods {
-		if m == socks5NoAuth {
+		if m == method {
 			return true
 		}
 	}
 	return false
+}
+
+func (s *Server) socks5NegotiateAuth(c net.Conn, br *bufio.Reader, methods []byte) (user string, ok bool) {
+	spec := withSpecDefaults(s.liveSpec())
+	if spec.Listeners.Proxy.AcceptUserPass {
+		if !socks5OffersMethod(methods, socks5UserPass) {
+			_, _ = c.Write([]byte{socks5Ver, socks5NoAcceptable})
+			s.metrics.reject("socks_auth")
+			s.metrics.socks("auth")
+			return "", false
+		}
+		if _, err := c.Write([]byte{socks5Ver, socks5UserPass}); err != nil {
+			return "", false
+		}
+		return s.socks5UserPass(c, br)
+	}
+	if !socks5OffersNoAuth(methods) {
+		_, _ = c.Write([]byte{socks5Ver, socks5NoAcceptable})
+		s.metrics.reject("socks_auth")
+		s.metrics.socks("auth")
+		return "", false
+	}
+	if _, err := c.Write([]byte{socks5Ver, socks5NoAuth}); err != nil {
+		return "", false
+	}
+	return "", true
+}
+
+func (s *Server) socks5UserPass(c net.Conn, br *bufio.Reader) (user string, ok bool) {
+	fail := func() (string, bool) {
+		_, _ = c.Write([]byte{socks5UserPassVer, socks5UserPassFail})
+		s.metrics.reject("socks_auth")
+		s.metrics.socks("auth")
+		return "", false
+	}
+	ver, err := br.ReadByte()
+	if err != nil {
+		return "", false
+	}
+	ulen, err := br.ReadByte()
+	if err != nil {
+		return "", false
+	}
+	uname := make([]byte, ulen)
+	if ulen > 0 {
+		if _, err := io.ReadFull(br, uname); err != nil {
+			return "", false
+		}
+	}
+	plen, err := br.ReadByte()
+	if err != nil {
+		zeroSOCKSSecret(uname)
+		return "", false
+	}
+	passwd := make([]byte, plen)
+	if plen > 0 {
+		if _, err := io.ReadFull(br, passwd); err != nil {
+			zeroSOCKSSecret(uname)
+			return "", false
+		}
+	}
+	defer func() {
+		zeroSOCKSSecret(uname)
+		zeroSOCKSSecret(passwd)
+	}()
+	if ver != socks5UserPassVer || ulen == 0 || plen == 0 {
+		return fail()
+	}
+	digest := snapshot.DigestSOCKSUser(uname, passwd)
+	id, matched := matchSOCKSUsers(s.liveSOCKSUsers(), digest)
+	if !matched {
+		return fail()
+	}
+	if _, err := c.Write([]byte{socks5UserPassVer, socks5UserPassOK}); err != nil {
+		return "", false
+	}
+	return id, true
+}
+
+func (s *Server) liveSOCKSUsers() []snapshot.SOCKSUserDigest {
+	if s.snaps == nil {
+		return nil
+	}
+	snap := s.snaps.Load()
+	if snap == nil {
+		return nil
+	}
+	return snap.SOCKSUsers
+}
+
+func matchSOCKSUsers(users []snapshot.SOCKSUserDigest, digest [32]byte) (id string, ok bool) {
+	found := 0
+	idx := 0
+	for i, u := range users {
+		eq := 0
+		if subtle.ConstantTimeCompare(u.Digest[:], digest[:]) == 1 {
+			eq = 1
+		}
+		idx = idx*(1-eq) + i*eq
+		found += eq
+	}
+	if found != 1 {
+		return "", false
+	}
+	return users[idx].ID, true
+}
+
+func zeroSOCKSSecret(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
 }
 
 func readSOCKS5Addr(br *bufio.Reader, atyp byte) (host, port, atypName string, bnd byte, err error) {

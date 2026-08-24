@@ -164,7 +164,7 @@ The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://githu
 - `store.maxBodyBytes` ≥ 1 KiB and ≤ `store.maxBytes`. `maxFlows` ≥ 1. `maxBytes` ≥ 1 MiB.
 - Loader: `management.auth.mode: bearer` with **zero tokens is valid** (empty `spec: {}` must load). Each listed token requires `id`, `secretFile`, and `role`. Overlay `secretFile` paths that are not mounted do not fail validate; if the file exists, the first non-comment line must be ≥32 bytes (256 bits) after trim. `scopes` materialize to `[]` when omitted.
 - Serve/bind (SEC-001): binding management with `mode: bearer` and zero usable tokens is **refused**. `dev-loopback-unauth` is rejected in the container default fixture (`testdata/container/config.yaml` is `mode: bearer`). Keep ADR 0005’s listen-refuse sentence as serve-time. Token files are reread on reset and apply.
-- `acceptBind: true` requires `acceptSOCKS5` or `acceptSOCKS4`. `acceptUDPAssociate: true` and `acceptUserPass: true` require `acceptSOCKS5`. `acceptUserPass: true` also requires ≥1 `userPass.users[]` entry. User `id` is unique `[a-z0-9-]{1,64}`; `usernameFile` / `passwordFile` must exist at load and the first non-comment line must be 1–255 bytes (RFC 1929). File refs only — no inline username/password. Users present while `acceptUserPass` is false are still validated.
+- `acceptBind: true` requires `acceptSOCKS5` or `acceptSOCKS4`. `acceptUDPAssociate: true` and `acceptUserPass: true` require `acceptSOCKS5`. `acceptUserPass: true` also requires ≥1 `userPass.users[]` entry. User `id` is unique `[a-z0-9-]{1,64}`; `usernameFile` / `passwordFile` must exist at **Start/Reset** and the first non-comment line must be 1–255 bytes (RFC 1929). File refs only — no inline username/password. Users present while `acceptUserPass` is false are still validated at load. Live apply copies compiled digests and does not reread the files.
 - `protocols.http2.origin: true` requires `http2.enabled`. `extendedConnect: true` requires `http2.enabled` or `clientCleartext`. `capturePush: true` requires `origin`. `grpcDecode: true` requires `http2.enabled` or `origin`. Empty `spec: {}` materializes every 1.2 flag **false**.
 
 ## Revisions
@@ -253,6 +253,7 @@ Idempotency LRU default 256; reset clears it.
 2. Hashes canonical JSON (`sha256:…`). Generated CA material is **not** in the hash.
 3. Builds `rules.Engine` from `spec.rules`.
 4. Generates or loads the lab CA (`tlsmitm.Authority`). Generate-mode mints even when `intercept: false` so `GetCA` works. `replaceRules` / `replaceAdmission` / `replaceTargets` / `replaceStoreCaps` reuse the previous CA handle when the TLS spec is unchanged. `replaceTLS` and `Reset` recompile (generate-mode rotates).
+5. Loads SOCKS user-pass digests into snapshot side table `SOCKSUsers` (not Canonical, not export) only when `Previous == nil` (Start/Reset). Live Compile copies `Previous.SOCKSUsers` and does **not** stat password files (D60). Do not key that copy off TLS equality.
 
 `internal/snapshot.Store` holds active / previous / bootstrap behind atomic pointers. The proxy loads once per request / CONNECT (`Options.Snapshots`) and pins spec, engine, CA, and store epoch for the session. In-flight sessions keep the pointer they loaded; new accepts see the swapped snapshot. An in-flight `Insert` after `ResetTo` uses the accept-time epoch and is discarded (`ErrStaleEpoch`).
 
