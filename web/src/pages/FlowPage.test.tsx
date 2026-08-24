@@ -255,12 +255,6 @@ describe("FlowPage", () => {
           },
         ],
       },
-  it("shows PUSH_PROMISE parent and promised ids, without a gRPC tab when grpc is absent", async () => {
-    const pushedFlow = {
-      ...flow,
-      id: "01JPUSH",
-      protocol: "h2",
-      http2: { streamId: 2, parentStreamId: 1, promisedId: 2, pushed: true },
     };
     vi.stubGlobal(
       "fetch",
@@ -271,8 +265,6 @@ describe("FlowPage", () => {
         }
         if (url.includes("/v1/flows/01JGRPC") && !url.includes("/request") && !url.includes("/response")) {
           return json(200, grpcFlow);
-        if (url.includes("/v1/flows/01JPUSH") && !url.includes("/request") && !url.includes("/response")) {
-          return json(200, pushedFlow);
         }
         return json(404, {
           status: 404,
@@ -299,6 +291,39 @@ describe("FlowPage", () => {
     expect(await screen.findByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument();
     expect(document.querySelector("iframe")).toBeNull();
     expect(document.querySelector("[dangerouslySetInnerHTML]")).toBeNull();
+  });
+
+  it("shows PUSH_PROMISE parent and promised ids, without a gRPC tab when grpc is absent", async () => {
+    const pushedFlow = {
+      ...flow,
+      id: "01JPUSH",
+      protocol: "h2",
+      http2: { streamId: 2, parentStreamId: 1, promisedId: 2, pushed: true },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.includes("/v1/flows/01JPUSH") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, pushedFlow);
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+
+    renderApp(
+      <Routes>
+        <Route path="/flows/:id" element={<FlowPage />} />
+      </Routes>,
       { route: "/flows/01JPUSH" },
     );
 

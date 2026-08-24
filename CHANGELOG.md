@@ -4,28 +4,39 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ## Unreleased
 
-1.2 protocol expansion series (stacked PRs 1–13; [ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D58–D68). Additive `labmitm.dev/v1alpha1` flags, default **off**, bootstrap + **Reset-only** (D51). Empty `spec: {}` remains a 1.0 process. Overlay [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) stays flags-off. Catalog stays 30 `/v1` rows. No new capability IDs. **D7 stands.** Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). Tagged notes (`docs/releases/v1.2.0.md`) land when tagging.
+### Added
+
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.2.0 - 2026-08-24
+
+1.2 protocol expansion (ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/v1.2.0/docs/adr/0012-protocol-expansion-12.md) D58–D68). Additive `labmitm.dev/v1alpha1` flags, default **off**, bootstrap + **Reset-only** (D51). Empty `spec: {}` remains a 1.0 process. Overlay [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/v1.2.0/examples/labmitm.yaml) stays flags-off. Catalog stays 30 `/v1` rows. No new capability IDs. **D7 stands.** Notes: [docs/releases/v1.2.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.2.0/docs/releases/v1.2.0.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.2.0/docs/known-limitations.md).
 
 ### Added
 
-- Opt-in SOCKS5/4 BIND behind `listeners.proxy.acceptBind` (D58). Listen on the SOCKS control `LocalAddr()` IP only, never `:0` / `0.0.0.0` / `::`. Unspecified DST is rejected (no Listen). Two-reply raw tunnel (`SOCKS.Command="bind"`, `intercepted=false`). Flag-off BIND stays `05 07` / SOCKS4 `91`. Hairpin includes live BIND listen ports. Overlay YAML stays flags-off.
-- WebSocket frame inspect (`protocols.websocket.inspectFrames`, default off, Reset-only, D67). Flag-off stays 101 + copy. Flag-on captures RFC 6455 frames under existing store caps (`maxBodyBytes`, 4096 frames, `{ULID}-ws.body` spill). REST/MCP `websocket` on GET-by-id; list omits `frames`. Inspector Frames tab. `labmitm_ws_frames_total{opcode}`. Extended CONNECT / websocket-on-h2 is still out.
-- Opt-in SOCKS5 UDP ASSOCIATE behind `listeners.proxy.acceptUDPAssociate` (D59). Listen on the SOCKS control `LocalAddr()` IP only. Unspecified ASSOCIATE DST is legal. First datagram pins the client UDP source; domain dests are pinned (LookupIP once); inbound flood cap; FRAG dropped; no TLS intercept. Flag-off UDP stays `05 07`. Overlay YAML stays flags-off.
-- WebSocket frame inspect (`protocols.websocket.inspectFrames`, default off, Reset-only, D67). Flag-off stays 101 + copy. Flag-on captures RFC 6455 frames under existing store caps (`maxBodyBytes`, 4096 frames, `{ULID}-ws.body` spill). REST/MCP `websocket` on GET-by-id; list omits `frames`. Inspector Frames tab. `labmitm_ws_frames_total{opcode}`.
-- RFC 8441 Extended CONNECT websocket on the **inner** hop and client-facing h2c (`protocols.http2.extendedConnect`, default off, Reset-only, D63). Nested inner CONNECT without `:protocol` still RST, no flow. Success is `:status=200`; origin stays HTTP/1.1 Upgrade.
-- RFC 9113 §8.5 CONNECT on client-facing h2c (`protocols.http2.clientCleartext`, D62). Per-stream origin TCP. http2x writes 2xx HEADERS then raw DATA splice or intercept AfterAck (`serveInterceptConn`; no HTTP/1.1 200). Handshake failure does not DATA-tunnel (D20). Orig-dest tagged CONNECT stays 400.
-- RFC 8441 Extended CONNECT websocket on the **inner** hop (`protocols.http2.extendedConnect`, default off, Reset-only, D63). Nested inner CONNECT without `:protocol` still RST, no flow. Success is inner `:status=200`; origin stays HTTP/1.1 Upgrade. Client-facing h2c / CONNECT to the proxy is still out.
-- Best-effort gRPC protobuf decode (`protocols.http2.grpcDecode`, default off, Reset-only, D66). In-tree length-prefix + wire tree (no `google.golang.org/protobuf`). Fail-open. grpc-web stays opaque. REST/MCP `grpc` on GET-by-id; list omits `messages`. Inspector gRPC tab. `labmitm_grpc_decode_total{result}`.
 - SOCKS5/4 BIND behind `listeners.proxy.acceptBind` (D58). Listen on the SOCKS control `LocalAddr()` IP only, never `:0` / `0.0.0.0` / `::`. Unspecified DST (`0.0.0.0:0` / `[::]:0`) is rejected (no Listen). Two-reply raw tunnel (`SOCKS.Command="bind"`, `intercepted=false`). 1.1 `acceptSOCKS5` stays CONNECT-only; flag-off BIND stays `05 07` / SOCKS4 `91`. Hairpin includes live BIND listen ports.
-- SOCKS5 UDP ASSOCIATE behind `listeners.proxy.acceptUDPAssociate` (D59). Relay binds the control IP. First client datagram pins the client UDP source; domain dests LookupIP once then pin; FRAG ≠ 0 dropped; inbound origin floods capped. `acceptSOCKS5` on + UDP off still `05 07`. No orig-dest UDP, no QUIC.
+- SOCKS5 UDP ASSOCIATE behind `listeners.proxy.acceptUDPAssociate` (D59). Relay binds the control IP. Unspecified ASSOCIATE DST is legal. First client datagram pins the client UDP source; domain dests LookupIP once then pin; FRAG ≠ 0 dropped; inbound origin floods capped. `acceptSOCKS5` on + UDP off still `05 07`. No orig-dest UDP, no QUIC.
 - SOCKS5 username/password behind `listeners.proxy.acceptUserPass` + `userPass.users[]` file refs (D60). Fail-closed RFC 1929 (no NO AUTH fallback). GSSAPI (`0x01`) is never selected. Digests are a snapshot side table, not Canonical, not export. HTTP hop stays unauthenticated (no `Proxy-Authorization`). Management stays bearer (D6).
-- WebSocket frame inspect (`protocols.websocket.inspectFrames`, D67). Flag-off stays 101 + copy. Flag-on captures RFC 6455 frames under existing store caps (`maxBodyBytes`, 4096 frames, `{ULID}-ws.body` spill). REST/MCP `websocket` on GET-by-id; list omits `frames`. Inspector Frames tab. `labmitm_ws_frames_total{opcode}`.
 - Client-facing h2c on PRI leftover when `protocols.http2.clientCleartext` (D61). Flag-off PRI still hard-closes before `gate.acquire`. Flag-on Hijack (no Write) → `http2x.ServeConn` PrefaceTail (do not re-read the 24-byte preface). Regular h2c GET/POST allowed. `:scheme=https` 400. `http.Server` stays HTTP/1.1-only.
 - RFC 9113 §8.5 CONNECT on client-facing h2c (D62). Each CONNECT stream is one origin TCP. No HTTP/1.1 200. Handshake failure RSTs (D20); no DATA tunnel. Orig-dest tagged CONNECT stays 400 (D57). Nested inner CONNECT without `:protocol` still RST, **no flow**.
 - RFC 8441 Extended CONNECT websocket (`protocols.http2.extendedConnect`, D63). Inner and client-facing `:protocol=websocket` reuse `internal/wsx`. Success is inner `:status=200`. Other `:protocol` values RST, no flow. Illegal h2 `Upgrade: websocket` still RST, no flow.
 - Origin HTTP/2 multiplex when `protocols.http2.origin` **and** the inner leaf negotiated `h2` (D64). One CONNECT = one origin TCP. Flag-off keeps D32/D44 h2→h1 transcode. Replay follows the **live** origin flag (off → HTTP/1.1 origin-form with leading-`:` stripped).
-- Best-effort gRPC protobuf decode (`protocols.http2.grpcDecode`, D66). In-tree length-prefix + protobuf wire tree; no `google.golang.org/protobuf`. Fail-open. grpc-web stays **opaque** (content-type recorded, payload not parsed). REST/MCP `grpc` on GET-by-id; list omits `messages`. `labmitm_grpc_decode_total{result}`.
 - Origin `PUSH_PROMISE` capture-only (`protocols.http2.capturePush`, D65). Inner `EnablePush` stays 0. Promised streams are stored as flows and are **not** forwarded or replayable. Flag-off RSTs the promised id toward origin. Inspector shows parent/promised ids. `labmitm_h2_push_captured_total{result}`.
+- Best-effort gRPC protobuf decode (`protocols.http2.grpcDecode`, D66). In-tree length-prefix + protobuf wire tree; no `google.golang.org/protobuf`. Fail-open. grpc-web stays **opaque** (content-type recorded, payload not parsed). REST/MCP `grpc` on GET-by-id; list omits `messages`. Inspector gRPC tab. `labmitm_grpc_decode_total{result}`.
+- WebSocket frame inspect (`protocols.websocket.inspectFrames`, D67). Flag-off stays 101 + copy. Flag-on captures RFC 6455 frames under existing store caps (`maxBodyBytes`, 4096 frames, `{ULID}-ws.body` spill). REST/MCP `websocket` on GET-by-id; list omits `frames`. Inspector Frames tab. `labmitm_ws_frames_total{opcode}`.
+- ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/v1.2.0/docs/adr/0012-protocol-expansion-12.md) records D58–D68.
 
 ### Changed
 

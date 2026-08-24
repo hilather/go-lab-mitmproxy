@@ -2,9 +2,9 @@
 
 Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-23 (1.2 residuals)
+Last reviewed: 2026-08-24 (1.2 residuals)
 
-This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.1.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.1.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68.
+This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.2.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.2.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68.
 
 LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge proxy and not an attack framework. It never wraps, vendors, or execs Python mitmproxy. **D7 stands.** Overlay YAML ([examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml)) keeps every 1.1 and 1.2 flag **off**. Catalog stays 30 `/v1` rows. No new capability IDs.
 
@@ -14,11 +14,6 @@ New public fields are additive `labmitm.dev/v1alpha1` and **default off**. An em
 
 | Surface | Default (1.0) | Opt-in (Reset-only except as noted) |
 |---|---|---|
-| Client-facing proxy hop (`:8888`) | HTTP/1.1 absolute-form + CONNECT. `PRI * HTTP/2.0` hard close | `protocols.http2.clientCleartext` (default off, Reset-only) |
-| Inner + origin ALPN | `http/1.1` only. Inner `PRI` → `Error=http2_inner` | `protocols.http2.enabled: true` (inner + origin only) |
-| SOCKS on `listeners.proxy` | Peek `0x04`/`0x05` → close | `acceptSOCKS5` / `acceptSOCKS4` |
-| Original destination | Unbound. Ready bit `OrigDestOff` | `listeners.originalDestination.enabled` (Linux REDIRECT) |
-| Compat flow REST | Effective prefix `404` `not_found` | `compat.flowREST.enabled` (default prefix `/compat`) |
 | Client-facing proxy hop (`:8888`) | HTTP/1.1 absolute-form + CONNECT. `PRI * HTTP/2.0` hard close | 1.2 `protocols.http2.clientCleartext` (h2c on PRI leftover). Flag-off PRI still hard close |
 | Inner + origin ALPN | `http/1.1` only. Inner `PRI` → `Error=http2_inner` | 1.1 `protocols.http2.enabled` (inner). 1.2 `origin` may offer origin `h2` only when the inner leaf negotiated `h2` |
 | SOCKS on `listeners.proxy` | Peek `0x04`/`0x05` → close | 1.1 `acceptSOCKS5` / `acceptSOCKS4` = **CONNECT only**. 1.2 `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` are **separate** flags |
@@ -39,7 +34,7 @@ Legal YAML names are camelCase (`acceptSOCKS5`, `acceptBind`, `acceptUDPAssociat
 
 ## 1.2 series residual versus what is not tagged
 
-The 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68) is the claimed product. This isolated docs commit is last in that stack and does not make BIND/UDP/h2c/grpcx files ancestors of itself. What is **not** claimed:
+The 1.2 protocol expansion (ADR 0012 D58–D68) is the claimed product on this tag. What is **not** claimed:
 
 | 1.2 series | Not this product |
 |---|---|
@@ -61,17 +56,6 @@ The 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68) is th
 - **Reverse-proxy / ingress.** `reverseproxy` stays reserved. LabMITM is a forward proxy (+ optional orig-dest).
 - **Windows / macOS original-destination.** Linux-only (`SO_ORIGINAL_DST` / `IP6T_SO_ORIGINAL_DST`). Non-linux `enabled: true` fails `Start` closed and binds nothing.
 - **Compat subset, not mitmproxy 11.** List/get/delete/clear/replay + raw content only. Out: mitmweb, dumpfile, CLI flags, addon, HTTP Basic, PUT mutate, UUID ids, filter DSL, HAR export. Headline: “LabMITM compat flow REST (mitmproxy-inspired subset).” Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md).
-- **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) is on client-facing h2c when `clientCleartext` is on: per-stream origin TCP, 2xx HEADERS then raw splice or intercept AfterAck (no HTTP/1.1 200). Handshake failure does not DATA-tunnel (D20). Orig-dest tagged CONNECT stays 400. Flag-off `PRI` remains a hard close. Inner nested `:method=CONNECT` without `:protocol` is RST `PROTOCOL_ERROR`, **no flow** (D48 remainder). Inner and client-facing `:protocol=websocket` are opt-in `protocols.http2.extendedConnect` (D63); other `:protocol` values RST, no flow. Origin `h2` multiplex is still out.
-- **gRPC protobuf codec.** gRPC is HTTP/2 headers + DATA only.
-- **SOCKS UDP ASSOCIATE, GSSAPI.** BIND is 1.2 opt-in (`acceptBind`, default off); flag-off SOCKS5 BIND stays `05 07`. Username/password is opt-in `acceptUserPass` (D60); flag-off stays NO AUTH (`0x00`). GSSAPI (method `0x01`) is never selected.
-- **SOCKS GSSAPI, username/password.** NO AUTH (`0x00`) only. BIND is 1.2 opt-in (`acceptBind`, default off); UDP ASSOCIATE is 1.2 opt-in (`acceptUDPAssociate`, default off); flag-off SOCKS5 BIND/UDP stays `05 07`. No QUIC, no orig-dest UDP.
-- **WebSocket frame inspect.** `101` + bidirectional copy. Websocket Upgrade on an h2 inner session is rejected.
-- **HTTP/2 or h2c on the client-facing cleartext proxy port.** `PRI * HTTP/2.0` on `:8888` **and** on `:8890` is a hard close.
-- **HTTP/2 CONNECT to the proxy** (RFC 9113 §8.5) and client-facing Extended CONNECT. Inner nested `:method=CONNECT` without `:protocol` is RST `PROTOCOL_ERROR`, **no flow** (D48 remainder). Inner `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); other `:protocol` values RST, no flow.
-- **gRPC-Web envelope decode.** `protocols.http2.grpcDecode` (D66, default off) best-effort-parses `application/grpc` and `application/grpc+proto` only. `application/grpc-web` / `application/grpc-web+proto` record the content-type header and leave the body opaque (no 5-byte prefix parse). No `.proto` registry. Flag-off stores HTTP/2 headers + DATA only.
-- **SOCKS BIND, UDP ASSOCIATE, GSSAPI, username/password.** NO AUTH (`0x00`) only.
-- **WebSocket frame inspect on HTTP/2.** HTTP/1.1 `101` inspect is opt-in `protocols.websocket.inspectFrames` (D67). Inner RFC 8441 websocket reuses that path when `extendedConnect` is on. Illegal h2 `Upgrade: websocket` is still RST, no flow.
-- **Compat subset, not mitmproxy 11.** List/get/delete/clear/replay + raw content only. Out: mitmweb, dumpfile, CLI flags, addon, HTTP Basic, PUT mutate, UUID ids, filter DSL, HAR export, frames array. Headline: “LabMITM compat flow REST (mitmproxy-inspired subset).” Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md).
 - **HTTP Basic on management (D6).** `Authorization: Basic` is 401 Bearer.
 - **HTTP `Proxy-Authorization`.** SOCKS user-pass does not add it. The HTTP hop stays unauthenticated (D17 remainder).
 - **Client-facing TLS on `listeners.proxy`** (HTTPS proxy). h2c is cleartext PRI only; inner `h2` remains the intercepted leaf ALPN path.
@@ -102,17 +86,11 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 - `PUSH_PROMISE` is capture-only on the origin hop when `protocols.http2.capturePush` (default off, requires `origin`). Inner `EnablePush` stays 0; promised streams are stored as flows and are not forwarded or replayable. Flag-off RSTs the promised id toward origin immediately. Breakpoints pause the **stream**, not the TCP session.
 - gRPC decode is opt-in `protocols.http2.grpcDecode`, fail-open, in-tree length-prefix + protobuf wire tree. grpc-web stays opaque.
 - Handshake failure still does not blind-tunnel (D20). **D7 stands.**
-- gRPC protobuf decode is opt-in `protocols.http2.grpcDecode` (D66). Fail-open: malformed/truncated sets `GRPC.DecodeError` and still forwards. grpc-web stays opaque.
 
 ## SOCKS residuals (when enabled)
 
-- CONNECT multiplexed on `listeners.proxy` (no extra bind). BIND (`acceptBind`) listens on the SOCKS control `LocalAddr()` IP only, never `:0` / `0.0.0.0` / `::`. Unspecified DST (`0.0.0.0:0` / `[::]:0`) is rejected (RFC residual).
-- BIND is always a raw tunnel (`intercepted=false`). No inner HTTP, no TLS MITM.
-- Peek runs in a per-conn goroutine; Accept does not stall.
-- Flags off keep 1.0 SOCKS-close (`reason="socks"`). `acceptSOCKS5` without `acceptBind` keeps BIND at `05 07`.
-- Same CIDR guards and `gate.acquire` as HTTP CONNECT. Hairpin includes live BIND listen ports. IMDS deny does not Dial or Listen.
 - 1.1 `acceptSOCKS5` / `acceptSOCKS4` = CONNECT only, multiplexed on `listeners.proxy` (no extra bind). BIND / UDP ASSOCIATE / user-pass need their own flags.
-- BIND (`acceptBind`) listens on the SOCKS control `LocalAddr()` IP only, never `:0` / `0.0.0.0` / `::`. Unspecified DST is rejected (no Listen). BIND is always a raw tunnel (`intercepted=false`).
+- BIND (`acceptBind`) listens on the SOCKS control `LocalAddr()` IP only, never `:0` / `0.0.0.0` / `::`. Unspecified DST (`0.0.0.0:0` / `[::]:0`) is rejected (no Listen). BIND is always a raw tunnel (`intercepted=false`). No inner HTTP, no TLS MITM.
 - UDP ASSOCIATE (`acceptUDPAssociate`) binds the relay on the control IP. First client datagram pins the client UDP source; FRAG ≠ 0 is dropped; inbound origin floods are capped. No TLS intercept, no QUIC, no orig-dest UDP.
 - User-pass (`acceptUserPass`) is fail-closed RFC 1929 (no NO AUTH fallback). GSSAPI is never selected. Credentials are file refs, not Canonical, not a network boundary. Default bind remains `127.0.0.1:8888` (D10).
 - Peek runs in a per-conn goroutine; Accept does not stall.
@@ -127,8 +105,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 
 ## Not a public edge proxy (unchanged)
 
-- No `Proxy-Authorization`. The HTTP hop is unauthenticated; SOCKS user-pass is opt-in (`acceptUserPass`) and is **not** a network boundary. Publishing `:8888` on a LAN is an operator choice with documented risk.
-- No HTTP `Proxy-Authorization`. The HTTP hop is unauthenticated; publishing `:8888` on a LAN is an operator choice with documented risk. SOCKS user-pass is opt-in, lab-static, and **not** a substitute for a network boundary.
+- No HTTP `Proxy-Authorization`. The HTTP hop is unauthenticated; SOCKS user-pass is opt-in (`acceptUserPass`) and is **not** a network boundary. Publishing `:8888` on a LAN is an operator choice with documented risk.
 - Intercept **breaks origin mTLS and certificate pinning**.
 - Not a general attack tool. No fuzzer, payload generator, SSL-strip, or exploit UX.
 - Default standalone binds stay loopback `127.0.0.1:8888` / `127.0.0.1:8088` (D10). The lab overlay is the place that publishes `:8888`/`:8088`.
