@@ -246,6 +246,175 @@ func TestOriginConnRSTPushWhenCaptureOff(t *testing.T) {
 	}
 }
 
+func TestOriginConnPushDATAEndStreamCreditsConnWindow(t *testing.T) {
+	client, server := h2TLSPair(t)
+	pushed := make(chan Pushed, 1)
+	payload := bytes.Repeat([]byte("p"), 16*1024)
+	go func() {
+		writePushOriginWithBody(t, server, payload, len(payload), nil)
+	}()
+	oc, err := NewOriginConn(client, OriginOpts{
+		CapturePush: true,
+		OnPush:      func(p Pushed) { pushed <- p },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := oc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "parent-body" {
+		t.Fatalf("parent body %q (conn window not restored after push END_STREAM)", body)
+	}
+	select {
+	case p := <-pushed:
+		if !bytes.Equal(p.ResponseBody, payload) {
+			t.Fatalf("push len=%d", len(p.ResponseBody))
+		}
+	case <-ctx.Done():
+		t.Fatal("push not captured")
+	}
+}
+
+func TestOriginConnPushTruncatingFrameCreditsConnWindow(t *testing.T) {
+	client, server := h2TLSPair(t)
+	pushed := make(chan Pushed, 1)
+	payload := bytes.Repeat([]byte("t"), 64)
+	go func() {
+		writePushOriginWithBody(t, server, payload, len(payload), nil)
+	}()
+	oc, err := NewOriginConn(client, OriginOpts{
+		CapturePush: true,
+		MaxBody:     8,
+		OnPush:      func(p Pushed) { pushed <- p },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := oc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "parent-body" {
+		t.Fatalf("parent body %q (truncating push DATA did not credit conn window)", body)
+	}
+	select {
+	case p := <-pushed:
+		if !p.ResponseTruncated || len(p.ResponseBody) != 8 {
+			t.Fatalf("trunc %+v len=%d", p.ResponseTruncated, len(p.ResponseBody))
+		}
+	case <-ctx.Done():
+		t.Fatal("truncated push not captured")
+	}
+}
+
+func TestDecodeHPACKClosesHeaderBlock(t *testing.T) {
+	dec := hpack.NewDecoder(4096, nil)
+	var buf bytes.Buffer
+	enc := hpack.NewEncoder(&buf)
+	if err := enc.WriteField(hpack.HeaderField{Name: "x-foo", Value: "bar"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeHPACK(dec, buf.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	enc = hpack.NewEncoder(&buf)
+	enc.SetMaxDynamicTableSize(1024)
+	if err := enc.WriteField(hpack.HeaderField{Name: ":path", Value: "/"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeHPACK(dec, buf.Bytes()); err != nil {
+		t.Fatalf("dynamic table size update after Close must succeed: %v", err)
+	}
+}
+
+func TestDecodeHPACKTruncatedBlockErrors(t *testing.T) {
+	dec := hpack.NewDecoder(4096, nil)
+	if _, err := decodeHPACK(dec, []byte{0x7f}); err == nil {
+		t.Fatal("truncated header block must error on Close")
+	}
+}
+
+func TestOriginConnPushHeaderBlockCapped(t *testing.T) {
+	client, server := h2TLSPair(t)
+	go func() {
+		preface := make([]byte, len(http2.ClientPreface))
+		if _, err := io.ReadFull(server, preface); err != nil {
+			return
+		}
+		fr := http2.NewFramer(server, server)
+		fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+		_ = fr.WriteSettings()
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			_ = server.SetDeadline(time.Now().Add(3 * time.Second))
+			f, err := fr.ReadFrame()
+			if err != nil {
+				return
+			}
+			switch f := f.(type) {
+			case *http2.SettingsFrame:
+				if !f.IsAck() {
+					_ = fr.WriteSettingsAck()
+				}
+			case *http2.MetaHeadersFrame:
+				if f.StreamID != 1 {
+					continue
+				}
+				chunk := bytes.Repeat([]byte{0}, 8192)
+				if err := fr.WritePushPromise(http2.PushPromiseParam{
+					StreamID: 1, PromiseID: 2, BlockFragment: chunk, EndHeaders: false,
+				}); err != nil {
+					return
+				}
+				sent := len(chunk)
+				for sent <= maxPushHeaderBlock {
+					last := sent+len(chunk) > maxPushHeaderBlock
+					if err := fr.WriteContinuation(1, last, chunk); err != nil {
+						return
+					}
+					sent += len(chunk)
+					if last {
+						return
+					}
+				}
+			}
+		}
+	}()
+	oc, err := NewOriginConn(client, OriginOpts{CapturePush: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = oc.RoundTrip(req)
+	if err == nil {
+		t.Fatal("oversized PUSH_PROMISE CONTINUATION must fail the origin hop")
+	}
+}
+
 func TestOriginConnDoesNotForwardPush(t *testing.T) {
 	client, server := h2TLSPair(t)
 	var onPush atomic.Int32
@@ -293,6 +462,11 @@ func pushOriginRST(t *testing.T, server io.ReadWriter, gotRST chan<- http2.ErrCo
 
 func writePushOrigin(t *testing.T, server io.ReadWriter, gotRST chan<- http2.ErrCode) {
 	t.Helper()
+	writePushOriginWithBody(t, server, []byte("pushed-body"), 0, gotRST)
+}
+
+func writePushOriginWithBody(t *testing.T, server io.ReadWriter, pushBody []byte, waitConnCredit int, gotRST chan<- http2.ErrCode) {
+	t.Helper()
 	preface := make([]byte, len(http2.ClientPreface))
 	if _, err := io.ReadFull(server, preface); err != nil {
 		t.Error(err)
@@ -305,8 +479,26 @@ func writePushOrigin(t *testing.T, server io.ReadWriter, gotRST chan<- http2.Err
 		return
 	}
 	_ = fr.WriteWindowUpdate(0, uint32(initialWindow-65535))
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(8 * time.Second)
 	sawGET := false
+	needCredit := 0
+	credited := 0
+	sendParent := func() bool {
+		parent := encodeFields(t, []hpack.HeaderField{{Name: ":status", Value: "200"}})
+		if err := fr.WriteHeaders(http2.HeadersFrameParam{
+			StreamID:      1,
+			BlockFragment: parent,
+			EndHeaders:    true,
+		}); err != nil {
+			t.Error(err)
+			return false
+		}
+		if err := fr.WriteData(1, true, []byte("parent-body")); err != nil {
+			t.Error(err)
+			return false
+		}
+		return true
+	}
 	for time.Now().Before(deadline) {
 		if sc, ok := server.(interface{ SetDeadline(time.Time) error }); ok {
 			_ = sc.SetDeadline(time.Now().Add(3 * time.Second))
@@ -322,6 +514,19 @@ func writePushOrigin(t *testing.T, server io.ReadWriter, gotRST chan<- http2.Err
 		case *http2.SettingsFrame:
 			if !f.IsAck() {
 				_ = fr.WriteSettingsAck()
+			}
+		case *http2.WindowUpdateFrame:
+			if needCredit > 0 && f.StreamID == 0 {
+				credited += int(f.Increment)
+				if credited >= needCredit {
+					needCredit = 0
+					if !sendParent() {
+						return
+					}
+					if gotRST == nil {
+						return
+					}
+				}
 			}
 		case *http2.MetaHeadersFrame:
 			if f.StreamID != 1 {
@@ -355,21 +560,15 @@ func writePushOrigin(t *testing.T, server io.ReadWriter, gotRST chan<- http2.Err
 				t.Error(err)
 				return
 			}
-			if err := fr.WriteData(2, true, []byte("pushed-body")); err != nil {
+			if err := fr.WriteData(2, true, pushBody); err != nil {
 				t.Error(err)
 				return
 			}
-			parent := encodeFields(t, []hpack.HeaderField{{Name: ":status", Value: "200"}})
-			if err := fr.WriteHeaders(http2.HeadersFrameParam{
-				StreamID:      1,
-				BlockFragment: parent,
-				EndHeaders:    true,
-			}); err != nil {
-				t.Error(err)
-				return
+			if waitConnCredit > 0 {
+				needCredit = waitConnCredit
+				continue
 			}
-			if err := fr.WriteData(1, true, []byte("parent-body")); err != nil {
-				t.Error(err)
+			if !sendParent() {
 				return
 			}
 			if gotRST == nil {
