@@ -684,6 +684,79 @@ func TestServeConnPrefaceTailRequiresLeftover(t *testing.T) {
 	}
 }
 
+func TestServeConnTunnelRawSplices(t *testing.T) {
+	originClient, originServer := net.Pipe()
+	t.Cleanup(func() {
+		_ = originClient.Close()
+		_ = originServer.Close()
+	})
+	got := make(chan []byte, 1)
+	go func() {
+		buf := make([]byte, 16)
+		n, _ := originServer.Read(buf)
+		got <- append([]byte(nil), buf[:n]...)
+		_, _ = originServer.Write([]byte("pong"))
+		_ = originServer.Close()
+	}()
+
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		_ = ServeConn(ctx, server, nil, ServeOpts{Preface: PrefaceFull},
+			func(context.Context, Stream) (*http.Response, []model.Header, error) {
+				t.Error("CONNECT must not use StreamHandler when tun is set")
+				return nil, nil, ErrInnerCONNECT
+			},
+			func(context.Context, Stream) (Tunnel, error) {
+				return Tunnel{Kind: TunnelRaw, Origin: originClient}, nil
+			})
+	}()
+	if _, err := client.Write([]byte(http2.ClientPreface)); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(client, client)
+	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	ackSettings(t, fr)
+	var hdr bytes.Buffer
+	enc := hpack.NewEncoder(&hdr)
+	for _, hf := range []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodConnect},
+		{Name: ":authority", Value: "app.lab:9"},
+	} {
+		if err := enc.WriteField(hf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fr.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: hdr.Bytes(),
+		EndHeaders:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !readH2Status(t, fr, 1, "200") {
+		t.Fatal("want :status=200")
+	}
+	if err := fr.WriteData(1, false, []byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case b := <-got:
+		if string(b) != "ping" {
+			t.Fatalf("origin %q", b)
+		}
+	case <-ctx.Done():
+		t.Fatal("origin did not see spliced DATA")
+	}
+	if string(readH2Data(t, fr, 1)) != "pong" {
+		t.Fatal("want spliced origin DATA")
+	}
+}
+
 func TestServeConnNilTunCONNECTUsesStreamHandler(t *testing.T) {
 	client, server := h2TLSPair(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

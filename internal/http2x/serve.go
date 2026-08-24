@@ -328,16 +328,24 @@ func serveStream(ctx context.Context, h StreamHandler, in Stream, done func(*htt
 func serveTunnel(ctx context.Context, tun TunnelHandler, in Stream, parent net.Conn, fr *http2.Framer, enc *hpack.Encoder, encBuf *bytes.Buffer, write func(func() error) error, out *outFlow, mu *sync.Mutex, closed *bool, finish func(uint32)) {
 	defer finish(in.ID)
 	tunv, err := tun(ctx, in)
+	adapter := &framedStreamConn{parent: parent, id: in.ID, body: in.Body, out: out, fr: fr, write: write}
 	mu.Lock()
 	gone := *closed
 	mu.Unlock()
 	if gone {
 		if tunv.AfterAck != nil {
-			tunv.AfterAck(&framedStreamConn{parent: parent, id: in.ID, body: in.Body, out: out, fr: fr, write: write})
+			tunv.AfterAck(adapter)
+			return
+		}
+		if tunv.Origin != nil {
+			_ = tunv.Origin.Close()
 		}
 		return
 	}
 	if err != nil {
+		if tunv.Origin != nil {
+			_ = tunv.Origin.Close()
+		}
 		code := http2.ErrCodeInternal
 		if errors.Is(err, ErrInnerCONNECT) {
 			code = http2.ErrCodeProtocol
@@ -353,24 +361,69 @@ func serveTunnel(ctx context.Context, tun TunnelHandler, in Stream, parent net.C
 		switch tunv.Kind {
 		case TunnelWebSocket, TunnelIntercept:
 			_ = writeStatus(fr, enc, encBuf, write, in.ID, status, false, tunv.Headers)
-			tunv.AfterAck(&framedStreamConn{
-				parent: parent,
-				id:     in.ID,
-				body:   in.Body,
-				out:    out,
-				fr:     fr,
-				write:  write,
-			})
+			tunv.AfterAck(adapter)
 			return
+		}
+		if tunv.Origin != nil {
+			_ = tunv.Origin.Close()
 		}
 		_ = write(func() error { return fr.WriteRSTStream(in.ID, http2.ErrCodeInternal) })
 		return
 	}
+	if tunv.Kind == TunnelRaw && tunv.Origin != nil {
+		_ = writeStatus(fr, enc, encBuf, write, in.ID, status, false, tunv.Headers)
+		spliceRawTunnel(adapter, tunv.Origin)
+		return
+	}
 	if tunv.Status != 0 {
+		if tunv.Origin != nil {
+			_ = tunv.Origin.Close()
+		}
 		_ = writeStatus(fr, enc, encBuf, write, in.ID, tunv.Status, true, tunv.Headers)
 		return
 	}
+	if tunv.Origin != nil {
+		_ = tunv.Origin.Close()
+	}
 	_ = write(func() error { return fr.WriteRSTStream(in.ID, http2.ErrCodeInternal) })
+}
+
+func spliceRawTunnel(client net.Conn, origin net.Conn) {
+	if origin == nil {
+		if client != nil {
+			_ = client.Close()
+		}
+		return
+	}
+	defer func() { _ = origin.Close() }()
+	if client == nil {
+		return
+	}
+	defer func() { _ = client.Close() }()
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(origin, client)
+		closeWriteConn(origin)
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = io.Copy(client, origin)
+		closeWriteConn(client)
+		done <- struct{}{}
+	}()
+	<-done
+	<-done
+}
+
+func closeWriteConn(c net.Conn) {
+	type closer interface{ CloseWrite() error }
+	if cw, ok := c.(closer); ok {
+		_ = cw.CloseWrite()
+		return
+	}
+	if c != nil {
+		_ = c.Close()
+	}
 }
 
 func writeStatus(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, write func(func() error) error, id uint32, status int, endStream bool, headers []model.Header) error {
