@@ -1083,33 +1083,31 @@ func TestInterceptHTTP2ExtendedCONNECTIdleTimeout(t *testing.T) {
 	spec.Proxy.Admission.SessionTimeout = 5 * time.Second
 	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
 	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
-	_ = tlsConn.SetDeadline(time.Now().Add(2 * time.Second))
+	// Past sessionTimeout so a client-deadline ReadFrame error cannot look like idle success.
+	_ = tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
 	writeExtendedCONNECT(t, fr)
 	expectH2Status(t, fr, 1, "200")
 	start := time.Now()
-	deadline := time.Now().Add(2 * time.Second)
-	ended := false
+	deadline := start.Add(time.Second)
 	for time.Now().Before(deadline) {
 		f, err := fr.ReadFrame()
 		if err != nil {
-			ended = true
-			break
+			t.Fatalf("unexpected read error (want RST or DATA END_STREAM): %v after %s", err, time.Since(start))
 		}
 		if rst, ok := f.(*http2.RSTStreamFrame); ok && rst.StreamID == 1 {
-			ended = true
-			break
+			if time.Since(start) > time.Second {
+				t.Fatalf("idle RST after %s", time.Since(start))
+			}
+			return
 		}
 		if df, ok := f.(*http2.DataFrame); ok && df.StreamID == 1 && df.StreamEnded() {
-			ended = true
-			break
+			if time.Since(start) > time.Second {
+				t.Fatalf("idle END_STREAM after %s", time.Since(start))
+			}
+			return
 		}
 	}
-	if !ended {
-		t.Fatal("idleTimeout did not end the stream")
-	}
-	if time.Since(start) > 3*time.Second {
-		t.Fatalf("idle close waited %s (sessionTimeout?)", time.Since(start))
-	}
+	t.Fatal("idleTimeout did not RST or DATA END_STREAM within 1s")
 }
 
 func TestInterceptHTTP2ExtendedCONNECTOriginReject(t *testing.T) {
