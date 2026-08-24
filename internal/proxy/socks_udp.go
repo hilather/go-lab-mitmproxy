@@ -182,9 +182,10 @@ func (s *Server) relaySOCKSUDP(pc net.PacketConn, listenIP net.IP, info *model.S
 	var inboundB int64
 	var datagrams int
 	var lastDest string
+	lastRelay := time.Now()
 
 	for {
-		dl := time.Now().Add(idle)
+		dl := lastRelay.Add(idle)
 		if dl.After(sessionEnd) {
 			dl = sessionEnd
 		}
@@ -204,6 +205,7 @@ func (s *Server) relaySOCKSUDP(pc net.PacketConn, listenIP net.IP, info *model.S
 				datagrams++
 				lastDest = destName
 				origins[udpEndpointKey(destAddr)] = struct{}{}
+				lastRelay = time.Now()
 			}
 			continue
 		}
@@ -213,6 +215,7 @@ func (s *Server) relaySOCKSUDP(pc net.PacketConn, listenIP net.IP, info *model.S
 				datagrams++
 				lastDest = destName
 				origins[udpEndpointKey(destAddr)] = struct{}{}
+				lastRelay = time.Now()
 			}
 			continue
 		}
@@ -237,6 +240,7 @@ func (s *Server) relaySOCKSUDP(pc net.PacketConn, listenIP net.IP, info *model.S
 		inboundN++
 		inboundB += int64(n)
 		datagrams++
+		lastRelay = time.Now()
 	}
 
 	if info != nil {
@@ -290,7 +294,7 @@ func (s *Server) selectUDPDest(host, port string, listenIP net.IP, sess *ruleSes
 		if v4 := ip.To4(); v4 != nil {
 			ip = v4
 		}
-		if denyIP(sess.spec.Proxy.Targets, ip) {
+		if denyIP(sess.spec.Proxy.Targets, ip) || udpFamilyMismatch(listenIP, ip) {
 			return nil, true
 		}
 		return ip, false
@@ -321,25 +325,30 @@ func (s *Server) selectUDPDest(host, port string, listenIP net.IP, sess *ruleSes
 }
 
 func pickUDPIP(res resolved, listenIP net.IP) net.IP {
-	want4 := listenIP != nil && listenIP.To4() != nil
+	if listenIP == nil {
+		return nil
+	}
+	want4 := listenIP.To4() != nil
 	for _, a := range res.All {
 		if a == nil {
 			continue
 		}
-		if (a.To4() != nil) == want4 {
-			if v4 := a.To4(); v4 != nil {
-				return v4
-			}
-			return a
+		if (a.To4() != nil) != want4 {
+			continue
 		}
+		if v4 := a.To4(); v4 != nil {
+			return v4
+		}
+		return a
 	}
-	if res.Selected == nil {
-		return nil
+	return nil
+}
+
+func udpFamilyMismatch(listenIP, dest net.IP) bool {
+	if listenIP == nil || dest == nil {
+		return true
 	}
-	if v4 := res.Selected.To4(); v4 != nil {
-		return v4
-	}
-	return res.Selected
+	return (listenIP.To4() != nil) != (dest.To4() != nil)
 }
 
 func parseSOCKSUDP(pkt []byte) (host, port string, data []byte, ok bool) {

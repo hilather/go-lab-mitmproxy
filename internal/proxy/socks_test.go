@@ -897,6 +897,23 @@ func TestListenEphemeralTCPRejectsUnspecified(t *testing.T) {
 	}
 }
 
+func TestPickUDPIPSameFamilyOnly(t *testing.T) {
+	v4 := net.ParseIP("127.0.0.1")
+	v6 := net.ParseIP("::1")
+	res := resolved{Selected: v6, All: []net.IP{v6}}
+	if got := pickUDPIP(res, v4.To4()); got != nil {
+		t.Fatalf("AAAA-only on udp4 pinned %v", got)
+	}
+	res4 := resolved{Selected: v6, All: []net.IP{v6, v4}}
+	got := pickUDPIP(res4, v4.To4())
+	if got == nil || got.To4() == nil || !got.Equal(v4) {
+		t.Fatalf("want v4 from mixed, got %v", got)
+	}
+	if got := pickUDPIP(resolved{Selected: v4, All: []net.IP{v4}}, v6); got != nil {
+		t.Fatalf("A-only on udp6 pinned %v", got)
+	}
+}
+
 func TestListenEphemeralUDPRejectsUnspecified(t *testing.T) {
 	if _, err := listenEphemeralUDP(net.IPv4zero); err == nil {
 		t.Fatal("expected reject 0.0.0.0")
@@ -1137,9 +1154,20 @@ func readUDPFrom(t *testing.T, c *net.UDPConn) []byte {
 
 func socks5Associate(t *testing.T, px *Server) (control net.Conn, bnd string, ip net.IP, port int) {
 	t.Helper()
+	return socks5AssociateDST(t, px, net.IPv4zero, 0)
+}
+
+func socks5AssociateDST(t *testing.T, px *Server, dstIP net.IP, dstPort int) (control net.Conn, bnd string, ip net.IP, port int) {
+	t.Helper()
 	c := socksDial(t, px.Addr().String())
 	socks5GreetingOK(t, c)
-	writeAll(t, c, []byte{0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+	v4 := dstIP.To4()
+	if v4 == nil {
+		t.Fatalf("ASSOCIATE DST must be ipv4, got %v", dstIP)
+	}
+	req := append([]byte{0x05, 0x03, 0x00, 0x01}, v4...)
+	req = append(req, bePort(dstPort)...)
+	writeAll(t, c, req)
 	got := readN(t, c, 10)
 	if got[0] != 0x05 || got[1] != 0x00 || got[3] != 0x01 {
 		t.Fatalf("associate %x", got)
@@ -1269,6 +1297,61 @@ func TestSOCKS5UDPFirstDatagramPinsClient(t *testing.T) {
 	_ = control.Close()
 }
 
+func TestSOCKS5UDPAssociateDSTPortNotASource(t *testing.T) {
+	// OQ5: ASSOCIATE DST.ADDR/DST.PORT is not a second allowed UDP source.
+	var originN atomic.Int64
+	origin, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = origin.Close() })
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			n, from, rerr := origin.ReadFromUDP(buf)
+			if rerr != nil {
+				return
+			}
+			originN.Add(1)
+			_, _ = origin.WriteToUDP(buf[:n], from)
+		}
+	}()
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	px := startProxy(t, Options{Spec: socks5UDPSpec(t)})
+	cliB := listenUDPClient(t)
+	_, bPort, _ := ipv4Port(t, cliB.LocalAddr().String())
+	control, bnd, _, _ := socks5AssociateDST(t, px, net.IPv4(127, 0, 0, 1), bPort)
+	cliA := listenUDPClient(t)
+	writeUDPTo(t, cliA, bnd, socksUDP4(oIP, oPort, []byte("a")))
+	_ = readUDPFrom(t, cliA)
+	if originN.Load() != 1 {
+		t.Fatalf("origin got %d want 1", originN.Load())
+	}
+	writeUDPTo(t, cliB, bnd, socksUDP4(oIP, oPort, []byte("b")))
+	_ = cliB.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+	buf := make([]byte, 64)
+	if n, _, rerr := cliB.ReadFromUDP(buf); n > 0 {
+		t.Fatalf("ASSOCIATE DST source tunneled %q", buf[:n])
+	} else if rerr == nil {
+		t.Fatal("expected timeout on ASSOCIATE DST source")
+	}
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) && originN.Load() == 1 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if originN.Load() != 1 {
+		t.Fatalf("ASSOCIATE DST source reached origin (%d)", originN.Load())
+	}
+	writeUDPTo(t, cliA, bnd, socksUDP4(oIP, oPort, []byte("c")))
+	got := readUDPFrom(t, cliA)
+	_, _, data, ok := parseSOCKSUDP(got)
+	if !ok || string(data) != "c" {
+		t.Fatalf("pinned client echo %q", data)
+	}
+	_ = control.Close()
+}
+
 func TestSOCKS5UDPDomainPin(t *testing.T) {
 	origin := startUDPEcho(t)
 	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
@@ -1282,6 +1365,40 @@ func TestSOCKS5UDPDomainPin(t *testing.T) {
 	_ = readUDPFrom(t, cli)
 	if res.n.Load() != 1 {
 		t.Fatalf("LookupIP %d want 1", res.n.Load())
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPFamilyMismatchDenied(t *testing.T) {
+	recU := &recordingUDP{}
+	res := &countingResolver{inner: mapResolver{"v6only.lab": {net.ParseIP("::1")}}}
+	px := startProxy(t, Options{
+		Spec:      socks5UDPSpec(t),
+		Resolver:  res,
+		ListenUDP: recU.wrap(listenEphemeralUDP),
+	})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cli := listenUDPClient(t)
+	writeUDPTo(t, cli, bnd, socksUDPDomain("v6only.lab", 9, []byte("x")))
+	deadline := time.Now().Add(2 * time.Second)
+	for px.Metrics().Rejected("target_denied") < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if px.Metrics().Rejected("target_denied") < 1 {
+		t.Fatal("expected target_denied")
+	}
+	if res.n.Load() != 1 {
+		t.Fatalf("LookupIP %d want 1", res.n.Load())
+	}
+	for _, w := range recU.Writes() {
+		if strings.Contains(w, "::1") {
+			t.Fatalf("wrote unusable family %v", recU.Writes())
+		}
+	}
+	writeUDPTo(t, cli, bnd, socksUDPDomain("v6only.lab", 9, []byte("y")))
+	time.Sleep(50 * time.Millisecond)
+	if res.n.Load() != 1 {
+		t.Fatalf("second packet re-resolved (%d)", res.n.Load())
 	}
 	_ = control.Close()
 }
@@ -1437,6 +1554,95 @@ func TestSOCKS5UDPIdleTimeout(t *testing.T) {
 	n, _, err := cli.ReadFromUDP(buf)
 	if n > 0 {
 		t.Fatalf("relayed after idle %q", buf[:n])
+	}
+	if err == nil {
+		t.Fatal("expected no reply after idle")
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPIdleRefreshedByOrigin(t *testing.T) {
+	origin, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = origin.Close() })
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	spec := socks5UDPSpec(t)
+	spec.Proxy.Admission.IdleTimeout = 250 * time.Millisecond
+	spec.Proxy.Admission.SessionTimeout = time.Minute
+	px := startProxy(t, Options{Spec: spec})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cli := listenUDPClient(t)
+	_ = origin.SetReadDeadline(time.Now().Add(2 * time.Second))
+	writeUDPTo(t, cli, bnd, socksUDP4(oIP, oPort, []byte("pin")))
+	_, from, err := origin.ReadFromUDP(make([]byte, 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if _, err := origin.WriteToUDP([]byte("keep"), from); err != nil {
+		t.Fatal(err)
+	}
+	got := readUDPFrom(t, cli)
+	_, _, data, ok := parseSOCKSUDP(got)
+	if !ok || string(data) != "keep" {
+		t.Fatalf("origin inbound %q ok=%v", data, ok)
+	}
+	time.Sleep(150 * time.Millisecond)
+	_ = origin.SetReadDeadline(time.Now().Add(2 * time.Second))
+	writeUDPTo(t, cli, bnd, socksUDP4(oIP, oPort, []byte("still")))
+	n, _, err := origin.ReadFromUDP(make([]byte, 64))
+	if err != nil {
+		t.Fatalf("associate died despite origin refresh: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("empty origin read")
+	}
+	_ = control.Close()
+}
+
+func TestSOCKS5UDPIdleNotRefreshedByDropped(t *testing.T) {
+	origin := startUDPEcho(t)
+	_, oPort, _ := ipv4Port(t, origin.LocalAddr().String())
+	oIP := net.ParseIP("127.0.0.1").To4()
+	spec := socks5UDPSpec(t)
+	spec.Proxy.Admission.IdleTimeout = 200 * time.Millisecond
+	spec.Proxy.Admission.SessionTimeout = time.Minute
+	sink := NewNull()
+	px := startProxy(t, Options{Spec: spec, Sink: sink})
+	control, bnd, _, _ := socks5Associate(t, px)
+	cliA := listenUDPClient(t)
+	cliB := listenUDPClient(t)
+	writeUDPTo(t, cliA, bnd, socksUDP4(oIP, oPort, []byte("pin")))
+	_ = readUDPFrom(t, cliA)
+	bndAddr, err := net.ResolveUDPAddr("udp", bnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	go func() {
+		tick := time.NewTicker(30 * time.Millisecond)
+		defer tick.Stop()
+		pkt := socksUDP4(oIP, oPort, []byte("noise"))
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				_, _ = cliB.WriteToUDP(pkt, bndAddr)
+			}
+		}
+	}()
+	defer close(stop)
+	_ = waitUDPFlow(t, sink)
+	writeUDPTo(t, cliA, bnd, socksUDP4(oIP, oPort, []byte("late")))
+	_ = cliA.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	buf := make([]byte, 64)
+	n, _, err := cliA.ReadFromUDP(buf)
+	if n > 0 {
+		t.Fatalf("relayed after idle despite dropped noise %q", buf[:n])
 	}
 	if err == nil {
 		t.Fatal("expected no reply after idle")
