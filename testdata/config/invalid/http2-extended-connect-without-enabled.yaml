@@ -1,0 +1,8 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: http2-extended-connect-without-enabled
+spec:
+  protocols:
+    http2:
+      extendedConnect: true
