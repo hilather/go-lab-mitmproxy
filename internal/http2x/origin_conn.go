@@ -208,11 +208,15 @@ func (o *OriginConn) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 }
 
+// requestHasBody matches net/http.Request.outgoingLength: a non-nil Body
+// with ContentLength 0 is unknown-length, not "no body". Inner h2
+// reconstruct leaves ContentLength 0 while teeing stream DATA (gRPC and
+// most h2 POSTs omit content-length).
 func requestHasBody(req *http.Request) bool {
 	if req == nil || req.Body == nil || req.Body == http.NoBody {
 		return false
 	}
-	return req.ContentLength != 0
+	return true
 }
 
 func (o *OriginConn) writeRequestBody(id uint32, body io.ReadCloser) {

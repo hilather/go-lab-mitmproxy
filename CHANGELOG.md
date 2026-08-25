@@ -14,6 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- Origin h2 (`protocols.http2.origin`) now forwards inner POST/PUT/PATCH/gRPC request DATA. `http2x.OriginConn` treated `ContentLength == 0` as no body, so reconstructed inner streams (h2 often omits content-length) sent HEADERS with END_STREAM and dropped the payload.
 - HTTPS `proxy.Replay` now closes the one-shot origin TLS connection after the response body is drained (HTTP/1.1 Transport and 1.2 `NewOriginTransport` h2). Repeated inspector/REST/MCP HTTPS replays no longer leak idle FDs or persistConns per call.
 - AGENTS.md and the numbered pack no longer concatenate 1.1/1.2 keep-both leftovers (D48 remainder, live `protocols.http2.origin` replay, SOCKS BIND/UDP/user-pass). `make test-docs` rejects stale “later PR” / duplicate table-row invariants.
 

@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -633,6 +634,16 @@ func reconstructH2Request(in http2x.Stream) *http.Request {
 	}
 	if req.Method == "" {
 		req.Method = http.MethodGet
+	}
+	if cl := hdr.Get("Content-Length"); cl != "" {
+		if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
+			req.ContentLength = n
+		} else {
+			req.ContentLength = -1
+		}
+	} else if req.Body != nil && req.Body != http.NoBody {
+		// h2 often omits content-length; 0 would drop DATA on OriginConn.
+		req.ContentLength = -1
 	}
 	return withH2Meta(req, h2Meta{
 		streamID: in.ID,

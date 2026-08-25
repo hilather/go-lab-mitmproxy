@@ -714,6 +714,74 @@ func TestInterceptHTTP2OriginH2MultiplexTwoStreams(t *testing.T) {
 	}
 }
 
+func TestInterceptHTTP2OriginH2POSTBody(t *testing.T) {
+	var sawH2 atomic.Bool
+	var got atomic.Value
+	origin := startTLSOriginH2(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 {
+			sawH2.Store(true)
+		}
+		b, _ := io.ReadAll(r.Body)
+		got.Store(string(b))
+		_, _ = io.WriteString(w, "echo:"+string(b))
+	}))
+	_, port := hostPort(t, origin)
+	spec := interceptH2OriginSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	cc := h2ClientConnViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+
+	pr, pw := io.Pipe()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://app.lab/echo", pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "text/plain")
+	req.ContentLength = -1 // no content-length; typical gRPC / h2 POST
+	go func() {
+		_, _ = io.WriteString(pw, "hello")
+		_ = pw.Close()
+	}()
+	resp, err := cc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "echo:hello" {
+		t.Fatalf("status=%d body=%q", resp.StatusCode, body)
+	}
+	if !sawH2.Load() {
+		t.Fatal("origin did not negotiate h2")
+	}
+	if s, _ := got.Load().(string); s != "hello" {
+		t.Fatalf("origin body %q (OriginConn dropped POST DATA)", s)
+	}
+}
+
+func TestReconstructH2RequestUnknownBodyLength(t *testing.T) {
+	req := reconstructH2Request(http2x.Stream{
+		Method:    http.MethodPost,
+		Path:      "/echo",
+		Authority: "app.lab",
+		Body:      io.NopCloser(strings.NewReader("hello")),
+	})
+	if req.ContentLength != -1 {
+		t.Fatalf("ContentLength=%d want -1 (omitted content-length)", req.ContentLength)
+	}
+	reqCL := reconstructH2Request(http2x.Stream{
+		Method:    http.MethodPost,
+		Path:      "/echo",
+		Authority: "app.lab",
+		Headers:   []model.Header{{Name: "content-length", Value: "5"}},
+		Body:      io.NopCloser(strings.NewReader("hello")),
+	})
+	if reqCL.ContentLength != 5 {
+		t.Fatalf("ContentLength=%d want 5", reqCL.ContentLength)
+	}
+}
+
 func TestInterceptHTTP2OriginH2StreamErrorKeepsSibling(t *testing.T) {
 	slowEntered := make(chan struct{})
 	var conns atomic.Int32

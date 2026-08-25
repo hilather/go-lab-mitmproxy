@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,58 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 )
+
+func TestOriginConnPOSTBodyZeroContentLength(t *testing.T) {
+	client, server := h2TLSPair(t)
+	got := make(chan string, 1)
+	go (&http2.Server{}).ServeConn(server, &http2.ServeConnOpts{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			got <- string(body)
+			_, _ = io.WriteString(w, "echo:"+string(body))
+		}),
+	})
+	oc, err := NewOriginConn(client, OriginOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://app.lab/echo", io.NopCloser(strings.NewReader("hello")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ContentLength = 0 // same zero-value reconstructH2Request used to leave
+	resp, err := oc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "echo:hello" {
+		t.Fatalf("status=%d body=%q", resp.StatusCode, body)
+	}
+	select {
+	case saw := <-got:
+		if saw != "hello" {
+			t.Fatalf("origin body %q", saw)
+		}
+	case <-ctx.Done():
+		t.Fatal("origin never saw POST DATA")
+	}
+}
+
+func TestRequestHasBodyZeroContentLength(t *testing.T) {
+	if requestHasBody(&http.Request{Method: http.MethodPost, Body: io.NopCloser(strings.NewReader("x")), ContentLength: 0}) != true {
+		t.Fatal("ContentLength 0 + Body must be a body (h2 POST / gRPC)")
+	}
+	if requestHasBody(&http.Request{Method: http.MethodGet, Body: http.NoBody}) {
+		t.Fatal("NoBody is not a body")
+	}
+	if requestHasBody(&http.Request{Method: http.MethodGet}) {
+		t.Fatal("nil Body is not a body")
+	}
+}
 
 func TestOriginConnRoundTrip(t *testing.T) {
 	client, server := h2TLSPair(t)
