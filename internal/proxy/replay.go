@@ -23,7 +23,8 @@ import (
 
 // Replay re-issues stored as an origin-form request. It Dials the origin via
 // the same resolve-then-guard path as live traffic, ignores HTTP_PROXY, and
-// never hairpins listeners.proxy.address (D21).
+// never hairpins listeners.proxy.address (D21). When stored.Host is hostname
+// only, the captured URL supplies host:port so non-default lab ports replay.
 func (s *Server) Replay(ctx context.Context, stored *model.Flow) (*model.Flow, error) {
 	if s == nil {
 		return nil, domainerr.Internal("proxy is not running")
@@ -48,9 +49,16 @@ func (s *Server) Replay(ctx context.Context, stored *model.Flow) (*model.Flow, e
 		defaultPort = "443"
 	}
 	authority := stored.Host
-	if authority == "" {
-		if u, err := url.Parse(stored.URL); err == nil {
+	if u, err := url.Parse(stored.URL); err == nil && u.Host != "" {
+		if authority == "" {
 			authority = u.Host
+		} else if _, _, err := net.SplitHostPort(authority); err != nil {
+			// Intercept stores Host as hostname only and puts the origin
+			// port on URL (https://127.0.0.1:18443/ok). Prefer that port
+			// over scheme defaults (443/80).
+			if _, _, err := net.SplitHostPort(u.Host); err == nil {
+				authority = u.Host
+			}
 		}
 	}
 	host, port, err := splitAuthority(authority, defaultPort)
