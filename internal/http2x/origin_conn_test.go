@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -98,6 +99,73 @@ func TestOriginConnMultiplexTwoStreams(t *testing.T) {
 	}
 	if max.Load() < 2 {
 		t.Fatalf("want multiplex max>=2 got %d", max.Load())
+	}
+}
+
+func TestOriginConnRoundTripResponseTrailers(t *testing.T) {
+	client, server := h2TLSPair(t)
+	go (&http2.Server{}).ServeConn(server, &http2.ServeConnOpts{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Trailer", "Grpc-Status, Grpc-Message")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "proto")
+			w.Header().Set("Grpc-Status", "0")
+			w.Header().Set("Grpc-Message", "ok")
+		}),
+	})
+	oc, err := NewOriginConn(client, OriginOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://app.lab/svc/Echo", strings.NewReader("in"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := oc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "proto" {
+		t.Fatalf("status=%d body=%q", resp.StatusCode, body)
+	}
+	if got := resp.Trailer.Get("Grpc-Status"); got != "0" {
+		t.Fatalf("Grpc-Status trailer %q (origin-h2 must surface trailing HEADERS)", got)
+	}
+	if got := resp.Trailer.Get("Grpc-Message"); got != "ok" {
+		t.Fatalf("Grpc-Message trailer %q", got)
+	}
+}
+
+func TestOriginConnSkips1xxThenForwardsTrailers(t *testing.T) {
+	client, server := h2TLSPair(t)
+	go writeInformationalThenTrailers(t, server)
+	oc, err := NewOriginConn(client, OriginOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/early", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := oc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "final" {
+		t.Fatalf("status=%d body=%q (1xx must not become the response)", resp.StatusCode, body)
+	}
+	if got := resp.Trailer.Get("x-checksum"); got != "abc" {
+		t.Fatalf("trailer %q", got)
 	}
 }
 
@@ -582,6 +650,67 @@ func writePushOriginWithBody(t *testing.T, server io.ReadWriter, pushBody []byte
 				}
 				return
 			}
+		}
+	}
+}
+
+func writeInformationalThenTrailers(t *testing.T, server io.ReadWriter) {
+	t.Helper()
+	preface := make([]byte, len(http2.ClientPreface))
+	if _, err := io.ReadFull(server, preface); err != nil {
+		t.Error(err)
+		return
+	}
+	fr := http2.NewFramer(server, server)
+	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	if err := fr.WriteSettings(); err != nil {
+		t.Error(err)
+		return
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if sc, ok := server.(interface{ SetDeadline(time.Time) error }); ok {
+			_ = sc.SetDeadline(time.Now().Add(2 * time.Second))
+		}
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		switch f := f.(type) {
+		case *http2.SettingsFrame:
+			if !f.IsAck() {
+				_ = fr.WriteSettingsAck()
+			}
+		case *http2.MetaHeadersFrame:
+			if f.StreamID != 1 {
+				continue
+			}
+			hint := encodeFields(t, []hpack.HeaderField{{Name: ":status", Value: "103"}})
+			if err := fr.WriteHeaders(http2.HeadersFrameParam{
+				StreamID: 1, BlockFragment: hint, EndHeaders: true,
+			}); err != nil {
+				t.Error(err)
+				return
+			}
+			final := encodeFields(t, []hpack.HeaderField{{Name: ":status", Value: "200"}})
+			if err := fr.WriteHeaders(http2.HeadersFrameParam{
+				StreamID: 1, BlockFragment: final, EndHeaders: true,
+			}); err != nil {
+				t.Error(err)
+				return
+			}
+			if err := fr.WriteData(1, false, []byte("final")); err != nil {
+				t.Error(err)
+				return
+			}
+			tr := encodeFields(t, []hpack.HeaderField{{Name: "x-checksum", Value: "abc"}})
+			if err := fr.WriteHeaders(http2.HeadersFrameParam{
+				StreamID: 1, BlockFragment: tr, EndHeaders: true, EndStream: true,
+			}); err != nil {
+				t.Error(err)
+			}
+			return
 		}
 	}
 }

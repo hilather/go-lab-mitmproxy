@@ -2,7 +2,7 @@
 
 Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-24 (HTTPS replay one-shot origin close)
+Last reviewed: 2026-08-26 (origin-h2 response trailers)
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.2.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.2.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68.
 
@@ -81,7 +81,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 - `clientCleartext` enables h2c on PRI leftover (`http2x.ServeConn` PrefaceTail; do not re-read the 24-byte preface from the raw conn). Regular h2c GET/POST is allowed (absolute-form). `:scheme=https` is 400. RFC 9113 §8.5 CONNECT is valid only on a client-facing h2c session; each CONNECT stream is one origin TCP. Orig-dest tagged CONNECT stays 400 (D57).
 - Nested inner CONNECT without `:protocol` still RST, **no flow** (D48 remainder).
 - Captured `Protocol` is the **inner client** proto (h2-client → `h2`; h1-client + h2-origin → `http/1.1`).
-- h2 client + h1 origin still serializes streams on one origin TCP (D44). Request trailers are dropped toward origin (stored on the flow; `labmitm_h2_trailer_dropped_total`). Origin h2 multiplexes when `protocols.http2.origin` and the inner leaf negotiated `h2` (D64); one CONNECT = one origin TCP.
+- h2 client + h1 origin still serializes streams on one origin TCP (D44). Request trailers are dropped toward origin (stored on the flow; `labmitm_h2_trailer_dropped_total`). Origin h2 multiplexes when `protocols.http2.origin` and the inner leaf negotiated `h2` (D64); one CONNECT = one origin TCP. Origin-h2 response trailers (including gRPC `grpc-status`) are forwarded to the inner client and stored on the flow.
 - Replay of an h2 flow follows the **live** `protocols.http2.origin` flag (off → HTTP/1.1 origin-form with leading-`:` stripped; on → origin ALPN `h2` then `http/1.1` on one Dial). The one-shot origin TLS conn is closed after the response body is drained.
 - `PUSH_PROMISE` is capture-only on the origin hop when `protocols.http2.capturePush` (default off, requires `origin`). Inner `EnablePush` stays 0; promised streams are stored as flows and are not forwarded or replayable. Flag-off RSTs the promised id toward origin immediately. Breakpoints pause the **stream**, not the TCP session.
 - gRPC decode is opt-in `protocols.http2.grpcDecode`, fail-open, in-tree length-prefix + protobuf wire tree. grpc-web stays opaque.
