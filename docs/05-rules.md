@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-24 (HTTPS replay closes one-shot origin conn)
+Last reviewed: 2026-08-25 (replay Dials captured URL port)
 Related ADRs: 0002
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
@@ -77,14 +77,14 @@ PR 6 unit test (`internal/rules` + store): `Insert` paused → goroutine `WaitPa
 Replay is **not** a rule action. `POST /v1/flows/{id}:replay` calls `proxy.Replay(stored *Flow)`:
 
 - Builds HTTP/1.1 origin-form from the stored request (`scheme`, `host`, `method`, `path`, headers, body). Leading-`:` pseudo-header names are stripped; `Host` comes from `:authority` when present (else `Flow.Host`). This is not “replay the h2 session.”
-- Dials the **origin** via the same resolve-then-guard + `DialContext` path as live traffic.
+- Dials the **origin** via the same resolve-then-guard + `DialContext` path as live traffic. Authority is `Flow.Host` when it already includes a port; when `Host` is hostname-only (intercept `innerFlow` / cleartext `flowFromReq`), host:port comes from the captured URL so `https://127.0.0.1:18443/ok` Dials `:18443`, not `:443`. Scheme defaults (`https`→443 / `http`→80) apply only when the URL also omits a port.
 - If `scheme=https`, `tls.Client` on that dial using the current snapshot’s upstream verify knobs. Does **not** require `tls.intercept` to be on — replay is an operator-originated origin fetch, not a client CONNECT. The one-shot HTTPS hop (HTTP/1.1 Transport or live-origin `NewOriginTransport`) closes the TLS conn when the caller finishes the response body (no idle persistConn leak). HTTP/1.1 uses `DisableKeepAlives`.
 - `Transport.Proxy = nil`. `HTTP_PROXY=http://127.0.0.1:8888` must not change the dial.
 - Never dial `listeners.proxy.address` (hairpin reject even if that address is loopback).
 - New flow id (`Protocol=http/1.1`). Requires `mitm.write`.
 - Reject `Protocol=websocket|connect`, CONNECT-metadata-only flows, and flows with `Request.Truncated` (`validation_failed`). Captured `Protocol=h2` is replayable.
 
-Tests: HTTP replay; HTTPS replay with intercept both on and off; HTTPS replay releases the origin conn (HTTP/1.1 and live-origin h2); `HTTP_PROXY` ignored; hairpin address rejected; h2 flow replay is HTTP/1.1 origin-form without `:method` unless live `protocols.http2.origin` is on.
+Tests: HTTP replay; HTTPS replay with intercept both on and off; HTTPS replay releases the origin conn (HTTP/1.1 and live-origin h2); Host-without-port + URL-with-port Dials the URL port (HTTP and HTTPS); `HTTP_PROXY` ignored; hairpin address rejected; h2 flow replay is HTTP/1.1 origin-form without `:method` unless live `protocols.http2.origin` is on.
 
 Live apply `replaceRules` compiles a new snapshot; in-flight requests keep the old snapshot.
 

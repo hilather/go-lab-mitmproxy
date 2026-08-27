@@ -14,6 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- Replay of a captured flow Dials the origin port from the stored URL when `Host` is hostname-only (intercept stores `host=127.0.0.1` and `url=https://127.0.0.1:18443/ok`). Non-default-port HTTP and HTTPS lab origins no longer fail with `upstream request failed` after defaulting to `:80` / `:443`.
 - HTTPS `proxy.Replay` now closes the one-shot origin TLS connection after the response body is drained (HTTP/1.1 Transport and 1.2 `NewOriginTransport` h2). Repeated inspector/REST/MCP HTTPS replays no longer leak idle FDs or persistConns per call.
 - AGENTS.md and the numbered pack no longer concatenate 1.1/1.2 keep-both leftovers (D48 remainder, live `protocols.http2.origin` replay, SOCKS BIND/UDP/user-pass). `make test-docs` rejects stale “later PR” / duplicate table-row invariants.
 

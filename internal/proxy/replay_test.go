@@ -18,6 +18,81 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 )
 
+func TestReplayUsesURLPortWhenHostOmitsPort(t *testing.T) {
+	t.Run("http", func(t *testing.T) {
+		var hits int
+		addr, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			if r.URL.Path != "/ok" {
+				t.Errorf("path %q", r.URL.Path)
+			}
+			_, _ = io.WriteString(w, "ok")
+		}))
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if port == "80" {
+			t.Fatal("ephemeral origin must not be :80")
+		}
+		px := startProxy(t, Options{})
+		f, err := px.Replay(context.Background(), &model.Flow{
+			Method:   http.MethodGet,
+			URL:      originURL + "/ok",
+			Host:     host, // intercept stores hostname only
+			Scheme:   "http",
+			Protocol: model.FlowProtocolHTTP11,
+		})
+		if err != nil {
+			t.Fatalf("Replay dialed default :80 instead of :%s: %v", port, err)
+		}
+		if hits != 1 {
+			t.Fatalf("origin hits=%d want 1 (replay must Dial %s, not :80)", hits, addr)
+		}
+		if f == nil || f.Status != 200 || string(f.Response.Body) != "ok" {
+			t.Fatalf("replay flow %+v", f)
+		}
+	})
+	t.Run("https", func(t *testing.T) {
+		var hits int
+		cert := originCert(t)
+		addr := startTLSOrigin(t, cert, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			if r.URL.Path != "/ok" {
+				t.Errorf("path %q", r.URL.Path)
+			}
+			_, _ = io.WriteString(w, "ok")
+		}))
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if port == "443" {
+			t.Fatal("ephemeral origin must not be :443")
+		}
+		spec := loadSpec(t)
+		spec.TLS.Intercept = false
+		spec.TLS.Upstream.InsecureSkipVerify = true
+		px := startProxy(t, Options{Spec: spec})
+		f, err := px.Replay(context.Background(), &model.Flow{
+			Method:   http.MethodGet,
+			URL:      "https://" + addr + "/ok",
+			Host:     host, // intercept innerFlow stores hostname only
+			Scheme:   "https",
+			Protocol: model.FlowProtocolHTTP11,
+		})
+		if err != nil {
+			t.Fatalf("Replay dialed default :443 instead of :%s: %v", port, err)
+		}
+		if hits != 1 {
+			t.Fatalf("origin hits=%d want 1 (replay must Dial %s, not :443)", hits, addr)
+		}
+		if f == nil || f.Status != 200 || string(f.Response.Body) != "ok" {
+			t.Fatalf("replay flow %+v", f)
+		}
+	})
+}
+
 func TestReplayHTTP(t *testing.T) {
 	inbox, err := store.New(store.Options{MaxFlows: 10, MaxBytes: 1 << 20, MaxBodyBytes: 1 << 20, FullPolicy: model.FullPolicyReject})
 	if err != nil {
