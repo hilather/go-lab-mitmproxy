@@ -2,9 +2,9 @@
 
 Status: Proposed (plan only; not implemented)
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-28 (skeptic sweep 1 folded)
+Last reviewed: 2026-08-28 (skeptic sweep 2 folded)
 Related: [issue #52](https://github.com/hilather/go-lab-mitmproxy/issues/52), [docs/05-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/05-rules.md), [docs/02-proxy-semantics.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/02-proxy-semantics.md), ADR draft 0013 (this document)
-Skeptic: sweep 1 BLOCKED (2 blockers folded); sweep 2 pending
+Skeptic: sweep 1 BLOCKED (2 folded); sweep 2 BLOCKED (1 folded); sweep 3 pending
 
 PLAN ONLY. This file is the implementation contract. Do not implement from this PR.
 
@@ -205,17 +205,22 @@ Existing inner-h2 drop/status tests (403/418) must keep passing. Implementation 
 ### Response phase
 
 - Same hook as today’s drop/status: inside `finishResponseWrite` after upstream headers and **before** `write()`. No new flush-detector. Do not add a path that could `late_skip` live drop/status.
-- Silent/hang: do not call `write()` with the origin response; propagate `ruleSilentClose` to the caller (table above). Origin body is drained/captured under existing stream-vs-mutate rules (see Mutates).
+- Silent/hang: do not call `write()` with the origin response; propagate `ruleSilentClose` to the caller (table above). **Drain and discard** the origin body (then `Body.Close()`) so the HTTP/1.1 origin TCP is released; `teeResponse` does not read by itself. Capture fields match request-phase: `State=completed`, `Status=0`, `Error=rule_silent` / `rule_hang`, `RuleIDs` set. Do **not** fall through `completedFlow(..., resp.StatusCode)` (that would store origin 200 with empty Error).
 - Redirect: replace status + `Location` (+ optional headers/body), then `write()` as `ruleSynthesize`.
 - WebSocket `101` is the only existing `late_skip` site (`forward.go`, `intercept.go`). Request-phase silent/hang/redirect may still fire **before** Dial/upgrade. Response-phase match after `101` increments `late_skip` and does **not** RST the upgraded conn (unchanged).
 
-### HTTP/1.1 absolute-form (non-Expect)
+### HTTP/1.1 cleartext (absolute-form **and** orig-dest origin-form)
 
-`serveAbsolute` on a real `http.ResponseWriter` (client-facing HTTP/1.1): silent/hang **must Hijack before any `WriteHeader`**, apply linger if `rst`, close, and never return the conn to `http.Server`. Drop/status keep `writeClientResponse`.
+Hijack is **not** `serveAbsolute`-only. `handler.go` `ServeHTTP` → `serveOrigDestHTTP` (`origdest.go`) → `forwardOriginHTTP` (`forward.go`) with a real `http.ResponseWriter` (origin-form on `:8890`, D31/D57). Rules already run there (`runRequestRules` / `finishHTTPResponse`). `serveAbsolute` is not on that path. If Hijack lives only in `serveAbsolute`, orig-dest HTTP/1.1 silent/hang skip `WriteHeader` and return the conn to `http.Server`, which emits an empty 200 — the same no-write trap class as `captureRW` 500.
 
-`serveAbsolute` on h2c `captureRW`: **do not Hijack** (not a `Hijacker`). Return `ruleSilentClose` to `roundTripH2C` instead.
+**Contract:** silent/hang Hijack+linger/close lives in `forwardOriginHTTP` (shared by `serveAbsolute` and `serveOrigDestHTTP`), before any `WriteHeader`:
 
-Expect/100 path is already hijacked (`serveExpectAbsolute`). Silent/hang use the raw `client` conn; do not write 100 or a final status.
+- When `w` is a `http.Hijacker` (client-facing HTTP/1.1 and orig-dest HTTP/1.1): Hijack, linger if `rst`, close, never return the conn to `http.Server`. `handler.go` must not see a no-write return.
+- When `w` is `captureRW` (h2c / orig-dest-on-h2c): **do not Hijack**. Return `ruleSilentClose` to `roundTripH2C`; do not call `rw.response()`.
+
+Drop/status keep `writeClientResponse` on both hops.
+
+Expect/100 path is already hijacked (`serveExpectAbsolute`, including orig-dest Expect). Silent/hang use the raw `client` conn; do not write 100 or a final status.
 
 ### CONNECT intercept (HTTP/1.1 inner)
 
@@ -226,6 +231,7 @@ Already on a hijacked conn. Silent/hang close that inner TLS/TCP without an HTTP
 - Silent/hang: `RST_STREAM` `CANCEL` on the matched stream only, via `http2x.ErrSilentClose`. Other streams on the same CONNECT/h2c TCP continue. Do not GOAWAY; do not `Close` the h2c/CONNECT TCP for one stream.
 - `roundTripH2C` must not Hijack `captureRW` and must not call `rw.response()` on `ruleSilentClose`. Orig-dest-on-h2c uses the same `captureRW` path (`serveOrigDestHTTP`) and the same return rule.
 - `innerH2Tunnel` (Extended CONNECT websocket, request-phase rules already run): `ruleSilentClose` → sentinel RST + flow, not `Tunnel{Status: 403}`.
+- Client-facing `h2cTunnel` / `h2cWebSocketTunnel` do **not** call `runRequestRulesWrite` today (no 403-style handled trap). This plan does **not** add a request-phase hook there; same residual as today’s drop on that hop.
 - Hang wait runs **outside** the origin mutex (same as request-phase `WaitPaused`, D37/D44). A hung stream must not block another stream’s request-phase rules or origin h2 multiplex (D64).
 - Redirect: HEADERS `:status=3xx` + `location` (and optional body DATA), same as today’s status synthesize (`ruleSynthesize`).
 - Nested inner CONNECT without `:protocol` stays RST, **no flow** (D48 remainder). Rules still do not create a flow there.
@@ -268,7 +274,8 @@ Go API is `(*net.TCPConn).SetLinger(0)` (abortive close / RST on Linux), not `Se
 1. `*net.TCPConn` → use it.
 2. `*tls.Conn` → `NetConn()` and recurse.
 3. `*readerConn` (`wrapHijacked` in `intercept.go`) → inner `Conn` and recurse.
-4. Else FIN fallback (`Close` only) and still count the rule hit.
+4. `http2x` `framedStreamConn` (h2c CONNECT + intercept + inner HTTP/1.1): **not** a `*net.TCPConn`. Do not linger it. `close: rst` on this hop is `RST_STREAM` `CANCEL` on that CONNECT stream (same sentinel as h2 silent), not `SetLinger`. `Close()` after `wrote==true` is DATA endStream (FIN-like) and is **wrong** for `rst`. `close: fin` may end the stream without linger.
+5. Else FIN fallback (`Close` only) and still count the rule hit.
 
 `serveInterceptConn` handshakes on `wrapHijacked(...)`, so `tls.Conn.NetConn()` is `*readerConn`, **not** `*net.TCPConn`. A one-step unwrap always misses RST on intercept HTTP/1.1. The helper is mandatory; the intercept-h1 transcript must distinguish RST from FIN (or the implementation is wrong).
 
@@ -342,7 +349,8 @@ Plus Go tests (existing `startProxy` / `throughProxy` style, like `TestRequestDr
 
 - Existing drop (403 + header, no Dial) and status (503 + body, no Dial) remain.
 - First-match: silent item before a status item; only silent fires.
-- Response-phase silent/redirect before flush; `late_skip` after flush (Expect or captured-tee path already used for drop).
+- Response-phase silent/redirect inside `finishResponseWrite` (before `write()`); WebSocket `101` remains the only `late_skip` site (existing `TestWebSocketLateSkip`). Do not add a flush-detector test that could skip drop/status.
+- Orig-dest HTTP/1.1 silent (real `ResponseWriter` on `:8890`, not only orig-dest-on-h2c): Hijack from `forwardOriginHTTP`; no empty 200 from `http.Server`.
 - Intercept inner HTTP/1.1 silent `close: rst`: no origin Dial; recursive unwrap; transcript distinguishes RST from FIN; flow `Error=rule_silent`, `State=completed`.
 - Intercept inner HTTP/1.1 silent `close: fin`: clean EOF, not RST.
 - Inner h2 request-phase silent → RST_STREAM `CANCEL`, **no** 502 HEADERS; a second stream on the same CONNECT still succeeds; drop/status on h2 still return 403/418.
@@ -410,5 +418,5 @@ Process: never skip sweep 1; fresh Task skeptic each sweep; fold blockers; cap 3
 | Sweep | Agent | Result | Blockers folded |
 |---|---|---|---|
 | 1 | fresh Task | BLOCKED | (1) h2/h2c/tunnel no-write traps (`captureRW` 500, `outResp==nil` origin fallback, `innerH2Tunnel` 403, `ErrSilentClose`→`CANCEL`). (2) intercept `rst` must recursively unwrap `wrapHijacked`/`readerConn`; one-step TLS unwrap is always FIN. Also folded nits: `State=completed` not `ferr`→`FlowStateError`; `SetLinger(0)`; `syntheticResponse` must know redirect; no new late_skip flush detector; hang admission is per-hop; sentinel in impl sequence. |
-| 2 | (pending) | | |
-| 3 | | | |
+| 2 | fresh Task | BLOCKED | Orig-dest HTTP/1.1 silent Hijack lives in `forwardOriginHTTP` (shared with `serveAbsolute`), not only `serveAbsolute`. `captureRW` still returns `ruleSilentClose`. Folded nits: `h2cTunnel` has no request-phase rules (out of scope); framed CONNECT `rst` is stream `CANCEL` not linger; response-phase capture is `Status=0`/`Error=rule_*`/`completed` + drain origin body; drop invented late_skip flush test bullet. |
+| 3 | (pending) | | |
