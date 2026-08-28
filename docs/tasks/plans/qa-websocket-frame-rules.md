@@ -68,7 +68,7 @@ Cited, not invented:
 
 Two invariants change together:
 
-1. **`late_skip` is no longer the only post-101 rule story.** Every `phase: request|response` action on an HTTP/1.1 `101` stays `late_skip`. Inner D63 `:status=200` stays today’s response-phase `late_skip`. A new phase evaluates *after* 101 / inner 200 on decoded frames. Reusing `phase: response` would break empty-match response `drop` **and** `delay`/`breakpoint` (today: 101 + copy + `late_skip`).
+1. **`late_skip` is no longer the only post-101 rule story.** Every **response-phase** action on an HTTP/1.1 `101` stays `late_skip`. Inner D63 `:status=200` stays today’s response-phase `late_skip`. **Request-phase on the Upgrade request already runs** (cleartext `forwardOriginHTTP` / inner `roundTripInner`); do not late_skip it. A new phase evaluates *after* 101 / inner 200 on decoded frames. Reusing `phase: response` would break empty-match response `drop` **and** `delay`/`breakpoint` (today: 101 + copy + `late_skip`).
 2. **Frame decode is gated by Reset-only `inspectFrames` (D51' / D67).** Live `replaceRules` can change *which* frames drop/block on sessions that have not yet pinned an Engine. It cannot turn decode on.
 
 ADR **0015** **does not supersede** D7, D12, D19, D20, D21, D51', D67. It **does supersede** these two sentences as the *only* post-101 story (not `late_skip` itself):
@@ -103,7 +103,7 @@ First enabled AND-match wins **per frame**, independently of any request/respons
 
 | Field | Source |
 |---|---|
-| Host | The hostname already used for request-phase `matchHit` on hops that call it (`splitAuthority` / CONNECT host). **Not** `req.Host` (often `host:port`). `Flow.Host` happens to be that string; still do not read match input from `*Flow`. Client-facing h2c (`h2cWebSocketTunnel`) **never** calls `matchHit` today — do **not** add one. On that path pass the existing `host` from `splitAuthority(in.Authority, defPort)` (`h2c.go`). Do **not** use raw `in.Authority` (includes port). |
+| Host | The hostname already used for request-phase `matchHit` on hops that call it. **Not** `req.Host` (often `host:port`). `Flow.Host` happens to be that string; still do not read match input from `*Flow`. Cleartext / inner HTTP/1.1 / inner D63: the `host` already passed into `matchHit` / `hijackUpgrade`. Orig-dest HTTP: that same argument is `origDestCaptureHost` (dest IP **or** `Host` hostname — not dest-IP-only, not `req.Host` with port). Client-facing h2c (`h2cWebSocketTunnel`) **never** calls `matchHit` today — do **not** add one. On that path pass the existing `host` from `splitAuthority(in.Authority, defPort)` (`h2c.go`). Do **not** use raw `in.Authority` (includes port). Do **not** `beginSession` inside `inspectUpgrade`; use the caller’s pinned `sess` (h2c is the unforked PRI pointer). |
 | Path | `requestPath(req)` |
 | Method | `requestMethod(req)` |
 | Headers | `requestCaptureHeaders(req)` (already merges h2 `:authority` / `:path` / `:method` / other pseudos). Do **not** strip those pseudos; `matchAND`’s `:authority`/`:path`/`:method` override is the D63/h2c alignment. |
@@ -114,7 +114,7 @@ Force `in.Protocol = websocket` at eval. Do **not** reuse `matchHit` (it sets `r
 |---|---|
 | Host, path, method, headers | Pre-pump snapshot above |
 | `in.Protocol` | Always the token `websocket` for this phase. Empty `match.protocol` matches; `websocket` matches; any other non-empty token (`http/1.1`, `h2`, …) matches nothing |
-| Opcode, direction, payload | The frame being inspected |
+| Opcode, direction, payload | Opcode is `wsx.OpcodeName(h.Opcode)` (`continuation`…`other`), not the raw byte. Direction is `WSDirectionClient` / `WSDirectionOrigin`. Payload is the unmasked bytes when loaded. |
 
 D63 / client-facing h2c bootstrap: `Method` is `CONNECT`; path is the `:path` pseudo (not implied `/ws`). Operators who write `pathPrefix: /ws` must use that path on the Extended CONNECT request. Document this; do not invent a second match table.
 
@@ -166,7 +166,7 @@ Phase-dependent `drop` (HTTP request/response `drop` unchanged):
 
 | Action | `phase: websocket` | Wire |
 |---|---|---|
-| `drop` | Omit this frame. If `src` is still unread, capture-read then discard (see Pump I/O); never `TeePayload` onto `dst`. Continue the inspect loop (including after a dropped `close`). Forwarded `close` still ends that pump. | Peer never sees the header or payload. |
+| `drop` | Omit this frame. If `src` is still unread, one `TeePayload(io.Discard, n=h.Length, storeMax=storeRemain())` (see Pump I/O); never `TeePayload` onto `dst`. Continue the inspect loop (including after a dropped `close`). Forwarded `close` still ends that pump. | Peer never sees the header or payload. |
 | `block` | Do not forward the frame. Close both TCP sides. | Session ends. |
 
 `block` is a new `KnownRuleAction` token, legal **only** on `phase: websocket` in this change.
@@ -174,7 +174,7 @@ Phase-dependent `drop` (HTTP request/response `drop` unchanged):
 **Close vs `protocolError` (frozen):**
 
 - `block` closes both conns **without** setting `Error=websocket`. `Flow.State` stays `completed` (today `flowFromReq` already stamps `completed` before inspect). No new Error token.
-- D67 protocol errors stay D67: `ReadHeader` still rejects control >125 as `ErrProtocol` → `protocolError` (`Error=websocket`, `State=error`) **before** rule eval. Close with payload length 1 is detected after the payload is available; if that frame was a `drop` or `block` candidate, still `protocolError` (`Error=websocket`) — rules do not swallow a framing violation.
+- D67 protocol errors stay D67: `ReadHeader` still rejects control >125 as `ErrProtocol` → `protocolError` (`Error=websocket`, `State=error`) **before** rule eval. Close-length-1 is a **header fact** (`h.Opcode == OpcodeClose && h.Length == 1`). `ReadHeader` does not reject it (`parseClose` lives only in `ReadFrame`). On the rules path, call **today’s** `protocolError()` (sets `Error`/`State` under `mu` and `Close`s both conns) **immediately after `ReadHeader`**. No `Match`. No `WriteHeader`. No drop/block. No loop continue. Do **not** drain the 1 byte (the unread leftover dies with `Close`). Do **not** invent set-`Error`-without-`Close`. Do **not** `ReadHeader` again. Fast path may keep today’s forward-then-error order.
 - The peer pump today only early-exits when `f.Error == WSErrorProtocol`. `block` must `Close` both conns so the other pump unblocks on read/write error. Do not set `WSErrorProtocol` for `block`.
 
 Metrics:
@@ -224,7 +224,7 @@ Fast path is decided from the **pinned** Engine on `wsInspect` (`sess.eng` from 
 
 ### Rules path — order after `ReadHeader`
 
-1. **Close-length-1 is a header fact.** `ReadHeader` does **not** reject `OpcodeClose && Length==1` (today the pump checks `h.Length` after `TeePayload`). On the rules path: if `h.Opcode == OpcodeClose && h.Length == 1` → `protocolError` (`Error=websocket`, `State=error`) and return. **No** `Match`. **No** `WriteHeader`. **No** drop/block. **Do not** continue the loop. Do **not** gate this on `srcConsumed` or `Length==0` (`Length==1` is never 0). Drain the 1-byte payload only if the socket stays open (it must not). Fast path may keep today’s forward-then-error order; the rules path must not.
+1. **Close-length-1 is a header fact** (same sentence as D73). `ReadHeader` does **not** reject `OpcodeClose && Length==1`. On the rules path: if `h.Opcode == OpcodeClose && h.Length == 1` → call **today’s** `protocolError()` (Close both) and return. **No** `Match`. **No** `WriteHeader`. **No** drop/block. **Do not** continue the loop. Do **not** gate this on `srcConsumed` or `Length==0`. Do **not** drain the 1 byte. Fast path may keep today’s forward-then-error order; the rules path must not.
 
 2. **Do not `WriteHeader` until the winner is known.** A premature header makes `drop` impossible.
 
@@ -240,14 +240,16 @@ Fast path is decided from the **pinned** Engine on `wsInspect` (`sess.eng` from 
 
 | Winner | `src` | `dst` | Capture / metrics / loop |
 |---|---|---|---|
-| `drop` | If unread: capture-read then discard (below). If already loaded: use `unmasked`. | **No** `WriteHeader`. **No** payload write. | Store with `Action=drop` via the **no-`wsFrame` path**. Append `RuleIDs` under `mu` (not across `captureFrame`). `rule_hits{action="drop"}` only. **Continue** the loop, including after a dropped `close`. |
-| `block` | Same capture-then-discard if unread. | **No** `WriteHeader`. `Close` both conns. | Store with `Action=block` via the **no-`wsFrame` path**. Append `RuleIDs` and set `State=completed` under `mu`. `rule_hits{action="block"}` only. Return. |
+| `drop` | If unread: the one `TeePayload(Discard, n=h.Length, storeMax=storeRemain())` call below. If already loaded: use `unmasked` (do not remask that slice). | **No** `WriteHeader`. **No** payload write. | Store with `Action=drop` via the **no-`wsFrame` sibling**. Append `RuleIDs` under `mu` (not across the sibling). `rule_hits{action="drop"}` only. **Continue** the loop, including after a dropped `close`. |
+| `block` | Same one `TeePayload(Discard, …)` if unread. | **No** `WriteHeader`. `Close` both conns. | Store with `Action=block` via the **no-`wsFrame` sibling**. Append `RuleIDs` and set `State=completed` under `mu`. `rule_hits{action="block"}` only. Return. |
 | none (miss), `src` unread | still on `src` | `WriteHeader(original h)` + `TeePayload(src)` | Call today’s `captureFrame` **once**. It owns `ws_frames_total`, `FrameCount`, `storeRemain`, `Truncated`. Do not increment again. Do not pre-add `st.stored`. **Forwarded `close` returns** (D67 half-close). |
-| none (miss), `src` consumed | n/a | `WriteHeader(original h)` + write exact **`wire`**. Allowed equivalent: re-mask **full** `unmasked` (`len == h.Length`) with the same `MaskKey`. `WriteFrame` only if `len(Payload)==h.Length` and close-code synthesis does not run. **Forbidden:** `TeePayload` of a consumed `src`; writing `unmasked` on a masked client→origin frame; `WriteFrame` with a truncated prefix. | Call today’s `captureFrame` **once** with the unmasked prefix (it applies `storeRemain()` itself). Do not increment `ws_frames_total` again. **Forwarded `close` returns.** |
+| none (miss), `src` consumed | n/a | `WriteHeader(original h)` + write exact **`wire`**. Allowed equivalent: remask a **copy** of full `unmasked` (`len == h.Length`) with the same `MaskKey`. Never remask the slice passed into `captureFrame` (stored payload is unmasked). `WriteFrame` only if `len(Payload)==h.Length` so close-code synthesis does not run (`WriteFrame` synthesizes a close payload when `OpcodeClose && len==0 && (CloseCode!=0 || CloseReason)` and then sets `Length` from that). **Forbidden:** `TeePayload` of a consumed `src`; writing `unmasked` on a masked client→origin frame; `WriteFrame` with a truncated prefix. | Call today’s `captureFrame` **once** with the unmasked prefix (it applies `storeRemain()` itself). If `OpcodeClose && len(prefix)>=2`, fill `CloseCode` the way today’s pump does before `captureFrame`. Do not increment `ws_frames_total` again. **Forwarded `close` returns.** |
 
-**Drop/block unread capture (D67 store contract):** do **not** `io.CopyN(Discard)` first and then store `Payload==nil`. After the winner is known, if drop/block and `src` unread: read min(declared, `storeRemain()`) as unmasked prefix for capture (`TeePayload(io.Discard, src, …)` is allowed — Discard, never `dst`), then `CopyN` any remainder to `Discard`. Then store with `Action`. Peer still sees no header.
+**Drop/block unread drain (one algorithm, not two):** after the winner is known, if drop/block and `src` unread: **one** call `TeePayload(io.Discard, src, h.Length, h.Masked, h.MaskKey, storeRemain())` and **no** `CopyN`. `n` is always `h.Length` (full declared wire). `storeMax` is `storeRemain()`, never visibility `st.max`. Today `storeMax<=0` still copies all `n` bytes to `dst` and stores nothing — so `storeRemain()==0` still drains the frame and returns a nil prefix. Do **not** pass `n=min(declared, storeRemain())` and then `CopyN` a “remainder” (that second read eats the next frame off leftover/`MultiReader`). Then store the returned prefix with `Action` via the no-`wsFrame` sibling. Peer still sees no header.
 
-**`captureFrame` vs `ws_frames_total`:** `captureFrame` **is** the increment today. Reuse it unchanged for drop/block → omitted frames counted as forwarded. Invent a second capture **and** increment on miss-consumed → double-count. Pre-slice to `storeRemain()` then also bump `st.stored` before `captureFrame` → double budget. Frozen: forward → `captureFrame` once; drop/block → sibling or a flag that **does not** call `wsFrame`.
+**no-`wsFrame` sibling is `captureFrame` minus `wsFrame` only.** Same `FrameCount++`, same no-append on `stopCap` / `WSMaxFrames` / `remain<=0`, same clip, same `st.stored`, same `Truncated`. Always-append after the cap is exhausted adds 64-byte rows and breaks later miss-forward capture. Do **not** hold `wsInspect.mu` across the sibling (same deadlock as `captureFrame`). Do not pre-add `st.stored` before it.
+
+**`captureFrame` vs `ws_frames_total`:** `captureFrame` **is** the increment today. Reuse it unchanged for drop/block → omitted frames counted as forwarded. Invent a second capture **and** increment on miss-consumed → double-count. Frozen: forward → `captureFrame` once; drop/block → the sibling above.
 
 Write / `TeePayload` errors end the pump the same way today’s `TeePayload` errors do (not `Error=websocket` unless `ErrProtocol`).
 
@@ -271,6 +273,8 @@ Do **not** invent a second HTTP/2 WebSocket pump. Both directions of the shared 
 | Drain oversized miss “for alignment” when no later winner | Swallows a large data frame. D67 break. |
 | Treat `payloadContains` as skipped when `Payload==nil` | Oversized item wins first-match and drains/closes. Same D67 swallow as #56. |
 | Gate close-length-1 on `srcConsumed` | Opcode-only / empty-match rules skip load; illegal close is dropped or forwarded without `Error=websocket`. |
+| `TeePayload(Discard, n=min(declared, storeRemain()))` then `CopyN` remainder | Second read eats the next frame off leftover/`MultiReader`. |
+| Drop/block sibling that always appends | Ignores `stopCap` / 4096 / `st.stored`; later miss-forwards over-capture (D67 stacked caps). |
 
 ## Implementation slices (later change; this PR does not land them)
 
@@ -356,9 +360,15 @@ Fresh skeptic. Verdict REVISE. Blockers folded in this revision:
 
 Must-fix applied: forwarded `close` returns; h2c host is `splitAuthority` (no new `matchHit`); fast path is the pinned Engine; `ReadFull` fail does not WriteHeader/Match/`srcConsumed`; `block` `State` under `mu`; `Length==0` is not a load; remask/`WriteFrame` only when `len==h.Length`.
 
-### Sweep 2
+### Sweep 2 — REVISE (applied)
 
-Pending.
+Fresh skeptic. Verdict REVISE. Blockers folded in this revision:
+
+1. **B1 D73 vs pump:** D73 now matches Pump I/O §1 (header fact, today’s `protocolError()`, no Match). Deleted “after the payload is available” / “drop or block candidate.”
+2. **B2 drain:** one call `TeePayload(io.Discard, src, h.Length, …, storeRemain())`, no `CopyN`. `storeMax` is `storeRemain()`, never visibility `st.max`.
+3. **B3 sibling:** `captureFrame` minus `wsFrame` only (same `FrameCount` / no-append / clip / `st.stored` / `Truncated`).
+
+Must-fix applied: remask a copy, not the capture slice; `WriteFrame` synthesis constraint; close-length-1 does not drain leftover; miss-consumed CloseCode fill; D72 request-phase still runs; `in.Opcode = OpcodeName`; orig-dest host is `origDestCaptureHost`; no `beginSession` inside `inspectUpgrade`.
 
 ### Sweep 3
 
