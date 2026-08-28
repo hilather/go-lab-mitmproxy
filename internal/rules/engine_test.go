@@ -34,6 +34,17 @@ func TestFirstEnabledMatchWins(t *testing.T) {
 	}
 }
 
+func TestFirstEnabledDelayWinsOverThrottle(t *testing.T) {
+	eng := snapshotEngine(true,
+		model.RuleSpec{ID: "wait", Enabled: true, Phase: model.RulePhaseResponse, Match: model.RuleMatchSpec{PathPrefix: "/big"}, Action: model.RuleActionSpec{Type: model.ActionDelay, Delay: time.Second}},
+		model.RuleSpec{ID: "slow", Enabled: true, Phase: model.RulePhaseResponse, Match: model.RuleMatchSpec{PathPrefix: "/big"}, Action: model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8 << 10}},
+	)
+	hit := eng.Match(model.RulePhaseResponse, Request{Path: "/big/x"})
+	if hit == nil || hit.ID != "wait" || hit.Action.Type != model.ActionDelay {
+		t.Fatalf("hit %+v", hit)
+	}
+}
+
 func TestPhaseSeparation(t *testing.T) {
 	eng := snapshotEngine(true,
 		model.RuleSpec{ID: "req", Enabled: true, Phase: model.RulePhaseRequest, Action: model.RuleActionSpec{Type: model.ActionDrop}},

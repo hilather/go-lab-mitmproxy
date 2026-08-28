@@ -131,7 +131,18 @@ func (s *Server) roundTripH2C(ctx context.Context, in http2x.Stream, pinned *rul
 	if result == ruleSilentClose {
 		return nil, nil, http2x.ErrSilentClose
 	}
-	return rw.response(), nil, nil
+	return s.paceReturnedResponse(ctx, sess, rw.response()), nil, nil
+}
+
+// responseWriterIsClient is false for captureRW: that buffer is not the
+// client hop. Throttle must wrap the returned Body so HEADERS go out
+// before paced DATA (D70).
+func responseWriterIsClient(w http.ResponseWriter) bool {
+	if w == nil {
+		return false
+	}
+	_, buffered := w.(*captureRW)
+	return !buffered
 }
 
 // h2cTunnel is the client-facing CONNECT / :protocol handler (D62).

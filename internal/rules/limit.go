@@ -9,8 +9,8 @@ import (
 // LimitReader paces r at bps bytes/sec. bps is clamped; 0 returns r unchanged.
 // Each Read copies at most min(1024, bps) bytes. After n>0 bytes it sleeps
 // n * time.Second / bps plus a carried remainder so Σn over wall time
-// converges to bps. sleep false (cancel / stop) returns n plus ctx.Err() or
-// io.EOF. Close delegates when r is an io.Closer.
+// converges to bps. sleep false (cancel / stop) returns n plus ctx.Err()
+// or context.Canceled. Close delegates when r is an io.Closer.
 func LimitReader(ctx context.Context, r io.Reader, bps int64, sleep func(context.Context, time.Duration) bool) io.Reader {
 	bps = ClampBytesPerSecond(bps)
 	if bps == 0 || r == nil {
@@ -78,10 +78,9 @@ func (l *limitedReader) Read(p []byte) (int, error) {
 			if l.ctx != nil && l.ctx.Err() != nil {
 				return n, l.ctx.Err()
 			}
-			if err == nil {
-				err = io.EOF
-			}
-			return n, err
+			// Process stop (sleepDelay watches Server.ctx) is not a short
+			// successful body. Prefer Canceled over synthesized EOF.
+			return n, context.Canceled
 		}
 	}
 	return n, err

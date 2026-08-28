@@ -374,7 +374,10 @@ func TestContractThrottleReplaceRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	bad := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(badBody))
-	requireProblem(t, bad, http.StatusBadRequest, "validation_failed")
+	prob := requireProblem(t, bad, http.StatusBadRequest, "validation_failed")
+	if !strings.Contains(bad.Body.String(), "bytesPerSecond") {
+		t.Fatalf("missing bytesPerSecond path: %v", prob)
+	}
 
 	goodBody, err := json.Marshal(map[string]any{
 		"expectedRevision": rev,
@@ -401,6 +404,11 @@ func TestContractThrottleReplaceRules(t *testing.T) {
 	hit := svc.Active().Rules.Match(model.RulePhaseResponse, rules.Request{Path: "/big/x"})
 	if hit == nil || hit.Action.Type != model.ActionThrottle || hit.Action.BytesPerSecond != 8192 {
 		t.Fatalf("compiled hit=%+v", hit)
+	}
+	st2 := doReq(t, h, http.MethodGet, "/v1/state", "")
+	requireStatus(t, st2, http.StatusOK)
+	if !strings.Contains(st2.Body.String(), "throttle") || !strings.Contains(st2.Body.String(), "slow-download") {
+		t.Fatalf("state missing throttle item: %s", st2.Body.String())
 	}
 }
 

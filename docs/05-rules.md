@@ -40,8 +40,8 @@ rules:
         payloadContains: ""    # websocket phase only; unmasked substring
       action:
         type: delay            # breakpoint | drop | delay | status | header | body | silent | hang | redirect | block | throttle (block: websocket only)
-        delay: 2s              # 0–30s
-        bytesPerSecond: 8KiB   # throttle: 256B–64MiB (IEC YAML)
+        delay: 2s              # delay only; 0–30s
+        bytesPerSecond: 8KiB   # throttle only (ignored on delay); 256B–64MiB IEC YAML
         status: 0              # status/drop: empty/0 or 400–599; not the redirect 3xx
         headers:
           set: {}
@@ -78,7 +78,7 @@ Match fields are AND. Empty match matches everything (still requires `rules.enab
 | `hang` | Hold `hang.timeout` (1s–30s), then silent close. Not resumable | Same after origin headers | `validation_failed` |
 | `redirect` | No Dial; synthesize 301/302/303/307/308 (default 302) + required `Location` | Replace status + `Location` | `validation_failed` |
 
-Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. When `type=throttle`, `action.bytesPerSecond` ∈ [256B, 64MiB] (IEC YAML string; REST apply JSON is IEC; MCP apply JSON is integer bytes). Other action types ignore `bytesPerSecond`. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML. `hang.timeout` required and ∈ [1s, 30s]. `redirect.location` required (≤2048 bytes, no CR/LF/NUL). `redirect.status` empty or 301/302/303/307/308. `silent.close` / `hang.close` empty, `rst`, or `fin`. `http_status` is not a legal type. `phase: websocket` allows only `drop` or `block`. `block` is illegal on `request|response`. `throttle` is illegal on `websocket`. Non-empty `opcode` / `direction` / `payloadContains` on `request|response` is `validation_failed`. Unknown `opcode` or `direction` is `validation_failed`. Websocket-phase items are valid when `inspectFrames` is false.
+Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. When `type=throttle`, `action.bytesPerSecond` ∈ [256B, 64MiB]. YAML and REST apply JSON use an IEC string (`8KiB`) via `sizeFields` / `CoerceWireTree`. MCP apply JSON is integer bytes on the typed `RuleActionSpec` (`8192`). Domain `ChangeIn` is `int64`. Other action types ignore `bytesPerSecond`. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML. `hang.timeout` required and ∈ [1s, 30s]. `redirect.location` required (≤2048 bytes, no CR/LF/NUL). `redirect.status` empty or 301/302/303/307/308. `silent.close` / `hang.close` empty, `rst`, or `fin`. `http_status` is not a legal type. `phase: websocket` allows only `drop` or `block`. `block` is illegal on `request|response`. `throttle` is illegal on `websocket`. Non-empty `opcode` / `direction` / `payloadContains` on `request|response` is `validation_failed`. Unknown `opcode` or `direction` is `validation_failed`. Websocket-phase items are valid when `inspectFrames` is false.
 
 `payloadContains` compares unmasked bytes. Visibility cap is the pinned full `store.maxBodyBytes` (else 1 MiB), not remaining capture budget. Declared length over that cap is a miss; first-match continues. No message reassembly; `continuation` matches as `continuation` only.
 

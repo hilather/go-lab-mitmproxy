@@ -571,6 +571,11 @@ func TestInterceptHTTP2ResponseThrottleDoesNotHoldOriginMu(t *testing.T) {
 	cc := h2ClientConnViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
 
 	headersSeen := make(chan *http.Response, 1)
+	bodyDone := make(chan struct {
+		d   time.Duration
+		n   int
+		err error
+	}, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -587,8 +592,14 @@ func TestInterceptHTTP2ResponseThrottleDoesNotHoldOriginMu(t *testing.T) {
 			return
 		}
 		headersSeen <- resp
-		_, _ = io.ReadAll(resp.Body)
+		start := time.Now()
+		got, rerr := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
+		bodyDone <- struct {
+			d   time.Duration
+			n   int
+			err error
+		}{time.Since(start), len(got), rerr}
 	}()
 
 	var first *http.Response
@@ -596,6 +607,9 @@ func TestInterceptHTTP2ResponseThrottleDoesNotHoldOriginMu(t *testing.T) {
 	case first = <-headersSeen:
 		if first == nil {
 			t.Fatal("throttled stream failed")
+		}
+		if first.StatusCode != http.StatusOK {
+			t.Fatalf("throttled status %d", first.StatusCode)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("throttled stream headers never arrived")
@@ -615,6 +629,24 @@ func TestInterceptHTTP2ResponseThrottleDoesNotHoldOriginMu(t *testing.T) {
 	b, _ := io.ReadAll(second.Body)
 	if second.StatusCode != http.StatusOK || string(b) != "ok" {
 		t.Fatalf("second stream %d %q", second.StatusCode, b)
+	}
+
+	select {
+	case body := <-bodyDone:
+		if body.err != nil {
+			t.Fatalf("throttled body: %v", body.err)
+		}
+		if body.n != len(payload) {
+			t.Fatalf("throttled body len %d", body.n)
+		}
+		if body.d < 3*time.Second {
+			t.Fatalf("client body elapsed %s want >= 3s (~4s at 8KiB/s)", body.d)
+		}
+	case <-time.After(12 * time.Second):
+		t.Fatal("throttled body never finished")
+	}
+	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {
+		t.Fatal("expected throttle hit")
 	}
 }
 

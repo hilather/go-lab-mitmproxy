@@ -885,6 +885,17 @@ func TestReplaceRulesThrottleValidate(t *testing.T) {
 			}},
 		})
 		requireCode(t, err, domainerr.CodeValidationFailed)
+		de, _ := domainerr.As(err)
+		found := false
+		for _, v := range de.FieldViolations {
+			if strings.Contains(v.Path, "action.bytesPerSecond") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("bps=%d missing bytesPerSecond path in %+v", bps, de.FieldViolations)
+		}
 	}
 }
 

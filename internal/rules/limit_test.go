@@ -111,6 +111,22 @@ func TestLimitReaderCancel(t *testing.T) {
 	}
 }
 
+func TestLimitReaderSleepFalseWithoutCtxErr(t *testing.T) {
+	// sleepDelay can return false on Server.ctx stop while the limiter
+	// ctx is still live. That must not become a short successful EOF.
+	payload := bytes.Repeat([]byte("z"), 2048)
+	sleep := func(context.Context, time.Duration) bool { return false }
+	lr := LimitReader(context.Background(), bytes.NewReader(payload), 256, sleep)
+	p := make([]byte, 1024)
+	n, err := lr.Read(p)
+	if n == 0 {
+		t.Fatal("must return bytes already read")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v want context.Canceled", err)
+	}
+}
+
 func TestLimitReaderCloseDelegates(t *testing.T) {
 	var closed bool
 	r := &closeRecorder{Reader: strings.NewReader("hi"), closed: &closed}

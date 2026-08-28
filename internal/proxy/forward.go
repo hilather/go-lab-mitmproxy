@@ -216,7 +216,7 @@ func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, r
 			return bufrw.Flush()
 		}
 		return nil
-	})
+	}, true)
 	if result == ruleSilentClose {
 		silentCloseConn(client, sess.closeModeOr(model.SilentCloseRST))
 	}

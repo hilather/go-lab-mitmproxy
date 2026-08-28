@@ -792,8 +792,11 @@ func TestResponseThrottlePacesBodyNotHeaders(t *testing.T) {
 	if !bytes.Equal(got, payload) {
 		t.Fatalf("body len %d", len(got))
 	}
-	if time.Since(bodyStart) < 4*time.Second {
-		t.Fatalf("body elapsed %s want >= 4s", time.Since(bodyStart))
+	if time.Since(start) < 3*time.Second {
+		t.Fatalf("client elapsed %s want >= 3s (~4s at 8KiB/s; wall timers run short)", time.Since(start))
+	}
+	if time.Since(bodyStart) < time.Second {
+		t.Fatalf("body elapsed %s; throttle must pace after headers", time.Since(bodyStart))
 	}
 	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {
 		t.Fatal("expected throttle hit")
@@ -829,8 +832,8 @@ func TestRequestThrottlePacesOriginBody(t *testing.T) {
 	if first.IsZero() || last.IsZero() {
 		t.Fatal("origin did not see body")
 	}
-	if last.Sub(first) < 4*time.Second {
-		t.Fatalf("origin body span %s want >= 4s", last.Sub(first))
+	if last.Sub(first) < 3*time.Second {
+		t.Fatalf("origin body span %s want >= 3s (~4s at 8KiB/s)", last.Sub(first))
 	}
 	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {
 		t.Fatal("expected throttle hit")

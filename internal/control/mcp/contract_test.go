@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -364,6 +365,9 @@ func TestContractThrottleReplaceRules(t *testing.T) {
 	if domainCode(t, bad) != "validation_failed" {
 		t.Fatalf("apply invalid=%v", bad)
 	}
+	if !strings.Contains(fmt.Sprintf("%v %s", bad, mcpErrorRaw(bad)), "bytesPerSecond") {
+		t.Fatalf("missing bytesPerSecond path: %v raw=%s", bad, mcpErrorRaw(bad))
+	}
 
 	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", map[string]any{
 		"expectedRevision": rev,
@@ -376,6 +380,11 @@ func TestContractThrottleReplaceRules(t *testing.T) {
 	hit := svc.Active().Rules.Match(model.RulePhaseResponse, rules.Request{Path: "/big/x"})
 	if hit == nil || hit.Action.Type != model.ActionThrottle || hit.Action.BytesPerSecond != 8192 {
 		t.Fatalf("compiled hit=%+v", hit)
+	}
+	state2 := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rawState, _ := json.Marshal(state2)
+	if !strings.Contains(string(rawState), "throttle") || !strings.Contains(string(rawState), "slow-download") {
+		t.Fatalf("state missing throttle item: %s", rawState)
 	}
 }
 
@@ -655,6 +664,18 @@ func firstText(res *sdk.CallToolResult) string {
 		}
 	}
 	return "tool error"
+}
+
+func mcpErrorRaw(err error) string {
+	var te *toolDomainError
+	if errors.As(err, &te) {
+		return string(te.raw)
+	}
+	var werr *jsonrpc.Error
+	if errors.As(err, &werr) {
+		return string(werr.Data)
+	}
+	return ""
 }
 
 func domainCode(t *testing.T, err error) string {
