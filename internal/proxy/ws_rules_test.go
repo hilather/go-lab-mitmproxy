@@ -41,16 +41,6 @@ func (r *recordedWS) addWire(h wsx.Header, payload []byte) {
 	r.mu.Unlock()
 }
 
-func (r *recordedWS) opcodes() []byte {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]byte, len(r.frames))
-	for i, fr := range r.frames {
-		out[i] = fr.Opcode
-	}
-	return out
-}
-
 func (r *recordedWS) sawOpcode(op byte) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
