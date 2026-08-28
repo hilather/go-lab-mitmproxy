@@ -165,10 +165,6 @@ func validateProxyListener(p *model.ProxyListenerSpec, vs *[]domainerr.FieldViol
 	validateFileRefUsers(p.UserPass.Users, "spec.listeners.proxy.userPass.users", vs, opts.skipUserPassFiles)
 }
 
-func validateUserPassUsers(users []model.UserPassUserSpec, vs *[]domainerr.FieldViolation, skipFiles bool) {
-	validateFileRefUsers(users, "spec.listeners.proxy.userPass.users", vs, skipFiles)
-}
-
 func validateFileRefUsers(users []model.UserPassUserSpec, base string, vs *[]domainerr.FieldViolation, skipFiles bool) {
 	ids := map[string]string{}
 	for i, u := range users {
