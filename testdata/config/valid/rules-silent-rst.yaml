@@ -1,0 +1,18 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  rules:
+    enabled: true
+    items:
+      - id: silent-rst
+        enabled: true
+        phase: request
+        match:
+          pathPrefix: /login
+          method: POST
+        action:
+          type: silent
+          silent:
+            close: rst

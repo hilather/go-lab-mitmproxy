@@ -32,6 +32,11 @@ var ErrRefuseRedial = errors.New("proxy: intercepted CONNECT refuses redial")
 // stream (inner CONNECT / illegal :protocol, D48 remainder).
 var ErrInnerCONNECT = errors.New("http2x: inner CONNECT refused")
 
+// ErrSilentClose is returned by a StreamHandler or TunnelHandler to RST the
+// matched stream with CANCEL (rule action silent/hang). Unlike ErrInnerCONNECT
+// this is an operator-intended close and the proxy still captures a flow.
+var ErrSilentClose = errors.New("http2x: silent stream close")
+
 // Stream is one HTTP/2 request stream (D45). Pseudos keep their leading ':'.
 type Stream struct {
 	ID        uint32

@@ -447,7 +447,7 @@ func validateRules(r *model.RulesSpec, vs *[]domainerr.FieldViolation) {
 			*vs = append(*vs, domainerr.FieldViolation{
 				Path:    path + ".action.type",
 				Code:    violationInvalidValue,
-				Message: "action.type must be breakpoint, drop, delay, status, header, or body",
+				Message: "action.type must be breakpoint, drop, delay, status, header, body, silent, hang, or redirect",
 			})
 		}
 		if item.Action.Delay < 0 || item.Action.Delay > MaxRuleDelay {
@@ -487,6 +487,67 @@ func validateRules(r *model.RulesSpec, vs *[]domainerr.FieldViolation) {
 				})
 			}
 		}
+		if close := strings.TrimSpace(item.Action.Silent.Close); close != "" && close != model.SilentCloseRST && close != model.SilentCloseFIN {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".action.silent.close",
+				Code:    violationInvalidValue,
+				Message: "silent.close must be rst or fin",
+			})
+		}
+		if close := strings.TrimSpace(item.Action.Hang.Close); close != "" && close != model.SilentCloseRST && close != model.SilentCloseFIN {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".action.hang.close",
+				Code:    violationInvalidValue,
+				Message: "hang.close must be rst or fin",
+			})
+		}
+		if item.Action.Type == model.ActionHang {
+			if item.Action.Hang.Timeout < MinHangTimeout || item.Action.Hang.Timeout > MaxHangTimeout {
+				code := violationInvalidValue
+				msg := "hang.timeout must be between 1s and 30s"
+				if item.Action.Hang.Timeout == 0 {
+					code = violationRequired
+					msg = "hang.timeout is required"
+				}
+				*vs = append(*vs, domainerr.FieldViolation{
+					Path:    path + ".action.hang.timeout",
+					Code:    code,
+					Message: msg,
+				})
+			}
+		}
+		if item.Action.Type == model.ActionRedirect {
+			loc := strings.TrimSpace(item.Action.Redirect.Location)
+			if loc == "" {
+				*vs = append(*vs, domainerr.FieldViolation{
+					Path:    path + ".action.redirect.location",
+					Code:    violationRequired,
+					Message: "redirect.location is required",
+				})
+			} else if len(loc) > MaxRedirectLocation || strings.ContainsAny(loc, "\r\n\x00") {
+				*vs = append(*vs, domainerr.FieldViolation{
+					Path:    path + ".action.redirect.location",
+					Code:    violationInvalidValue,
+					Message: "redirect.location must be ≤ 2048 bytes and must not contain CR, LF, or NUL",
+				})
+			}
+			if st := item.Action.Redirect.Status; st != 0 && !knownRedirectStatus(st) {
+				*vs = append(*vs, domainerr.FieldViolation{
+					Path:    path + ".action.redirect.status",
+					Code:    violationInvalidValue,
+					Message: "redirect.status must be 301, 302, 303, 307, or 308",
+				})
+			}
+		}
+	}
+}
+
+func knownRedirectStatus(st int) bool {
+	switch st {
+	case 301, 302, 303, 307, 308:
+		return true
+	default:
+		return false
 	}
 }
 

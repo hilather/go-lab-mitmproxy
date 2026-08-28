@@ -39,8 +39,11 @@ const (
 	DefaultStreamSlack          = int64(64 << 10) // per in-flight copy buffer
 	MaxDocumentBytes            = 1 << 20
 	MaxRuleDelay                = 30 * time.Second
+	MinHangTimeout              = time.Second
+	MaxHangTimeout              = 30 * time.Second
 	MaxBreakpointTimeout        = 60 * time.Second
 	MaxRuleBodyReplace          = int64(64 << 10)
+	MaxRedirectLocation         = 2048
 
 	minStoreMaxBytes = int64(1 << 20)
 	minMaxBodyBytes  = int64(1 << 10)

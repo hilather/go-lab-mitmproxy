@@ -1,0 +1,18 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  rules:
+    enabled: true
+    items:
+      - id: redirect-relative
+        enabled: true
+        phase: request
+        match:
+          pathPrefix: /old
+        action:
+          type: redirect
+          redirect:
+            location: "/new"
+            status: 307

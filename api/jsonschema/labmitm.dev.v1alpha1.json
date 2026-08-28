@@ -267,12 +267,38 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "type": { "enum": ["breakpoint", "drop", "delay", "status", "header", "body"] },
+        "type": { "enum": ["breakpoint", "drop", "delay", "status", "header", "body", "silent", "hang", "redirect"] },
         "delay": { "$ref": "#/$defs/duration", "description": "0–30s" },
-        "status": { "type": "integer", "description": "empty/0 or 400–599" },
+        "status": { "type": "integer", "description": "empty/0 or 400–599; not the redirect 3xx" },
         "headers": { "$ref": "#/$defs/ruleHeaders" },
         "body": { "$ref": "#/$defs/ruleBody" },
-        "breakpoint": { "$ref": "#/$defs/ruleBreakpoint" }
+        "breakpoint": { "$ref": "#/$defs/ruleBreakpoint" },
+        "silent": { "$ref": "#/$defs/ruleSilent" },
+        "hang": { "$ref": "#/$defs/ruleHang" },
+        "redirect": { "$ref": "#/$defs/ruleRedirect" }
+      }
+    },
+    "ruleSilent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "close": { "enum": ["", "rst", "fin"], "description": "empty → rst; HTTP/2 both map to RST_STREAM CANCEL" }
+      }
+    },
+    "ruleHang": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout": { "$ref": "#/$defs/duration", "description": "required when type=hang; 1s–30s" },
+        "close": { "enum": ["", "rst", "fin"], "description": "empty → rst" }
+      }
+    },
+    "ruleRedirect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "location": { "type": "string", "description": "required when type=redirect; ≤2048 bytes; no CR/LF/NUL" },
+        "status": { "type": "integer", "enum": [0, 301, 302, 303, 307, 308], "description": "empty/0 → 302; unused sibling materializes 0" }
       }
     },
     "ruleHeaders": {

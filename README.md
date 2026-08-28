@@ -473,6 +473,7 @@ Cross-file links below are absolute.
 - [0011 Optional compat flow REST](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md)
 - [0012 1.2 protocol expansion](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)
 - [0013 Live protocol feature gates](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)
+- [0014 QA block modes](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md)
 
 ### Task lists and program board
 

@@ -6,7 +6,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
-- None.
+- QA block modes as additive `spec.rules` actions ([ADR 0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) D69): `silent` (TCP RST/FIN or HTTP/2 RST_STREAM `CANCEL`), `hang` (required `hang.timeout` 1s–30s, then silent close), and `redirect` (301/302/303/307/308 + required `Location`). Issue #52 `http_status` is the existing `status` type (no alias). Catalog does not grow. Live apply stays `replaceRules`.
 
 ### Changed
 

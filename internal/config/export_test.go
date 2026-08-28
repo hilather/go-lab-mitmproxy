@@ -44,6 +44,34 @@ spec: {}
 	}
 }
 
+func TestRevisionChangesOnSilentRule(t *testing.T) {
+	a, err := Load([]byte(mustLoad(t, "valid", "defaults.yaml")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ra, err := Revision(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Spec.Rules.Enabled {
+		t.Fatal("empty spec must keep rules.enabled false")
+	}
+	b, err := Load([]byte(mustLoad(t, "valid", "rules-silent-rst.yaml")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb, err := Revision(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ra == rb {
+		t.Fatal("enabling a silent item must change runtimeRevision")
+	}
+	if !b.Spec.Rules.Enabled || b.Spec.Rules.Items[0].Action.Type != model.ActionSilent {
+		t.Fatalf("silent fixture %+v", b.Spec.Rules)
+	}
+}
+
 func TestRevisionChangesOnSemanticEdit(t *testing.T) {
 	a, err := Load([]byte(mustLoad(t, "valid", "defaults.yaml")))
 	if err != nil {

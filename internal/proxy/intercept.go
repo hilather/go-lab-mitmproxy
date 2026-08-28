@@ -288,9 +288,13 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		return false
 	}
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
-	if handled := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, sess, func(resp *http.Response) {
+	switch result := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, sess, func(resp *http.Response) {
 		_ = writeConnResponse(clientTLS, resp)
-	}); handled {
+	}); result {
+	case ruleSilentClose:
+		silentCloseConn(clientTLS, sess.closeModeOr(model.SilentCloseRST))
+		return true
+	case ruleSynthesize, ruleAbort:
 		return false
 	}
 
@@ -341,7 +345,11 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		return true
 	}
 
-	s.finishConnResponse(s.ctx, clientTLS, inner, resp, host, port, "https", started, sess, info)
+	result := s.finishConnResponse(s.ctx, clientTLS, inner, resp, host, port, "https", started, sess, info)
+	if result == ruleSilentClose {
+		silentCloseConn(clientTLS, sess.closeModeOr(model.SilentCloseRST))
+		return true
+	}
 	return false
 }
 
@@ -757,15 +765,20 @@ func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, ori
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
 
 	var syn *http.Response
-	handled := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(resp *http.Response) {
+	result := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(resp *http.Response) {
 		syn = resp
 	})
-	if handled {
+	switch result {
+	case ruleSilentClose:
+		return nil, nil, http2x.ErrSilentClose
+	case ruleSynthesize:
 		if syn == nil {
 			return badGatewayH2(), nil, nil
 		}
 		rewindResponseBody(syn)
 		return syn, nil, nil
+	case ruleAbort:
+		return badGatewayH2(), nil, nil
 	}
 
 	if !originH2 {
@@ -818,11 +831,17 @@ func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, ori
 	sess.respTrailers = trailers
 
 	var outResp *http.Response
-	s.finishResponseWrite(ctx, inner, resp, host, port, "https", started, sess, info, func(r *http.Response) error {
+	result = s.finishResponseWrite(ctx, inner, resp, host, port, "https", started, sess, info, func(r *http.Response) error {
 		rewindResponseBody(r)
 		outResp = r
 		return nil
 	})
+	if result == ruleSilentClose {
+		return nil, nil, http2x.ErrSilentClose
+	}
+	if result == ruleAbort {
+		return badGatewayH2(), nil, nil
+	}
 	if outResp == nil {
 		rewindResponseBody(resp)
 		outResp = resp
@@ -871,10 +890,13 @@ func (s *Server) innerH2Tunnel(ctx context.Context, rt http.RoundTripper, origin
 	})
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
 	var syn *http.Response
-	handled := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(resp *http.Response) {
+	result := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(resp *http.Response) {
 		syn = resp
 	})
-	if handled {
+	switch result {
+	case ruleSilentClose:
+		return http2x.Tunnel{}, http2x.ErrSilentClose
+	case ruleSynthesize:
 		status := http.StatusForbidden
 		var hdrs []model.Header
 		if syn != nil {
@@ -884,6 +906,8 @@ func (s *Server) innerH2Tunnel(ctx context.Context, rt http.RoundTripper, origin
 			hdrs = headersFrom(syn.Header)
 		}
 		return http2x.Tunnel{Status: status, Headers: hdrs}, nil
+	case ruleAbort:
+		return http2x.Tunnel{Status: http.StatusForbidden}, nil
 	}
 
 	unlock := func() {}

@@ -35,6 +35,14 @@ const (
 	ActionStatus     = "status"
 	ActionHeader     = "header"
 	ActionBody       = "body"
+	ActionSilent     = "silent"
+	ActionHang       = "hang"
+	ActionRedirect   = "redirect"
+
+	SilentCloseRST = "rst"
+	SilentCloseFIN = "fin"
+
+	RedirectDefaultStatus = 302
 )
 
 // ListenersSpec configures the proxy, management, and optional orig-dest listeners.
@@ -221,6 +229,27 @@ type RuleActionSpec struct {
 	Headers    RuleHeadersSpec    `json:"headers"`
 	Body       RuleBodySpec       `json:"body"`
 	Breakpoint RuleBreakpointSpec `json:"breakpoint"`
+	Silent     RuleSilentSpec     `json:"silent"`
+	Hang       RuleHangSpec       `json:"hang"`
+	Redirect   RuleRedirectSpec   `json:"redirect"`
+}
+
+// RuleSilentSpec is type=silent close mode. Empty Close materializes rst.
+type RuleSilentSpec struct {
+	Close string `json:"close"`
+}
+
+// RuleHangSpec is type=hang. Timeout is required and ∈ [1s, 30s].
+type RuleHangSpec struct {
+	Timeout time.Duration `json:"timeout"`
+	Close   string        `json:"close"`
+}
+
+// RuleRedirectSpec is type=redirect. Location is required.
+// Status is 301/302/303/307/308; empty materializes 302.
+type RuleRedirectSpec struct {
+	Location string `json:"location"`
+	Status   int    `json:"status"`
 }
 
 // RuleHeadersSpec mutates headers for the header action.
@@ -336,7 +365,7 @@ func KnownRulePhase(p string) bool {
 // KnownRuleAction reports whether t is a v1alpha1 rule action.
 func KnownRuleAction(t string) bool {
 	switch t {
-	case ActionBreakpoint, ActionDrop, ActionDelay, ActionStatus, ActionHeader, ActionBody:
+	case ActionBreakpoint, ActionDrop, ActionDelay, ActionStatus, ActionHeader, ActionBody, ActionSilent, ActionHang, ActionRedirect:
 		return true
 	default:
 		return false

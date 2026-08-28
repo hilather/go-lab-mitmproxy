@@ -70,6 +70,7 @@ func TestSchemaListsModelJSONFields(t *testing.T) {
 		model.TargetsSpec{}, model.TLSSpec{}, model.CASpec{}, model.TLSUpstreamSpec{},
 		model.RulesSpec{}, model.RuleSpec{}, model.RuleMatchSpec{}, model.RuleActionSpec{},
 		model.RuleHeadersSpec{}, model.RuleBodySpec{}, model.RuleBreakpointSpec{},
+		model.RuleSilentSpec{}, model.RuleHangSpec{}, model.RuleRedirectSpec{},
 		model.StoreSpec{}, model.UISpec{}, model.ManagementSpec{},
 		model.MgmtAuthSpec{}, model.TokenSpec{}, model.MCPSpec{},
 		model.ObservabilitySpec{}, model.MetricsSpec{}, model.AuditSpec{},

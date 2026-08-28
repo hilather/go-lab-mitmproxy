@@ -1,0 +1,4 @@
+# Request-phase hang 1s then silent rst. Origin is not dialed.
+C: GET http://{{HOST}}/login HTTP/1.1
+C: Host: {{HOST}}
+C:

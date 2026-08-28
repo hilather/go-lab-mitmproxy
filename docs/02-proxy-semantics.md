@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-28 (websocket/connect/absoluteForm hop 403)
-Related ADRs: 0002, 0009, 0010, 0012, 0013
+Last reviewed: 2026-08-28 (D69 silent/hang/redirect)
+Related ADRs: 0002, 0009, 0010, 0012, 0013, 0014
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 
@@ -208,8 +208,8 @@ Two paths, chosen **after** request-phase rules match (and again after response 
 
 | Path | When | Behavior |
 |---|---|---|
-| **Capture-only** | `rules.enabled: false`, or the winning action is not `body` / `status` / `drop` / `breakpoint` | `io.TeeReader` into a buffer capped at `maxBodyBytes`; remainder is copied to the peer with a 64 KiB stack buffer and **not** stored (`Truncated=true`). |
-| **Mutating** | Winning action is `body`, `status`, `drop` (before flush), or `breakpoint` | Buffer up to `maxBodyBytes`. Beyond that: fail-closed — skip the `body` replace (`action="body_skipped"`); `status`/`drop`/`breakpoint` still apply to headers. Data-plane continues unmodified for the body. |
+| **Capture-only** | `rules.enabled: false`, or the winning action is not `body` / `status` / `drop` / `breakpoint` / `redirect` (`silent` / `hang` stay capture-only) | `io.TeeReader` into a buffer capped at `maxBodyBytes`; remainder is copied to the peer with a 64 KiB stack buffer and **not** stored (`Truncated=true`). |
+| **Mutating** | Winning action is `body`, `status`, `drop` (before flush), `breakpoint`, or `redirect` | Buffer up to `maxBodyBytes`. Beyond that: fail-closed — skip the `body` replace (`action="body_skipped"`); `status`/`drop`/`breakpoint`/`redirect` still apply to headers. Data-plane continues unmodified for the body. |
 
 `drop` / `status` on the **response** path is illegal after the client has been written any body byte; if the capture-only path already flushed, the action is skipped and counted `action="late_skip"`.
 

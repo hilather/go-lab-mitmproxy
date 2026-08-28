@@ -2,7 +2,7 @@
 
 Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-28 (live feature-gate residual)
+Last reviewed: 2026-08-28 (D69 hang admission hold)
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.3.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.3.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68. ADR [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) records **D51'** (live hop/accept vs Reset bind) and the **D22 carve** (1.0-preserving hop gates default on).
 
@@ -84,6 +84,7 @@ The 1.2 protocol expansion (ADR 0012 D58–D68) is the claimed product on this t
 - **Public CA, SSL-strip, exploit/fuzzer UX, chaos engine, durable flow-directory, multi-replica store.**
 - **Docker `-p 8890:8890` as “transparent mode.”** Publishing `8890` is not transparent (D50).
 - **`labmitm send` / live apply of 1.2 nested flags / HAR export.** 1.1 hop/accept live apply is the accepted D51' path ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) for http2/websocket/connect/absoluteForm/SOCKS/compat/rules/ui. Orig-dest bind stays Reset-only.
+- **Hang holds admission.** `action.type: hang` occupies the HTTP/1.1 `gate.acquire` slot for `hang.timeout` (1s–30s). Client-facing h2c and intercepted CONNECT acquire once per TCP, so hang occupies one stream toward `maxConcurrentStreams`, not a second gate slot ([ADR 0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) D69).
 
 ## Original-destination topologies (D50)
 

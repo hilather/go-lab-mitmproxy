@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
@@ -253,6 +254,72 @@ func TestContractMutations(t *testing.T) {
 	reset := structuredMap(t, callTool(t, cs, "mitm_state_reset", map[string]any{"reason": "test"}))
 	if reset["applied"] != true {
 		t.Fatalf("reset=%v", reset)
+	}
+}
+
+func TestContractReplaceRulesBlockModes(t *testing.T) {
+	s, _ := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rev, _ := state["runtimeRevision"].(string)
+	action := func(typ string, extra map[string]any) map[string]any {
+		a := map[string]any{
+			"type":   typ,
+			"delay":  int64(0),
+			"status": 0,
+			"headers": map[string]any{
+				"set":    map[string]string{},
+				"remove": []string{},
+			},
+			"body":       map[string]any{"replace": ""},
+			"breakpoint": map[string]any{"timeout": int64(0)},
+			"silent":     map[string]any{"close": ""},
+			"hang":       map[string]any{"timeout": int64(0), "close": ""},
+			"redirect":   map[string]any{"location": "", "status": 0},
+		}
+		for k, v := range extra {
+			a[k] = v
+		}
+		return a
+	}
+	ops := []map[string]any{{
+		"op": "replaceRules",
+		"rules": map[string]any{
+			"enabled": true,
+			"items": []map[string]any{
+				{"id": "silent-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("silent", map[string]any{"silent": map[string]any{"close": "rst"}})},
+				{"id": "hang-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("hang", map[string]any{"hang": map[string]any{"timeout": int64(time.Second), "close": ""}})},
+				{"id": "redir-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("redirect", map[string]any{"redirect": map[string]any{"location": "/x", "status": 0}})},
+			},
+		},
+	}}
+	valRes := callTool(t, cs, "mitm_state_validate", map[string]any{"operations": ops})
+	if valRes.IsError {
+		t.Fatalf("validate error: %s", firstText(valRes))
+	}
+	_ = structuredMap(t, valRes)
+	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"reason":           "block modes",
+		"operations":       ops,
+	}))
+	if apply["applied"] != true {
+		t.Fatalf("apply=%v", apply)
+	}
+	bad := callToolExpectError(t, cs, "mitm_state_validate", map[string]any{
+		"operations": []map[string]any{{
+			"op": "replaceRules",
+			"rules": map[string]any{
+				"enabled": true,
+				"items": []map[string]any{
+					{"id": "bad", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("http_status", map[string]any{"status": 403})},
+				},
+			},
+		}},
+	})
+	if domainCode(t, bad) != "validation_failed" {
+		t.Fatalf("http_status=%v", bad)
 	}
 }
 

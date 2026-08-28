@@ -70,6 +70,7 @@ The numbered pack is the source of truth.
 | [0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md) | Optional compat flow REST; `/v1`+MCP primacy stands |
 | [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) | 1.2 protocol expansion (D58–D68); D7 stands |
 | [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) | Live protocol feature gates (D51', D22 carve); 1.2 flags stay Reset-only |
+| [0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) | QA block modes as additive rule actions (D69); `silent` / `hang` / `redirect` |
 
 ## Task lists
 
