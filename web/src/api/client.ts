@@ -1,5 +1,17 @@
 import { assertNoTokenStorage } from "./storage";
-import type { AuditList, Flow, FlowList, FlowListQuery, Problem, SessionCreated, SessionView, Status } from "./types";
+import type {
+  ApplyResult,
+  AuditList,
+  ChangeSet,
+  FeatureList,
+  Flow,
+  FlowList,
+  FlowListQuery,
+  Problem,
+  SessionCreated,
+  SessionView,
+  Status,
+} from "./types";
 
 export const CSRF_HEADER = "X-LabMITM-CSRF";
 
@@ -254,6 +266,20 @@ export async function clearFlows(): Promise<{ deleted: number }> {
 
 export async function getStatus(): Promise<Status> {
   return readJSON<Status>(await apiFetch("/v1/status"));
+}
+
+export async function getFeatures(): Promise<FeatureList> {
+  return readJSON<FeatureList>(await apiFetch("/v1/features"));
+}
+
+export async function applyChanges(body: ChangeSet): Promise<ApplyResult> {
+  return readJSON<ApplyResult>(
+    await apiFetch("/v1/changes:apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
 }
 
 export async function listAudit(): Promise<AuditList> {

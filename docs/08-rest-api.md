@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-28 (features.get)
+Last reviewed: 2026-08-28 (Status feature catalog)
 Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
@@ -142,7 +142,7 @@ Required for GA / 1.0 (D13). Talks REST only.
 | Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie + CSRF. No Basic form. |
-| Pages | Flow list, flow detail (protocol badge, HTTP/2 stream id, trailers, SOCKS dest, original dest, Frames tab), CA download, status, audit (if scoped), gated reset |
+| Pages | Flow list, flow detail (protocol badge, HTTP/2 stream id, trailers, SOCKS dest, original dest, Frames tab), CA download, status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` except `ui.enabled`; reset-only rows link to `/reset`; no `/features` route), audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream`. Fallback: 3s poll of `GET /v1/flows` |
 | Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download links use `download=` plus a blob fetch (click is not a document navigation). Raw body GETs are `application/octet-stream` + `Content-Disposition: attachment`. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle |

@@ -191,6 +191,46 @@ export type Status = {
   features: StatusFeatures;
 };
 
+export type Feature = {
+  id: string;
+  yamlPath: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  applyMode: string;
+  verb: string;
+};
+
+export type FeatureList = {
+  runtimeRevision: string;
+  generation: number;
+  drifted: boolean;
+  items: Feature[];
+};
+
+export type FeaturePatch = {
+  id: string;
+  enabled: boolean;
+};
+
+export type ChangeOperation = {
+  op: string;
+  feature?: FeaturePatch;
+};
+
+export type ChangeSet = {
+  expectedRevision: string;
+  idempotencyKey: string;
+  reason: string;
+  operations: ChangeOperation[];
+};
+
+export type ApplyResult = {
+  runtimeRevision?: string;
+  applied?: boolean;
+  generation?: number;
+};
+
 export type AuditEvent = {
   id: string;
   time: string;

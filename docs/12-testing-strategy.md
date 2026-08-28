@@ -33,7 +33,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Config compat | `testdata/config/valid` + `invalid` | `make test-config-compat` |
 | Changelog | user-visible paths require `CHANGELOG.md` | `make test-changelog` |
 | Tag gate | notes headings + green required CI on the tag SHA | `.github/workflows/release.yml` |
-| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status, protocol badge / stream id / trailers / SOCKS dest / original dest / Frames tab / PUSH parent-promised ids; remaining gRPC tab when `flow.grpc` is present (`web/src/pages/FlowPage.test.tsx`) | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
+| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status, Status feature catalog (`GET /v1/features`; no `ui.enabled` toggle; in-flight disable; 409 refetch), protocol badge / stream id / trailers / SOCKS dest / original dest / Frames tab / PUSH parent-promised ids; remaining gRPC tab when `flow.grpc` is present (`web/src/pages/FlowPage.test.tsx`) | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
 
 ## Required Make targets
 

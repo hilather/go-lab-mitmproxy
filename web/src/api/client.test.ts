@@ -3,6 +3,7 @@ import {
   CSRF_HEADER,
   LIST_PAGE_LIMIT,
   apiFetch,
+  applyChanges,
   bearerAuthorization,
   clearMemoryCSRF,
   createSession,
@@ -68,6 +69,39 @@ describe("API client", () => {
     }
     expect(new Headers(init.headers).has(CSRF_HEADER)).toBe(false);
     clearMemoryCSRF();
+  });
+
+  it("posts changes:apply with CSRF and JSON body", async () => {
+    setMemoryCSRF("csrf-test");
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async () =>
+        new Response(JSON.stringify({ applied: true, runtimeRevision: "sha256:next" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await applyChanges({
+      expectedRevision: "sha256:abc",
+      idempotencyKey: "k1",
+      reason: "qa",
+      operations: [{ op: "setFeature", feature: { id: "protocols.http2", enabled: true } }],
+    });
+    expect(result.runtimeRevision).toBe("sha256:next");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/v1/changes:apply");
+    const init = fetchMock.mock.calls[0]?.[1];
+    if (!init) {
+      throw new Error("expected fetch init");
+    }
+    expect(init.credentials).toBe("same-origin");
+    expect(new Headers(init.headers).get(CSRF_HEADER)).toBe("csrf-test");
+    expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({
+      expectedRevision: "sha256:abc",
+      idempotencyKey: "k1",
+      reason: "qa",
+      operations: [{ op: "setFeature", feature: { id: "protocols.http2", enabled: true } }],
+    });
   });
 
   it("walks nextCursor so a 51st flow is not dropped", async () => {
