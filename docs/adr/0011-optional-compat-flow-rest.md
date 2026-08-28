@@ -44,3 +44,7 @@ This ADR supersedes ADR 0007 D5’s **“no compat path in 1.0” sentence** onl
 ## Review triggers
 
 Review when a named consumer appears, when OpenAPI should emit CompatBindings paths, or when a second compat surface (dumpfile, mitmweb) is proposed (it needs a new ADR).
+
+## Notes (D51')
+
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) **replaces D51** with **D51'** (live hop/accept vs Reset bind). `compat.flowREST.enabled` is live `setFeature`; `pathPrefix` is live `replaceCompat` only. Those verbs are not on this process. `/compat` is still **not** on `catalog()` / native `compileRoutes` (D33). Remainder of this ADR stands.
