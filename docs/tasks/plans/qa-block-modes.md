@@ -211,7 +211,9 @@ Existing inner-h2 drop/status tests (403/418) must keep passing. Implementation 
 
 ### HTTP/1.1 absolute-form (non-Expect)
 
-`serveAbsolute` uses `http.ResponseWriter`. Silent/hang **must Hijack before any `WriteHeader`**, apply linger if `rst`, close, and never return the conn to `http.Server`. Drop/status keep `writeClientResponse`.
+`serveAbsolute` on a real `http.ResponseWriter` (client-facing HTTP/1.1): silent/hang **must Hijack before any `WriteHeader`**, apply linger if `rst`, close, and never return the conn to `http.Server`. Drop/status keep `writeClientResponse`.
+
+`serveAbsolute` on h2c `captureRW`: **do not Hijack** (not a `Hijacker`). Return `ruleSilentClose` to `roundTripH2C` instead.
 
 Expect/100 path is already hijacked (`serveExpectAbsolute`). Silent/hang use the raw `client` conn; do not write 100 or a final status.
 
