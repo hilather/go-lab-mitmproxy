@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -223,6 +224,25 @@ func TestNewZeroSpecDeniesIMDS(t *testing.T) {
 	}
 	if got := rec.Addrs(); len(got) != 0 {
 		t.Fatalf("dialed %v", got)
+	}
+}
+
+func TestRejectDisabledWebSocketNilSessionFailClosed(t *testing.T) {
+	spec := loadSpec(t)
+	spec.Protocols.WebSocket.Enabled = false
+	px := startProxy(t, Options{Spec: spec})
+	rec := httptest.NewRecorder()
+	req, err := http.NewRequest(http.MethodGet, "http://app.lab/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	if !px.rejectDisabledWebSocket(rec, req, "app.lab", nil) {
+		t.Fatal("nil sess must still run the gate")
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status %d", rec.Code)
 	}
 }
 

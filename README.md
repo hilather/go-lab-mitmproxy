@@ -318,10 +318,10 @@ A bad file leaves the live snapshot **and** the flow store untouched.
 
 Live apply verbs (`replaceRules`, `replaceTLS`, `replaceAdmission`,
 `replaceTargets`, `replaceStoreCaps`, `setFeature`, `replaceCompat`).
-`protocols.http2`, SOCKS accept, compat flow REST, `rules.enabled`, and
-`ui.enabled` are live without wiping the inbox. Listener addresses and
-original-destination bind stay bootstrap + **Reset** only.
-`protocols.websocket` / `connect` / `absoluteForm` are not live yet.
+`protocols.http2`, `protocols.websocket` / `connect` / `absoluteForm`,
+SOCKS accept, compat flow REST, `rules.enabled`, and `ui.enabled` are
+live without wiping the inbox. Listener addresses and original-destination
+bind stay bootstrap + **Reset** only.
 
 ### MCP (`POST /mcp`)
 

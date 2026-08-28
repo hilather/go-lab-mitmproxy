@@ -152,6 +152,41 @@ func TestSOCKS5ConnectHTTPOrigin(t *testing.T) {
 	}
 }
 
+func TestSOCKSConnectWhenHTTPConnectDisabled(t *testing.T) {
+	origin, _ := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "socks-ok")
+	}))
+	spec := socks5Spec(t)
+	spec.Protocols.Connect.Enabled = false
+	px := startProxy(t, Options{Spec: spec})
+	ip, port, host := ipv4Port(t, origin)
+	playSOCKSTranscript(t, px.Addr().String(), testdataProxy(t, "socks5-connect.txt"), map[string]string{
+		"IPV4": hex.EncodeToString(ip),
+		"PORT": hex.EncodeToString(bePort(port)),
+		"HOST": host,
+	})
+	c, err := net.DialTimeout("tcp", px.Addr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := io.WriteString(c, "CONNECT "+origin+" HTTP/1.1\r\nHost: "+origin+"\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("HTTP CONNECT status %d", resp.StatusCode)
+	}
+	if px.Metrics().Rejected("connect") < 1 {
+		t.Fatal("expected connect reject")
+	}
+}
+
 func TestSOCKS5IMDSDoesNotDial(t *testing.T) {
 	rec := &recordingDial{}
 	px := startProxy(t, Options{

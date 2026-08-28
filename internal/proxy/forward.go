@@ -53,8 +53,15 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *r
 // rejectDisabledWebSocket is the cleartext websocket gate. It reads only
 // sess.spec and runs before rules and before resolveThenGuard / Dial.
 func (s *Server) rejectDisabledWebSocket(w http.ResponseWriter, req *http.Request, host string, sess *ruleSession) bool {
-	if sess == nil || req == nil || !httputilx.IsWebSocketUpgrade(req.Header) {
+	if req == nil || !httputilx.IsWebSocketUpgrade(req.Header) {
 		return false
+	}
+	if sess == nil {
+		if s == nil {
+			writeProxyError(w, http.StatusForbidden, domainerr.CodeForbidden, "websocket is disabled", "spec.protocols.websocket.enabled")
+			return true
+		}
+		sess = s.beginSession()
 	}
 	if sess.spec.Protocols.WebSocket.Enabled {
 		return false
