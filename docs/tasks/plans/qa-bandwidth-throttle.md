@@ -49,7 +49,11 @@ QA need: a large download (or upload) that trickles so the system under test hit
 
 A daemon is justified only if the product needed a **shared** bytes/sec cap across unmatched traffic or across concurrent streams on one TCP session. Issue #52 does not. Per-message pace on the winning hit is the QA knob. **Do not add a daemon.**
 
+<<<<<<< HEAD
 ## Decision (D75)
+=======
+## Decision (D70)
+>>>>>>> 5fabb10 (docs: number throttle ADR 0015 / D70 after rebase)
 
 See [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md). Summary:
 
@@ -242,7 +246,7 @@ Reviewer posture: assume the first draft will sneak in a daemon, a new catalog r
 | 4 | First-match cannot express “delay then throttle” or “both directions” on one item. Inventing `phase: both` is a new invariant. | Two items. Documented. |
 | 5 | `0` B/s is hang-until-timeout (#52 other item). | Rejected at validate. |
 | 6 | New `/v1/throttle` or `mitm_throttle_set` would break the 30-row catalog freeze. | Forbidden. `replaceRules` only. |
-| 7 | h2→h1 D44: pacing `drainOriginBody` would hold `originMu` for the whole client trickle and stall other streams. Pacing only `finishResponseWrite` after drain paces the client (the QA surface) and releases the mutex. Request-phase throttle **does** hold the mutex for the paced upload — that is one HTTP/1.1 origin TCP, not a bug. | Frozen in D69. |
+| 7 | h2→h1 D44: pacing `drainOriginBody` would hold `originMu` for the whole client trickle and stall other streams. Pacing only `finishResponseWrite` after drain paces the client (the QA surface) and releases the mutex. Request-phase throttle **does** hold the mutex for the paced upload — that is one HTTP/1.1 origin TCP, not a bug. | Frozen in D70. |
 | 8 | YAML byte sizes reject bare numbers (`testdata/config/invalid/bare-bytes.yaml`). A raw int64 field would accept `8192` in YAML and break the IEC contract. | `bytesPerSecond` joins `sizeFields`. REST apply JSON remains integer bytes on the typed struct (existing cap pattern). |
 | 9 | `golang.org/x/time/rate` is a new direct dep with burst semantics we do not want. | Stdlib limiter only. |
 | 10 | Wall-clock session tests that assert exact duration will flake. | Lower bound only; unit tests fake `sleep`. |
