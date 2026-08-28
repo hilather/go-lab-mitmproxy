@@ -68,6 +68,15 @@ The numbered pack is the source of truth.
 | [0010](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md) | SOCKS5 multiplex + orig-dest REDIRECT; TPROXY stays rejected |
 | [0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md) | Optional compat flow REST; `/v1`+MCP primacy stands |
 | [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) | 1.2 protocol expansion (D58–D68); D7 stands |
+| [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-rules-throttle-action.md) | Additive `action.type: throttle` (D69); catalog stays 30 rows |
+
+## Post-GA plans
+
+Normative docs still win. These plans freeze a follow-on workstream after skeptic-plan-review.
+
+| Path | Topic |
+|---|---|
+| [qa-bandwidth-throttle.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-bandwidth-throttle.md) | Issue #52 bandwidth throttle (ACCEPT; not implemented) |
 
 ## Task lists
 
