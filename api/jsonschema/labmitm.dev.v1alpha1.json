@@ -121,7 +121,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "description": "default true (D22 carve, ADR 0013); 1.0-preserving hop gate. YAML is accepted now; the proxy ignores this field until hop enforcement lands." },
+        "enabled": { "type": "boolean", "description": "default true (D22 carve, ADR 0013); 1.0-preserving hop gate. Off is 403 forbidden before rules/origin. Live setFeature." },
         "inspectFrames": { "type": "boolean", "description": "default false; Reset-only" }
       }
     },
@@ -129,7 +129,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "description": "default true (D22 carve, ADR 0013); 1.0-preserving hop gate. YAML is accepted now; the proxy ignores connect/absoluteForm until hop enforcement lands." }
+        "enabled": { "type": "boolean", "description": "default true (D22 carve, ADR 0013); 1.0-preserving hop gate. Off is 403 forbidden before Dial. Live setFeature." }
       }
     },
     "compat": {

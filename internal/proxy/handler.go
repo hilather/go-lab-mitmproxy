@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
@@ -36,9 +37,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer s.gate.release(ip)
-	s.metrics.accept()
 
 	if dest, ok := origDestFromContext(req); ok {
+		s.metrics.accept()
 		if req.Method == http.MethodConnect {
 			writeProxyError(w, http.StatusBadRequest, domainerr.CodeValidationFailed,
 				"CONNECT is not supported on original-destination", "")
@@ -47,6 +48,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		s.serveOrigDestHTTP(w, req, dest, sess)
 		return
 	}
+
+	if req.Method == http.MethodConnect && !sess.spec.Protocols.Connect.Enabled {
+		s.metrics.reject("connect")
+		authority := ""
+		if req.URL != nil {
+			authority = req.URL.Host
+		}
+		if authority == "" {
+			authority = req.Host
+		}
+		host, _, err := splitAuthority(authority, "")
+		if err != nil || host == "" {
+			host = authority
+		}
+		s.capture(connectFlow(req, host, http.StatusForbidden, string(domainerr.CodeForbidden), time.Now()), sess)
+		writeProxyError(w, http.StatusForbidden, domainerr.CodeForbidden, "CONNECT is disabled", "spec.protocols.connect.enabled")
+		return
+	}
+
+	s.metrics.accept()
 
 	if req.Method == http.MethodConnect {
 		s.serveCONNECT(w, req, sess)

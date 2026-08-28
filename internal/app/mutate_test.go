@@ -554,6 +554,27 @@ func TestApplySetFeatureHTTP2AndSOCKSWithoutInboxWipe(t *testing.T) {
 		t.Fatalf("kept flow: %v", err)
 	}
 
+	hop, err := svc.Apply(ctx, actor(), ChangeIn{
+		ExpectedRevision: res.RuntimeRevision,
+		IdempotencyKey:   "feat-ws-connect-abs",
+		Operations: []model.Operation{
+			setFeatureOp(FeatureIDWebSocket, false),
+			setFeatureOp(FeatureIDConnect, false),
+			setFeatureOp(FeatureIDAbsoluteForm, false),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireLiveNextConnection(t, hop.Warnings)
+	got = svc.Active().Canonical.Spec
+	if got.Protocols.WebSocket.Enabled || got.Protocols.Connect.Enabled || got.Protocols.AbsoluteForm.Enabled {
+		t.Fatalf("hop gates %+v", got.Protocols)
+	}
+	if svc.Inbox().Stats().FlowCount != 1 {
+		t.Fatal("hop setFeature wiped inbox")
+	}
+
 	var hooks int
 	svc.OnApply(func() { hooks++ })
 	again, err := svc.Apply(ctx, actor(), ChangeIn{
@@ -658,9 +679,6 @@ func TestApplySetFeatureRejectedIDs(t *testing.T) {
 	}{
 		{FeatureIDOriginalDest, "edit bootstrap YAML and Reset"},
 		{FeatureIDTLSIntercept, "use replaceTLS"},
-		{FeatureIDWebSocket, "not applyable until proxy enforcement"},
-		{FeatureIDConnect, "not applyable until proxy enforcement"},
-		{FeatureIDAbsoluteForm, "not applyable until proxy enforcement"},
 		{"protocols.http2.clientCleartext", ""},
 		{"not-a-feature", ""},
 	}
@@ -682,10 +700,10 @@ func TestApplySetFeatureAtomicRejectLeavesHTTP2Off(t *testing.T) {
 		ExpectedRevision: boot.Revision,
 		Operations: []model.Operation{
 			setFeatureOp(FeatureIDHTTP2, true),
-			setFeatureOp(FeatureIDWebSocket, false),
+			setFeatureOp(FeatureIDOriginalDest, true),
 		},
 	})
-	requireViolation(t, err, "operations[1].feature.id", "invalid_value", "not applyable until proxy enforcement")
+	requireViolation(t, err, "operations[1].feature.id", "invalid_value", "edit bootstrap YAML and Reset")
 	if svc.Active().Canonical.Spec.Protocols.HTTP2.Enabled {
 		t.Fatal("failed changeset must not apply earlier ops")
 	}

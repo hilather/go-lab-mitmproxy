@@ -275,6 +275,18 @@ func (s *Server) tlsInfo(clientTLS, upTLS *tls.Conn, auth *tlsmitm.Authority, sn
 func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, br *bufio.Reader, inner *http.Request, host, port string, res resolved, info *model.TLSInfo, pinned *ruleSession) (stop bool) {
 	started := time.Now()
 	sess := pinned.fork()
+	if httputilx.IsWebSocketUpgrade(inner.Header) && !sess.spec.Protocols.WebSocket.Enabled {
+		s.metrics.reject("websocket")
+		f := s.innerFlow(inner, host, port, http.StatusForbidden, string(domainerr.CodeForbidden), started, info, sess.reqCap, nil)
+		f.Protocol = model.FlowProtocolWebSocket
+		s.capture(f, sess)
+		if err := writeConnResponse(clientTLS, innerForbiddenResponse("websocket is disabled", "spec.protocols.websocket.enabled")); err != nil {
+			_ = clientTLS.Close()
+			_ = upTLS.Close()
+			return true
+		}
+		return false
+	}
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
 	if handled := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, sess, func(resp *http.Response) {
 		_ = writeConnResponse(clientTLS, resp)

@@ -183,6 +183,9 @@ func (s *Server) serveOrigDestHTTP(w http.ResponseWriter, req *http.Request, des
 	}
 	sess.via = "original-dest"
 	sess.originalDest = dest.HostPort
+	if s.rejectDisabledWebSocket(w, req, dest.IP.String(), sess) {
+		return
+	}
 
 	guardCtx, guardCancel := s.upstreamCtxSess(req.Context(), sess)
 	res, err := resolveThenGuard(guardCtx, s.resolver, sess.spec.Proxy.Targets, dest.IP.String(), dest.Port)

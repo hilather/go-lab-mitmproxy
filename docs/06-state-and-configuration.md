@@ -131,21 +131,21 @@ spec:
     audit:
       ring: 128
 
-  protocols:                       # 1.1 http2.enabled already honored; websocket/connect/absoluteForm YAML accepted now, hops not gated yet (ADR 0013)
+  protocols:                       # hop gates live-applyable via setFeature (ADR 0013)
     http2:
-      enabled: false               # 1.1; default off (D22)
+      enabled: false               # 1.1; default off (D22); live next CONNECT
       clientCleartext: false
       origin: false
       extendedConnect: false
       capturePush: false
       grpcDecode: false
     websocket:
-      enabled: true                # D22 carve default on (ADR 0013); proxy ignores until hop enforcement
+      enabled: true                # D22 carve default on (ADR 0013); live; off is 403 before rules/Dial
       inspectFrames: false         # 1.2; Reset-only
     connect:
-      enabled: true                # D22 carve default on (ADR 0013); proxy ignores until hop enforcement
+      enabled: true                # D22 carve default on (ADR 0013); live; off is 403 before Hijack
     absoluteForm:
-      enabled: true                # D22 carve default on (ADR 0013); proxy ignores until hop enforcement
+      enabled: true                # D22 carve default on (ADR 0013); live; off is 403 before DNS
 
   compat:                          # 1.1; live setFeature / replaceCompat (D51'); no /compat on catalog() / native compileRoutes
     flowREST:
@@ -153,7 +153,7 @@ spec:
       pathPrefix: /compat          # validated against configured restPath/mcpPath
 ```
 
-Empty `spec: {}` is valid and materializes the standalone loopback defaults (`127.0.0.1:8888` / `127.0.0.1:8088`). 1.1 opt-in and 1.2 fields materialize **false**. Omitted `protocols.websocket` / `connect` / `absoluteForm` (including present-but-null maps) materialize `enabled: true` at decode (D22 carve, [ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) so hop behavior stays 1.0 (HTTP/1.1 + SOCKS-close + WebSocket 101). Canonicalize of today’s empty spec **grows** those three enabled objects. The proxy does **not** consult `websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` yet. `labmitm validate --config` and `labmitm canonicalize --config [--format yaml|json]` implement this loader. `labmitm serve` (PROXY-001) binds the proxy after a successful load; invalid bootstrap binds nothing.
+Empty `spec: {}` is valid and materializes the standalone loopback defaults (`127.0.0.1:8888` / `127.0.0.1:8088`). 1.1 opt-in and 1.2 fields materialize **false**. Omitted `protocols.websocket` / `connect` / `absoluteForm` (including present-but-null maps) materialize `enabled: true` at decode (D22 carve, [ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) so hop behavior stays 1.0 (HTTP/1.1 + SOCKS-close + WebSocket 101). Canonicalize of today’s empty spec **grows** those three enabled objects. Disabled gates 403 `forbidden` before rules/Dial (websocket on both `serveAbsolute` and `serveOrigDestHTTP`; CONNECT after orig-dest D57 before Hijack; absolute-form only on `serveAbsolute`). `labmitm validate --config` and `labmitm canonicalize --config [--format yaml|json]` implement this loader. `labmitm serve` (PROXY-001) binds the proxy after a successful load; invalid bootstrap binds nothing.
 
 The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://github.com/hilather/go-lab-mitmproxy/blob/main/api/jsonschema/labmitm.dev.v1alpha1.json). `tls.upstream.verify` is not an input field; the only upstream verify knob is `insecureSkipVerify`. Export / `GET /v1/status` (later) materializes read-only `verify: !insecureSkipVerify`.
 
@@ -231,7 +231,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `replaceRules` | `rules` object | `{}` / empty items + `enabled: false` is stock capture |
 | `replaceTargets` | `targets` object | Live on next request |
 | `replaceCompat` | `compat` object (`enabled` + `pathPrefix`) | Live on next management request. Prefix collision with restPath/mcpPath is `validation_failed`. |
-| `setFeature` | `feature`: `{id, enabled}` | Closed IDs the running proxy already honors: `protocols.http2`, `listeners.proxy.acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST` (enabled only), `rules.enabled` (items unchanged), `ui.enabled`. Rejects `listeners.originalDestination` (Reset-only), `tls.intercept` (use `replaceTLS`), and `protocols.websocket` / `connect` / `absoluteForm` until proxy enforcement. Plan warns `live_next_connection`. |
+| `setFeature` | `feature`: `{id, enabled}` | Closed IDs: `protocols.http2`, `protocols.websocket`, `protocols.connect`, `protocols.absoluteForm`, `listeners.proxy.acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST` (enabled only), `rules.enabled` (items unchanged), `ui.enabled`. Rejects `listeners.originalDestination` (Reset-only) and `tls.intercept` (use `replaceTLS`). Plan warns `live_next_connection`. |
 
 `:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset. Plan of `setFeature` / `replaceCompat` warns `live_next_connection` (in-flight sessions keep the snapshot they pinned; SOCKS peek and new ServeHTTP/CONNECT see the swap). The only other Apply warning is `store_evict`.
 
@@ -239,13 +239,13 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 
 ### 1.1 / 1.2 flags (D51' live hop/accept vs Reset bind)
 
-[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. `setFeature` is the only protocol/accept mutation. Plus `replaceCompat` (enabled **and** `pathPrefix`). No `replaceProtocols` / `replaceProxyAccept`. `setFeature` of `tls.intercept` is `validation_failed` (use `replaceTLS`). `setFeature` of Reset-only IDs is `validation_failed` with remediation “edit bootstrap YAML and Reset”. `setFeature` / `replaceCompat` are on `KnownOp`. Hop 403 for websocket/connect/absoluteForm is **not** on the proxy in this change; those IDs stay `validation_failed` until enforcement.
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. `setFeature` is the only protocol/accept mutation. Plus `replaceCompat` (enabled **and** `pathPrefix`). No `replaceProtocols` / `replaceProxyAccept`. `setFeature` of `tls.intercept` is `validation_failed` (use `replaceTLS`). `setFeature` of Reset-only IDs is `validation_failed` with remediation “edit bootstrap YAML and Reset”. `setFeature` / `replaceCompat` are on `KnownOp`. Websocket/connect/absoluteForm are live hop 403s (`Error=forbidden`; metric reasons `websocket`, `connect`, `absolute_form`).
 
 | Field | How to change |
 |---|---|
 | `acceptSOCKS5` / `acceptSOCKS4` | **live** `setFeature` (next peek) |
 | `protocols.http2.enabled` | **live** `setFeature` (next CONNECT) |
-| `protocols.websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` | YAML accepted now (default **on**, D22 carve). Hops are **not** gated until enforcement. `setFeature` of these IDs is `validation_failed` until that PR |
+| `protocols.websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` | **live** `setFeature` (default **on**, D22 carve). Off is 403 before rules/Dial; inner websocket 403 keeps CONNECT |
 | `compat.flowREST.enabled` | **live** `setFeature` (next management request) |
 | `compat.flowREST.pathPrefix` | **live** `replaceCompat` only (not `setFeature`) |
 | `rules.enabled` | **live** `setFeature` (items unchanged) |

@@ -146,6 +146,101 @@ func TestOrigDestH2CPrefaceCloses(t *testing.T) {
 	}
 }
 
+func TestOrigDestWebSocketDisabledNoDial(t *testing.T) {
+	var hits int
+	origin, _ := startOrigin(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		hits++
+		t.Error("origin must not be reached")
+	}))
+	ip, port := originIPPort(t, origin)
+	rec := &recordingDial{}
+	sink := NewNull()
+	spec := loadSpec(t)
+	spec.Protocols.WebSocket.Enabled = false
+	px := startOrigDestProxy(t, ip, port, Options{
+		Spec:        spec,
+		Sink:        sink,
+		DialContext: rec.wrap(nil),
+	})
+	c := writeOrigHTTP(t, px.OrigDestAddr().String(),
+		"GET /ws HTTP/1.1\r\nHost: app.lab\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
+	defer func() { _ = c.Close() }()
+	resp := readOrigHTTP(t, c)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if hits != 0 {
+		t.Fatalf("origin hits=%d", hits)
+	}
+	if len(rec.Addrs()) != 0 {
+		t.Fatalf("dialed %v", rec.Addrs())
+	}
+	if px.Metrics().Rejected("websocket") < 1 {
+		t.Fatal("expected websocket reject")
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.Protocol == model.FlowProtocolWebSocket && f.Error == "forbidden" && f.Status == http.StatusForbidden {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want websocket forbidden flow, got %+v", sink.Last())
+	}
+}
+
+func TestOrigDestCONNECTStays400WhenConnectOff(t *testing.T) {
+	rec := &recordingDial{}
+	spec := loadSpec(t)
+	spec.Protocols.Connect.Enabled = false
+	px := startOrigDestProxy(t, net.ParseIP("127.0.0.1"), 443, Options{
+		Spec:        spec,
+		DialContext: rec.wrap(nil),
+	})
+	c := writeOrigHTTP(t, px.OrigDestAddr().String(),
+		"CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n\r\n")
+	defer func() { _ = c.Close() }()
+	resp := readOrigHTTP(t, c)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if px.Metrics().Rejected("connect") != 0 {
+		t.Fatal("orig-dest CONNECT must not use protocols.connect")
+	}
+	if len(rec.Addrs()) != 0 {
+		t.Fatalf("CONNECT dialed %v", rec.Addrs())
+	}
+}
+
+func TestOrigDestHTTPNotSubjectToAbsoluteForm(t *testing.T) {
+	var hits int
+	origin, _ := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = io.WriteString(w, "ok")
+	}))
+	ip, port := originIPPort(t, origin)
+	spec := loadSpec(t)
+	spec.Protocols.AbsoluteForm.Enabled = false
+	px := startOrigDestProxy(t, ip, port, Options{Spec: spec})
+	c := writeOrigHTTP(t, px.OrigDestAddr().String(),
+		"GET /hello HTTP/1.1\r\nHost: app.lab\r\nConnection: close\r\n\r\n")
+	defer func() { _ = c.Close() }()
+	resp := readOrigHTTP(t, c)
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "ok" {
+		t.Fatalf("status %d body %q", resp.StatusCode, body)
+	}
+	if hits != 1 {
+		t.Fatalf("hits=%d", hits)
+	}
+	if px.Metrics().Rejected("absolute_form") != 0 {
+		t.Fatal("orig-dest HTTP must not use protocols.absoluteForm")
+	}
+}
+
 func TestOrigDestTaggedCONNECTNoDial(t *testing.T) {
 	rec := &recordingDial{}
 	px := startOrigDestProxy(t, net.ParseIP("127.0.0.1"), 443, Options{

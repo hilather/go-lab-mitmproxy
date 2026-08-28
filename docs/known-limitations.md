@@ -62,7 +62,7 @@ The 1.2 protocol expansion (ADR 0012 D58–D68) is the claimed product on this t
 - **Forwarding origin `PUSH_PROMISE` to the inner client.** Capture-only; inner `EnablePush` stays 0.
 - **Public CA, SSL-strip, exploit/fuzzer UX, chaos engine, durable flow-directory, multi-replica store.**
 - **Docker `-p 8890:8890` as “transparent mode.”** Publishing `8890` is not transparent (D50).
-- **`labmitm send` / live apply of 1.2 nested flags / HAR export.** 1.1 hop/accept live apply is the accepted D51' path ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) for http2/SOCKS/compat/rules/ui. `setFeature` of websocket/connect/absoluteForm is not applyable until proxy enforcement. Orig-dest bind stays Reset-only.
+- **`labmitm send` / live apply of 1.2 nested flags / HAR export.** 1.1 hop/accept live apply is the accepted D51' path ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) for http2/websocket/connect/absoluteForm/SOCKS/compat/rules/ui. Orig-dest bind stays Reset-only.
 
 ## Original-destination topologies (D50)
 

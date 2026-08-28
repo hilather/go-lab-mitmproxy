@@ -191,7 +191,7 @@ func TestNewZeroSpecDeniesIMDS(t *testing.T) {
 	rec := &recordingDial{}
 	s, err := New(Options{
 		Address:     "127.0.0.1:0",
-		Spec:        model.Spec{},
+		Spec:        loadSpec(t),
 		DialContext: rec.wrap(nil),
 	})
 	if err != nil {
@@ -223,6 +223,49 @@ func TestNewZeroSpecDeniesIMDS(t *testing.T) {
 	}
 	if got := rec.Addrs(); len(got) != 0 {
 		t.Fatalf("dialed %v", got)
+	}
+}
+
+func TestAbsoluteFormDisabledBeforeDNS(t *testing.T) {
+	res := &countingResolver{inner: mapResolver{"app.lab": {net.ParseIP("127.0.0.1")}}}
+	rec := &recordingDial{}
+	sink := NewNull()
+	spec := loadSpec(t)
+	spec.Protocols.AbsoluteForm.Enabled = false
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: res, DialContext: rec.wrap(nil)})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.WriteRequest("GET http://app.lab/hello HTTP/1.1", "Host: app.lab"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if res.n.Load() != 0 {
+		t.Fatalf("DNS lookups=%d", res.n.Load())
+	}
+	if len(rec.Addrs()) != 0 {
+		t.Fatalf("dialed %v", rec.Addrs())
+	}
+	if px.Metrics().Rejected("absolute_form") < 1 {
+		t.Fatal("expected absolute_form reject")
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.Protocol == model.FlowProtocolHTTP11 && f.Error == "forbidden" && f.Status == http.StatusForbidden {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want absolute-form forbidden flow, got %+v", sink.Last())
 	}
 }
 

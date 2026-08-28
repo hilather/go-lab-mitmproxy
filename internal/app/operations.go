@@ -82,6 +82,12 @@ func applySetFeature(spec *model.Spec, patch *model.FeaturePatch, opPath string)
 	switch patch.ID {
 	case FeatureIDHTTP2:
 		spec.Protocols.HTTP2.Enabled = patch.Enabled
+	case FeatureIDWebSocket:
+		spec.Protocols.WebSocket.Enabled = patch.Enabled
+	case FeatureIDConnect:
+		spec.Protocols.Connect.Enabled = patch.Enabled
+	case FeatureIDAbsoluteForm:
+		spec.Protocols.AbsoluteForm.Enabled = patch.Enabled
 	case FeatureIDAcceptSOCKS5:
 		spec.Listeners.Proxy.AcceptSOCKS5 = patch.Enabled
 	case FeatureIDAcceptSOCKS4:
@@ -100,10 +106,6 @@ func applySetFeature(spec *model.Spec, patch *model.FeaturePatch, opPath string)
 		return domainerr.ValidationFailed("tls.intercept is not a setFeature id",
 			domainerr.FieldViolation{Path: idPath, Code: "invalid_value", Message: "use replaceTLS to change tls.intercept"}).
 			WithRemediation("use replaceTLS")
-	case FeatureIDWebSocket, FeatureIDConnect, FeatureIDAbsoluteForm:
-		return domainerr.ValidationFailed("feature is not applyable until proxy enforcement",
-			domainerr.FieldViolation{Path: idPath, Code: "invalid_value", Message: patch.ID + " is not applyable until proxy enforcement"}).
-			WithRemediation("not applyable until proxy enforcement")
 	default:
 		return domainerr.ValidationFailed("unknown feature id",
 			domainerr.FieldViolation{Path: idPath, Code: "invalid_value", Message: "unknown feature id"})

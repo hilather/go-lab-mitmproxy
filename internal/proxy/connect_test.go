@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxytest"
 )
 
@@ -212,6 +214,111 @@ func TestWebSocketTranscript(t *testing.T) {
 	proxytest.PlayTranscript(t, px.Addr().String(), testdataProxy(t, "upgrade-websocket.txt"), map[string]string{
 		"HOST": origin,
 	})
+}
+
+func TestWebSocketDisabledTranscript(t *testing.T) {
+	origin, _ := startOrigin(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("origin must not be reached")
+	}))
+	spec := loadSpec(t)
+	spec.Protocols.WebSocket.Enabled = false
+	px := startProxy(t, Options{Spec: spec})
+	proxytest.PlayTranscript(t, px.Addr().String(), testdataProxy(t, "upgrade-websocket-disabled.txt"), map[string]string{
+		"HOST": origin,
+	})
+}
+
+func TestWebSocketDisabledBeforeDNS(t *testing.T) {
+	res := &countingResolver{inner: mapResolver{"app.lab": {net.ParseIP("127.0.0.1")}}}
+	rec := &recordingDial{}
+	sink := NewNull()
+	spec := loadSpec(t)
+	spec.Protocols.WebSocket.Enabled = false
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: res, DialContext: rec.wrap(nil)})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.WriteRequest(
+		"GET http://app.lab/ws HTTP/1.1",
+		"Host: app.lab",
+		"Upgrade: websocket",
+		"Connection: Upgrade",
+		"Sec-WebSocket-Version: 13",
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+	); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if res.n.Load() != 0 {
+		t.Fatalf("DNS lookups=%d", res.n.Load())
+	}
+	if len(rec.Addrs()) != 0 {
+		t.Fatalf("dialed %v", rec.Addrs())
+	}
+	if px.Metrics().Rejected("websocket") < 1 {
+		t.Fatal("expected websocket reject")
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.Protocol == model.FlowProtocolWebSocket && f.Error == string(domainerr.CodeForbidden) && f.Status == http.StatusForbidden {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want websocket forbidden flow, got %+v", sink.Last())
+	}
+}
+
+func TestCONNECTDisabledNoHijack(t *testing.T) {
+	rec := &recordingDial{}
+	sink := NewNull()
+	spec := loadSpec(t)
+	spec.Protocols.Connect.Enabled = false
+	px := startProxy(t, Options{Spec: spec, Sink: sink, DialContext: rec.wrap(nil)})
+	before := px.Metrics().Accepted()
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.WriteRequest("CONNECT 127.0.0.1:9 HTTP/1.1", "Host: 127.0.0.1:9"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if px.Metrics().Accepted() != before {
+		t.Fatalf("accept incremented: %d -> %d", before, px.Metrics().Accepted())
+	}
+	if px.Metrics().Rejected("connect") < 1 {
+		t.Fatal("expected connect reject")
+	}
+	if len(rec.Addrs()) != 0 {
+		t.Fatalf("dialed %v", rec.Addrs())
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.Protocol == model.FlowProtocolConnect && f.Error == string(domainerr.CodeForbidden) && f.Status == http.StatusForbidden {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want connect forbidden flow, got %+v", sink.Last())
+	}
 }
 
 func TestCONNECTUsesRequestTargetNotHost(t *testing.T) {

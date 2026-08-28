@@ -731,6 +731,103 @@ func TestInterceptWebSocketUpgrade(t *testing.T) {
 	}
 }
 
+func TestInterceptWebSocketUpgradeDisabled(t *testing.T) {
+	var upgrades, gets atomic.Int32
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") == "websocket" {
+			upgrades.Add(1)
+			t.Error("origin must not see websocket upgrade")
+			return
+		}
+		gets.Add(1)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	_, port := hostPort(t, origin)
+	sink := NewNull()
+	spec := interceptSpec(t, port, testdataTLS(t, "origin-ca.pem"))
+	spec.Protocols.WebSocket.Enabled = false
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	target := net.JoinHostPort("app.lab", strconv.Itoa(port))
+	if err := c.WriteRequest("CONNECT "+target+" HTTP/1.1", "Host: "+target); err != nil {
+		t.Fatal(err)
+	}
+	st, err := c.ReadLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != "HTTP/1.1 200 Connection Established" {
+		t.Fatalf("status %q", st)
+	}
+	if blank, err := c.ReadLine(); err != nil || blank != "" {
+		t.Fatalf("blank %q", blank)
+	}
+	tlsConn := tls.Client(c.Conn, &tls.Config{
+		ServerName: "app.lab",
+		RootCAs:    px.Authority().CertPool(),
+		NextProtos: []string{tlsmitm.ALPN},
+		MinVersion: tls.VersionTLS12,
+	})
+	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://app.lab/ws", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	if err := req.Write(tlsConn); err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(tlsConn)
+	resp, err := http.ReadResponse(br, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d body %q", resp.StatusCode, body)
+	}
+	if resp.Header.Get("Connection") == "close" || resp.Close {
+		t.Fatal("inner 403 must not send Connection: close")
+	}
+	if upgrades.Load() != 0 {
+		t.Fatal("origin invoked for disabled upgrade")
+	}
+	found := false
+	for _, f := range sink.Last() {
+		if f.Protocol == model.FlowProtocolWebSocket && f.Intercepted && f.Error == "forbidden" && f.Status == http.StatusForbidden {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want intercepted websocket forbidden, got %+v", sink.Last())
+	}
+
+	get, _ := http.NewRequest(http.MethodGet, "https://app.lab/ok", nil)
+	if err := get.Write(tlsConn); err != nil {
+		t.Fatal(err)
+	}
+	getResp, err := http.ReadResponse(br, get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getBody, _ := io.ReadAll(getResp.Body)
+	_ = getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK || string(getBody) != "ok" {
+		t.Fatalf("follow-up GET status %d body %q", getResp.StatusCode, getBody)
+	}
+	if gets.Load() != 1 {
+		t.Fatalf("follow-up GET origin hits=%d", gets.Load())
+	}
+}
+
 func TestInterceptWebSocketInspectFrames(t *testing.T) {
 	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hj, ok := w.(http.Hijacker)

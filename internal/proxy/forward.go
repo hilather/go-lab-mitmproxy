@@ -29,6 +29,15 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *r
 	if sess == nil {
 		sess = s.beginSession()
 	}
+	if s.rejectDisabledWebSocket(w, req, host, sess) {
+		return
+	}
+	if !sess.spec.Protocols.AbsoluteForm.Enabled {
+		s.metrics.reject("absolute_form")
+		s.capture(s.flowFromReq(req, host, "http", http.StatusForbidden, string(domainerr.CodeForbidden), started), sess)
+		writeProxyError(w, http.StatusForbidden, domainerr.CodeForbidden, "absolute-form is disabled", "spec.protocols.absoluteForm.enabled")
+		return
+	}
 
 	guardCtx, guardCancel := s.upstreamCtxSess(req.Context(), sess)
 	res, err := resolveThenGuard(guardCtx, s.resolver, sess.spec.Proxy.Targets, host, port)
@@ -39,6 +48,26 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *r
 	}
 
 	s.forwardOriginHTTP(w, req, res, host, port, started, sess)
+}
+
+// rejectDisabledWebSocket is the cleartext websocket gate. It reads only
+// sess.spec and runs before rules and before resolveThenGuard / Dial.
+func (s *Server) rejectDisabledWebSocket(w http.ResponseWriter, req *http.Request, host string, sess *ruleSession) bool {
+	if sess == nil || req == nil || !httputilx.IsWebSocketUpgrade(req.Header) {
+		return false
+	}
+	if sess.spec.Protocols.WebSocket.Enabled {
+		return false
+	}
+	s.metrics.reject("websocket")
+	if host == "" && req.URL != nil {
+		host = req.URL.Host
+	}
+	f := s.flowFromReq(req, host, "http", http.StatusForbidden, string(domainerr.CodeForbidden), time.Now())
+	f.Protocol = model.FlowProtocolWebSocket
+	s.capture(f, sess)
+	writeProxyError(w, http.StatusForbidden, domainerr.CodeForbidden, "websocket is disabled", "spec.protocols.websocket.enabled")
+	return true
 }
 
 func (s *Server) forwardOriginHTTP(w http.ResponseWriter, req *http.Request, res resolved, host, port string, started time.Time, sess *ruleSession) {

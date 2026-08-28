@@ -20,6 +20,7 @@ type Metrics struct {
 	grpcN             map[string]int64
 	storeFull         int64
 	h2TrailersDropped int64
+	accepted          int64
 	h2Push            map[string]int64
 	reg               *observability.Registry
 	log               *observability.Logger
@@ -70,6 +71,7 @@ func (m *Metrics) accept() {
 		return
 	}
 	m.mu.Lock()
+	m.accepted++
 	log := m.log
 	m.mu.Unlock()
 	if log != nil {
@@ -257,8 +259,19 @@ func (m *Metrics) StoreFull() int64 {
 	return m.storeFull
 }
 
+// Accepted is the number of times accept() ran (admission passed).
+func (m *Metrics) Accepted() int64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.accepted
+}
+
 // Rejected returns the count for reason (admission, http2, socks,
-// socks_auth, socks_command, target_denied, absolute_https).
+// socks_auth, socks_command, target_denied, absolute_https, websocket,
+// connect, absolute_form).
 func (m *Metrics) Rejected(reason string) int64 {
 	if m == nil {
 		return 0

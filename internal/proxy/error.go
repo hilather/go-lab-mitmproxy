@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 )
@@ -20,6 +21,28 @@ func writeProxyError(w http.ResponseWriter, status int, code domainerr.Code, msg
 	_, _ = fmt.Fprintf(w, "%s: %s\n", code, msg)
 	if remediation != "" {
 		_, _ = fmt.Fprintf(w, "%s\n", remediation)
+	}
+}
+
+func innerForbiddenResponse(msg, remediation string) *http.Response {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s: %s\n", domainerr.CodeForbidden, msg)
+	if remediation != "" {
+		fmt.Fprintf(&b, "%s\n", remediation)
+	}
+	body := b.String()
+	hdr := make(http.Header)
+	hdr.Set("Content-Type", "text/plain; charset=utf-8")
+	hdr.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	return &http.Response{
+		Status:        "403 Forbidden",
+		StatusCode:    http.StatusForbidden,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        hdr,
+		Body:          io.NopCloser(strings.NewReader(body)),
+		ContentLength: int64(len(body)),
 	}
 }
 
