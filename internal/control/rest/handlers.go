@@ -145,7 +145,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request, instance s
 				Address: view.Canonical.Spec.Listeners.OriginalDestination.Address,
 			})
 		}
-		out.Features = featuresFromSpec(&view.Canonical.Spec)
+		out.Features = featuresFromSpec(st, &view.Canonical.Spec)
+	} else {
+		out.Features = featuresFromSpec(st, nil)
 	}
 	s.writeJSON(w, http.StatusOK, out)
 	_ = r

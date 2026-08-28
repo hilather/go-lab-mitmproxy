@@ -95,6 +95,7 @@ func (s *App) Status(ctx context.Context, actor Actor) (*Status, error) {
 	if err != nil {
 		return nil, err
 	}
+	spec := snap.Spec()
 	st := Status{
 		Ready: observability.Evaluate(s.HealthFacts()).Ready,
 		Revisions: model.RevisionStatus{
@@ -104,7 +105,8 @@ func (s *App) Status(ctx context.Context, actor Actor) (*Status, error) {
 			Drifted:           snap.Drifted(),
 			LoadedAt:          snap.CompiledAt.UTC().Format("2006-01-02T15:04:05Z"),
 		},
-		Intercept: snap.Spec().TLS.Intercept,
+		Intercept: spec.TLS.Intercept,
+		Features:  CompactStatusFlags(CatalogFromSpec(spec)),
 	}
 	if snap.CA != nil {
 		st.CA = snap.CA.Status()

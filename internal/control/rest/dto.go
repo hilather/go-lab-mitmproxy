@@ -517,26 +517,27 @@ func fromMessage(m model.HTTPMessage, listItem bool) messageJSON {
 	return out
 }
 
-func featuresFromSpec(sp *model.Spec) statusFeaturesJSON {
-	if sp == nil {
-		return statusFeaturesJSON{}
+func featuresFromSpec(st *app.Status, sp *model.Spec) statusFeaturesJSON {
+	out := statusFeaturesJSON{}
+	if st != nil {
+		out.HTTP2 = st.Features.HTTP2
+		out.SOCKS5 = st.Features.SOCKS5
+		out.SOCKS4 = st.Features.SOCKS4
+		out.OriginalDestination = st.Features.OriginalDestination
+		out.CompatFlowREST = st.Features.CompatFlowREST
 	}
-	return statusFeaturesJSON{
-		HTTP2:                  sp.Protocols.HTTP2.Enabled,
-		HTTP2ClientCleartext:   sp.Protocols.HTTP2.ClientCleartext,
-		HTTP2Origin:            sp.Protocols.HTTP2.Origin,
-		HTTP2ExtendedConnect:   sp.Protocols.HTTP2.ExtendedConnect,
-		HTTP2CapturePush:       sp.Protocols.HTTP2.CapturePush,
-		HTTP2GRPCDecode:        sp.Protocols.HTTP2.GRPCDecode,
-		InspectWebSocketFrames: sp.Protocols.WebSocket.InspectFrames,
-		SOCKS5:                 sp.Listeners.Proxy.AcceptSOCKS5,
-		SOCKS4:                 sp.Listeners.Proxy.AcceptSOCKS4,
-		AcceptBind:             sp.Listeners.Proxy.AcceptBind,
-		AcceptUDPAssociate:     sp.Listeners.Proxy.AcceptUDPAssociate,
-		AcceptUserPass:         sp.Listeners.Proxy.AcceptUserPass,
-		OriginalDestination:    sp.Listeners.OriginalDestination.Enabled,
-		CompatFlowREST:         sp.Compat.FlowREST.Enabled,
+	if sp != nil {
+		out.HTTP2ClientCleartext = sp.Protocols.HTTP2.ClientCleartext
+		out.HTTP2Origin = sp.Protocols.HTTP2.Origin
+		out.HTTP2ExtendedConnect = sp.Protocols.HTTP2.ExtendedConnect
+		out.HTTP2CapturePush = sp.Protocols.HTTP2.CapturePush
+		out.HTTP2GRPCDecode = sp.Protocols.HTTP2.GRPCDecode
+		out.InspectWebSocketFrames = sp.Protocols.WebSocket.InspectFrames
+		out.AcceptBind = sp.Listeners.Proxy.AcceptBind
+		out.AcceptUDPAssociate = sp.Listeners.Proxy.AcceptUDPAssociate
+		out.AcceptUserPass = sp.Listeners.Proxy.AcceptUserPass
 	}
+	return out
 }
 
 func messageBytes(m model.HTTPMessage) int {

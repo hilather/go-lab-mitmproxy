@@ -110,6 +110,18 @@ func TestContractReads(t *testing.T) {
 	if st["revisions"] == nil || st["ca"] == nil {
 		t.Fatalf("status=%v", st)
 	}
+	feat, _ := st["features"].(map[string]any)
+	if feat == nil {
+		t.Fatalf("status missing features: %v", st)
+	}
+	for _, k := range []string{"http2", "socks5", "socks4", "originalDestination", "compatFlowREST"} {
+		if _, ok := feat[k]; !ok {
+			t.Fatalf("status.features missing %s: %v", k, feat)
+		}
+	}
+	if _, ok := feat["catalog"]; ok {
+		t.Fatalf("status.features must not nest catalog: %v", feat)
+	}
 	schema := callTool(t, cs, "mitm_schema_get", map[string]any{})
 	raw, _ := json.Marshal(schema.StructuredContent)
 	if !strings.Contains(string(raw), "labmitm.dev/v1alpha1") {

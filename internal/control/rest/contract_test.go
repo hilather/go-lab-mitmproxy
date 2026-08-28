@@ -90,6 +90,12 @@ func TestContractReads(t *testing.T) {
 			t.Fatalf("status.features.%s=%v want false", k, v)
 		}
 	}
+	if _, ok := feat["catalog"]; ok {
+		t.Fatalf("status.features must not nest catalog: %s", st.Body.String())
+	}
+	if _, ok := feat["items"]; ok {
+		t.Fatalf("status.features must not nest catalog items: %s", st.Body.String())
+	}
 
 	schema := doReq(t, h, http.MethodGet, "/v1/schema/config", "")
 	requireStatus(t, schema, http.StatusOK)

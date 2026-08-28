@@ -5,8 +5,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/app"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
+
+func TestFeaturesFromSpecCompactFromStatus(t *testing.T) {
+	st := &app.Status{Features: app.StatusFeatures{HTTP2: true, SOCKS4: true, OriginalDestination: true}}
+	sp := &model.Spec{}
+	sp.Protocols.HTTP2.Origin = true
+	sp.Listeners.Proxy.AcceptUDPAssociate = true
+	out := featuresFromSpec(st, sp)
+	if !out.HTTP2 || out.SOCKS5 || !out.SOCKS4 || !out.OriginalDestination || out.CompatFlowREST {
+		t.Fatalf("catalog five=%+v", out)
+	}
+	if !out.HTTP2Origin || !out.AcceptUDPAssociate {
+		t.Fatalf("1.2 extras=%+v", out)
+	}
+}
 
 func TestFromFlowSOCKSUser(t *testing.T) {
 	f := &model.Flow{

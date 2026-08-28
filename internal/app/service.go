@@ -18,6 +18,7 @@ type Service interface {
 	Export(ctx context.Context, actor Actor, format ExportFormat) (*Export, error)
 	Reset(ctx context.Context, actor Actor, in ResetIn) (*ApplyResult, error)
 	Status(ctx context.Context, actor Actor) (*Status, error)
+	Features(ctx context.Context, actor Actor) (*FeatureList, error)
 	GetCA(ctx context.Context, actor Actor) ([]byte, error)
 
 	ListFlows(ctx context.Context, actor Actor, q model.ListQuery) (model.ListResult, error)

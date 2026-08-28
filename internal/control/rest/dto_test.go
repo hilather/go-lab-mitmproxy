@@ -5,8 +5,34 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/app"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
+
+func TestFeaturesFromSpecCompactFromStatus(t *testing.T) {
+	st := &app.Status{Features: app.StatusFeatures{HTTP2: true, SOCKS5: true, CompatFlowREST: true}}
+	sp := &model.Spec{}
+	sp.Protocols.HTTP2.Enabled = false
+	sp.Protocols.HTTP2.ClientCleartext = true
+	sp.Protocols.WebSocket.InspectFrames = true
+	sp.Listeners.Proxy.AcceptSOCKS5 = false
+	sp.Listeners.Proxy.AcceptBind = true
+	sp.Compat.FlowREST.Enabled = false
+	out := featuresFromSpec(st, sp)
+	if !out.HTTP2 || !out.SOCKS5 || out.SOCKS4 || !out.CompatFlowREST {
+		t.Fatalf("catalog five=%+v", out)
+	}
+	if !out.HTTP2ClientCleartext || !out.InspectWebSocketFrames || !out.AcceptBind {
+		t.Fatalf("1.2 extras=%+v", out)
+	}
+	if out.OriginalDestination || out.SOCKS4 {
+		t.Fatalf("unexpected compact true: %+v", out)
+	}
+	empty := featuresFromSpec(nil, nil)
+	if empty.HTTP2 || empty.HTTP2ClientCleartext {
+		t.Fatalf("nil inputs=%+v", empty)
+	}
+}
 
 func TestFromFlowSOCKSUser(t *testing.T) {
 	f := &model.Flow{

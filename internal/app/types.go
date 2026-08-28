@@ -96,6 +96,16 @@ type Status struct {
 	Epoch     uint64
 	CA        model.CAStatus
 	Intercept bool
+	Features  StatusFeatures
+}
+
+// StatusFeatures is the compact 1.1 boolean projection of CatalogFromSpec.
+type StatusFeatures struct {
+	HTTP2               bool
+	SOCKS5              bool
+	SOCKS4              bool
+	OriginalDestination bool
+	CompatFlowREST      bool
 }
 
 // HealthFacts is the input to Status.Ready / observability.Evaluate.
