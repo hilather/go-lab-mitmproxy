@@ -25,6 +25,9 @@ type Snapshot struct {
 	// SOCKSUsers is the RFC 1929 digest table (D60). Reset-only; empty when
 	// acceptUserPass is false. Never Canonical, never GET /v1/state / export.
 	SOCKSUsers []SOCKSUserDigest
+	// HTTPAuthUsers is the HTTP Basic proxy-auth digest table (D76). Reloaded
+	// on Start/Reset and on live replaceHTTPAuth. Never Canonical, never export.
+	HTTPAuthUsers []SOCKSUserDigest
 }
 
 // SOCKSUserDigest is one compiled SOCKS5 username/password principal.

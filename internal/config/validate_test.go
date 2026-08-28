@@ -250,6 +250,8 @@ func TestValidateProtocolFlagDependencies(t *testing.T) {
 		{"extendedConnect", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    http2:\n      extendedConnect: true\n", "spec.protocols.http2.extendedConnect"},
 		{"capturePush", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    http2:\n      enabled: true\n      capturePush: true\n", "spec.protocols.http2.capturePush"},
 		{"grpcDecode", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    http2:\n      grpcDecode: true\n", "spec.protocols.http2.grpcDecode"},
+		{"httpAuth-enabled-empty", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  proxy:\n    httpAuth:\n      enabled: true\n", "spec.proxy.httpAuth.users"},
+		{"httpAuth-realm-crlf", "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  proxy:\n    httpAuth:\n      enabled: false\n      realm: \"lab\\r\\nsplit\"\n", "spec.proxy.httpAuth.realm"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

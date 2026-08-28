@@ -63,6 +63,12 @@ func materializeDefaults(sp *model.Spec) {
 	if strings.TrimSpace(sp.Proxy.Hostname) == "" {
 		sp.Proxy.Hostname = DefaultProxyHostname
 	}
+	if strings.TrimSpace(sp.Proxy.HTTPAuth.Realm) == "" {
+		sp.Proxy.HTTPAuth.Realm = DefaultHTTPAuthRealm
+	}
+	if sp.Proxy.HTTPAuth.Users == nil {
+		sp.Proxy.HTTPAuth.Users = []model.UserPassUserSpec{}
+	}
 	if sp.Proxy.Targets.AllowHosts == nil {
 		sp.Proxy.Targets.AllowHosts = []string{}
 	}

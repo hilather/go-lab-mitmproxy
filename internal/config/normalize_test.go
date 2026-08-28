@@ -85,6 +85,15 @@ func TestNormalizeMaterializesDefaults(t *testing.T) {
 	if st.Spec.Proxy.Admission.MaxConcurrentStreams != DefaultMaxConcurrentStreams {
 		t.Fatalf("maxConcurrentStreams=%d", st.Spec.Proxy.Admission.MaxConcurrentStreams)
 	}
+	if st.Spec.Proxy.HTTPAuth.Enabled {
+		t.Fatal("httpAuth.enabled default off")
+	}
+	if st.Spec.Proxy.HTTPAuth.Realm != DefaultHTTPAuthRealm {
+		t.Fatalf("httpAuth.realm=%q", st.Spec.Proxy.HTTPAuth.Realm)
+	}
+	if st.Spec.Proxy.HTTPAuth.Users == nil {
+		t.Fatal("httpAuth.users must be empty slice, not nil")
+	}
 }
 
 func TestNormalizeEnabledOrigDestEmptyAddress(t *testing.T) {

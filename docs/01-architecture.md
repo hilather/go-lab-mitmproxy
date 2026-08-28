@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-28 (D75 rules throttle)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016
+Last reviewed: 2026-08-28 (D75 rules throttle; HTTP proxy 407 D76)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017
 
 ## Problem statement
 
@@ -80,7 +80,7 @@ Family container-internal binds that must not collide:
 - Multi-replica shared store or consensus.
 - OAuth Protected Resource Metadata (family exemption: lab static bearer).
 - HTTP Basic on management (no concrete compat consumer; unlike LabMail).
-- Proxy-Authorization (data-plane auth) — deferred to 1.1.
+- Always-on data-plane `Proxy-Authorization`. Opt-in HTTP proxy 407 is D76 ([ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)); default-off.
 - QUIC / HTTP/3, gRPC-over-h2 inspect, DTLS.
 - Being a general attack framework or “burp-like” scanner.
 
@@ -97,7 +97,7 @@ Additive `labmitm.dev/v1alpha1` fields enable HTTP/2 (inner+origin), SOCKS5/4 CO
 
 ## 1.2 opt-in (flags default off)
 
-[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records **D58–D68**. Client-facing h2c, SOCKS BIND / UDP ASSOCIATE, SOCKS username/password, Extended CONNECT websocket, origin `h2`, `PUSH_PROMISE` capture, gRPC decode, and WebSocket frame inspect are 1.2-class, default-off, **Reset-only** (D51' remainder; live apply of 1.2 flags needs a new ADR). Empty spec remains 1.0. Overlay YAML stays flags-off. Nested inner CONNECT without `:protocol` still RST (**no flow**). No `Proxy-Authorization`. GSSAPI remains a non-goal. **D7 stands.**
+[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records **D58–D68**. Client-facing h2c, SOCKS BIND / UDP ASSOCIATE, SOCKS username/password, Extended CONNECT websocket, origin `h2`, `PUSH_PROMISE` capture, gRPC decode, and WebSocket frame inspect are 1.2-class, default-off, **Reset-only** (D51' remainder; live apply of 1.2 flags needs a new ADR). Empty spec remains 1.0. Overlay YAML stays flags-off. Nested inner CONNECT without `:protocol` still RST (**no flow**). HTTP hop `Proxy-Authorization` is default-off (D76 / [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)); empty `spec: {}` stays an unauthenticated HTTP hop. GSSAPI remains a non-goal. **D7 stands.**
 
 ## Key decisions
 
@@ -121,7 +121,8 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D14** | **Go 1.26, official MCP SDK `v1.7.0`, protocol `2026-07-28`, Apache-2.0.** `KnownFields(true)`. CI pin `GO_VERSION=1.26.6`. | Family pins. |
 | **D15** | **`allowLegacyClients` default false; lab overlay sets true.** `subscriptions/listen` stays 2026-07-28. | So MCPJungle can register without a LabMITM patch. |
 | **D16** | **Data-plane Dial is required, isolated, and resolve-then-guard.** Dial only in `internal/proxy`. | Hostname-only guards miss CNAME→IMDS. |
-| **D17** | **Proxy HTTP hop is unauthenticated.** No `Proxy-Authorization`. 1.2 supersedes the unauthenticated-data-plane sentence **for SOCKS only** ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D60): opt-in file-ref username/password; GSSAPI out; management still bearer (D6). | Lab clients (`curl --proxy`) must keep working. Binding localhost is the 1.0 access control. SOCKS user-pass is a second lab-static plane, default-off, fail-closed. |
+| **D17** | **Proxy HTTP hop is unauthenticated by default.** No always-on `Proxy-Authorization`. 1.2 supersedes the unauthenticated-data-plane sentence **for SOCKS only** ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D60): opt-in file-ref username/password; GSSAPI out; management still bearer (D6). [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) **D76** supersedes the HTTP remainder **only when `spec.proxy.httpAuth.enabled` is true**. Empty `spec: {}` stays today's unauthenticated HTTP hop. | Lab clients (`curl --proxy`) must keep working. Binding localhost is the 1.0 access control. SOCKS user-pass and HTTP 407 are separate lab-static planes, default-off, fail-closed. |
+| **D76** | **Opt-in HTTP proxy 407 on `listeners.proxy` only.** Schema `spec.proxy.httpAuth` (default `enabled: false`). Live apply verb `replaceHTTPAuth` (8th `KnownOp`). File-ref users → snapshot `HTTPAuthUsers`. Basic only. Management stays bearer (D6). Catalog stays 31; `features.get` stays 11. Compact `status.features.httpAuth` is additive (K10 reopen). Orig-dest, inner intercept, SOCKS, Replay, h2c Extended CONNECT: out. | QA corp-proxy auth simulation. `setFeature` is boolean-only; `replaceRules` cannot 407 CONNECT and must not 407 inner hops. ADR 0014 / D69 is QA block modes. ADR 0015 / D72–D74 is WebSocket frame rules. |
 | **D18** | **Catalog id is `labmitm`.** Lab pin is vendor tag **v1.1.0** + `labmitm:local` (not a GHCR digest). | No predecessor to preserve. |
 | **D19** | **CONNECT Hijack + inner HTTP/1.1 session.** Never return that conn to `http.Server`. | Returning after 200 makes keep-alive parse the TLS ClientHello as a request. |
 | **D20** | **`intercept: true` does not silently tunnel.** Handshake failure closes both sides. | Silent fallback would hide a failed MITM. |
@@ -130,7 +131,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D72** | **`phase: websocket` matches inspected frames after HTTP/1.1 `101` or inner D63 `:status=200`.** Response-phase hits on those statuses stay `late_skip`. h2c has no request/response `matchHit`. | [ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) |
 | **D73** | **Websocket-phase `drop` omits one frame; `block` closes both TCP sides.** `labmitm_ws_frames_total` counts forwarded frames only. | ADR 0015 |
 | **D74** | **`inspectFrames` stays Reset-only (D51').** Live path is `replaceRules` / `setFeature rules.enabled` on the STA-001 pin (next request / next CONNECT / next h2c PRI; open inspect sockets never reload). Catalog stays 31. | ADR 0015 |
-| **D75** | **Rules may include `action.type: throttle`.** The winning item paces that phase’s **body** at `bytesPerSecond` (256 B/s–64 MiB/s). Live `replaceRules`. No daemon, no jitter, no new capability. See [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md). | Issue #52 QA bandwidth without collapsing into `delay`. ADR 0015 is websocket frame rules (D72–D74); D70 is claimed by the 407-auth workstream. |
+| **D75** | **Rules may include `action.type: throttle`.** The winning item paces that phase’s **body** at `bytesPerSecond` (256 B/s–64 MiB/s). Live `replaceRules`. No daemon, no jitter, no new capability. See [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md). | Issue #52 QA bandwidth without collapsing into `delay`. ADR 0015 is websocket frame rules (D72–D74); ADR 0017 / D76 is HTTP proxy 407. |
 
 ## Process architecture
 
@@ -348,15 +349,15 @@ See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blo
 - Orig-dest is Linux-only REDIRECT + `SO_ORIGINAL_DST`, default off. Supported topologies are shared-netns + sidecar iptables or host-network REDIRECT (D50). Publishing `8890` is not transparent.
 - Compat flow REST is a mitmproxy-inspired **subset** (default off, live `setFeature` / `replaceCompat`). Not mitmproxy 11 compatible. Prefix collision stays `validation_failed`. `/compat` is **not** on `catalog()`.
 - SOCKS5/4 CONNECT is opt-in. BIND, UDP ASSOCIATE, and username/password require their own 1.2 flags. GSSAPI is never selected.
-- 1.1 hop/accept flags the running proxy already honors (`acceptSOCKS5`/`acceptSOCKS4`, `protocols.http2.enabled`, `protocols.websocket` / `connect` / `absoluteForm`, `compat.flowREST`, `rules.enabled`, `ui.enabled`) are live-applyable via `setFeature` / `replaceCompat` (D51') without Reset or wiping flows. Disabled hop gates 403 `forbidden` before rules/Dial. Orig-dest **bind** + listener **addresses** + management TLS files + `metrics.listen` stay Reset-only. 1.2 nested flags (`acceptBind`/`acceptUDPAssociate`/`acceptUserPass`, `protocols.http2.clientCleartext`/`origin`/`extendedConnect`/`capturePush`/`grpcDecode`, `protocols.websocket.inspectFrames`) stay Reset-only. `features.get` lists the 11-row catalog on `GET /v1/features`, `mitm_features_list`, and `labmitm://features` ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)). Compact `status.features` five 1.1 booleans stay on `status.get`.
+- 1.1 hop/accept flags the running proxy already honors (`acceptSOCKS5`/`acceptSOCKS4`, `protocols.http2.enabled`, `protocols.websocket` / `connect` / `absoluteForm`, `compat.flowREST`, `rules.enabled`, `ui.enabled`) are live-applyable via `setFeature` / `replaceCompat` (D51') without Reset or wiping flows. Disabled hop gates 403 `forbidden` before rules/Dial. Orig-dest **bind** + listener **addresses** + management TLS files + `metrics.listen` stay Reset-only. 1.2 nested flags (`acceptBind`/`acceptUDPAssociate`/`acceptUserPass`, `protocols.http2.clientCleartext`/`origin`/`extendedConnect`/`capturePush`/`grpcDecode`, `protocols.websocket.inspectFrames`) stay Reset-only. `features.get` lists the 11-row catalog on `GET /v1/features`, `mitm_features_list`, and `labmitm://features` ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)). Compact `status.features` spec-flag booleans stay on `status.get` (including additive `httpAuth`, [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)).
 - WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Inner and client-facing RFC 8441 `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); nested inner CONNECT without `:protocol` still RST, **no flow**. Client-facing h2c CONNECT (RFC 9113 §8.5) is on when `clientCleartext` is on (D62).
 - gRPC protobuf decode: flag-off is HTTP/2 headers + DATA only; flag-on `protocols.http2.grpcDecode` (Reset-only, D66) is an in-tree length-prefix + wire tree. **grpc-web stays opaque.**
 - Generate-mode CA rotates on every restart/reset.
 - Store-full still forwards (capture dropped).
 - Single replica; no shared flow store.
 - MCP clients requiring OAuth PRM cannot authorize. MCPJungle needs `allowLegacyClients: true`.
-- Proxy data plane unauthenticated; publishing `:8888` on a LAN is an operator choice.
-- No Proxy-Authorization. No HTTP Basic on management.
+- Proxy data plane unauthenticated by default; publishing `:8888` on a LAN is an operator choice. Opt-in HTTP 407 (D76) is not a published-bind license.
+- No HTTP Basic on management (D6). Data-plane `Proxy-Authorization` is default-off (`spec.proxy.httpAuth`).
 - HTML preview of captured pages is escaped text.
 - Intercept **breaks origin mTLS and certificate pinning**.
 - Default metadata CIDRs are AWS/GCP IPv4 + AWS IPv6 IMDS. Alibaba `100.100.100.200/32` and RFC1918 are **not** default-deny.

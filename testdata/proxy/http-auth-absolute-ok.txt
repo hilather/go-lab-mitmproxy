@@ -1,0 +1,6 @@
+# Valid Basic on absolute-form reaches the origin (hop-by-hop header stripped).
+C: GET http://{{HOST}}/hello HTTP/1.1
+C: Host: {{HOST}}
+C: Proxy-Authorization: Basic {{BASIC}}
+C:
+S: HTTP/1.1 200 *

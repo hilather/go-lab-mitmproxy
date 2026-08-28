@@ -1,0 +1,14 @@
+# Enabled HTTP proxy auth with one file-ref user.
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  proxy:
+    httpAuth:
+      enabled: true
+      realm: labmitm-proxy
+      users:
+        - id: lab-proxy
+          usernameFile: testdata/config/valid/socks-username
+          passwordFile: testdata/config/valid/socks-password

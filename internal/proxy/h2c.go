@@ -179,6 +179,14 @@ func (s *Server) h2cConnectTunnel(ctx context.Context, in http2x.Stream, sess *r
 	if err != nil || port == "" {
 		return http2x.Tunnel{Status: http.StatusBadRequest}, nil
 	}
+	if sess != nil && sess.spec.Proxy.HTTPAuth.Enabled && !matchHTTPAuth(req, s.httpAuthUsers(sess)) {
+		s.metrics.reject("proxy_auth")
+		s.capture(h2cConnectFlow(req, host, in.ID, http.StatusProxyAuthRequired, "proxy_auth", started), sess)
+		return http2x.Tunnel{
+			Status:  http.StatusProxyAuthRequired,
+			Headers: h2cProxyAuthChallenge(sess.spec.Proxy.HTTPAuth.Realm),
+		}, nil
+	}
 	if ctx == nil {
 		ctx = s.ctx
 	}
@@ -344,11 +352,18 @@ func (s *Server) h2cWebSocketTunnel(ctx context.Context, in http2x.Stream, sess 
 }
 
 func h2cConnectRequest(in http2x.Stream) *http.Request {
+	hdr := make(http.Header, len(in.Headers))
+	for _, h := range in.Headers {
+		if h.Name == "" {
+			continue
+		}
+		hdr.Add(h.Name, h.Value)
+	}
 	return &http.Request{
 		Method:     http.MethodConnect,
 		Host:       in.Authority,
 		URL:        &url.URL{Host: in.Authority},
-		Header:     make(http.Header),
+		Header:     hdr,
 		Proto:      "HTTP/2.0",
 		ProtoMajor: 2,
 	}

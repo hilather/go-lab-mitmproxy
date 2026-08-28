@@ -1,0 +1,11 @@
+# Enabled HTTP auth: absolute-form without Proxy-Authorization is 407, no origin hop.
+C: GET http://{{HOST}}/hello HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 407 Proxy Authentication Required
+S: Content-Length: *
+S: Content-Type: text/plain; charset=utf-8
+S: Date: *
+S: Proxy-Authenticate: Basic realm="labmitm-proxy"
+S:
+S: proxy authentication required

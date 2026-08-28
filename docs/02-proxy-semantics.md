@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-28 (D69 silent/hang/redirect; D72–D74 websocket frame rules)
-Related ADRs: 0002, 0009, 0010, 0012, 0013, 0014, 0015
+Last reviewed: 2026-08-28 (D69 silent/hang/redirect; D72–D74 websocket frame rules; HTTP proxy 407 D76)
+Related ADRs: 0002, 0009, 0010, 0012, 0013, 0014, 0015, 0016, 0017
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 
@@ -48,9 +48,9 @@ Shutdown order (D42): `accepting=false` → close `rawLn` → close orig-dest li
 
 | Client request | 1.0 behavior |
 |---|---|
-| Absolute-form `GET http://host[:port]/path HTTP/1.1` | Forward HTTP/1.1 to origin (origin-form on the upstream hop). Default port **80**. Capture. Gate off (`protocols.absoluteForm.enabled` false) → `403` `forbidden` **before DNS/Dial**. Metric `reason="absolute_form"`. Orig-dest origin-form is **not** this flag. |
-| Absolute-form `https://…` | `400` `validation_failed` with remediation “use CONNECT”. Metric `reason="absolute_https"`. Unchanged even when `absoluteForm` is on. |
-| `CONNECT host:port HTTP/1.1` | **Hijack** (D19). Missing port → `400`. Gate off (`protocols.connect.enabled` false) → `403` `forbidden` **after** orig-dest D57, **before** Hijack / `metrics.accept()`. Metric `reason="connect"`. SOCKS CONNECT is **not** this flag. |
+| Absolute-form `GET http://host[:port]/path HTTP/1.1` | Forward HTTP/1.1 to origin (origin-form on the upstream hop). Default port **80**. Capture. Gate off (`protocols.absoluteForm.enabled` false) → `403` `forbidden` **before DNS/Dial**. Metric `reason="absolute_form"`. Orig-dest origin-form is **not** this flag. When `spec.proxy.httpAuth.enabled` (D76): after hop gates, **before** `resolveThenGuard`, missing/invalid `Proxy-Authorization` → `407` via `writeProxyAuthChallenge` (determinate `Content-Length`; no `Connection: close`). Metric `reason="proxy_auth"`. Post-`metrics.accept()`. |
+| Absolute-form `https://…` | `400` `validation_failed` with remediation “use CONNECT”. Metric `reason="absolute_https"`. Unchanged even when `absoluteForm` is on. Not a 407 hop. |
+| `CONNECT host:port HTTP/1.1` | **Hijack** (D19) only when proceeding to the tunnel. Missing port → `400` (auth not consulted; already accept+400). Gate off (`protocols.connect.enabled` false) → `403` `forbidden` **after** orig-dest D57, **before** Hijack / `metrics.accept()`. Metric `reason="connect"`. SOCKS CONNECT is **not** this flag. When `httpAuth.enabled` (D76) **contract (A):** check auth in `serveCONNECT` after `host:port` parse, **before Hijack**, post-`metrics.accept()`. 407 via `ResponseWriter` (not `writeProxyError`). Do not move `metrics.accept()`. |
 | Origin-form (`GET /path`) on `:8888` | `400` `validation_failed` (`absolute-form or CONNECT required`). |
 | Origin-form on orig-dest `:8890` with recovered dest | Legal (D31). Dial dest IP:port only (D57). |
 | Tagged orig-dest `CONNECT` | `400`, no Dial. |
@@ -67,7 +67,20 @@ Authority resolution:
 2. **Absolute-form `http://`**: host from `req.URL.Host`; default port **80** if omitted. Scheme `https` is rejected.
 3. `Host` header must be present for HTTP/1.1 non-CONNECT (stdlib enforces).
 
-Hop-by-hop headers stripped on both legs: `Proxy-Connection`, `Keep-Alive`, `TE`, `Trailer`, `Transfer-Encoding`, `Proxy-Authorization`. `Connection` is stripped **except** when forwarding a WebSocket upgrade. `Upgrade` is kept only on that path.
+Hop-by-hop headers stripped on both legs: `Proxy-Connection`, `Keep-Alive`, `TE`, `Trailer`, `Transfer-Encoding`, `Proxy-Authorization`. `Connection` is stripped **except** when forwarding a WebSocket upgrade. `Upgrade` is kept only on that path. Accepted `Proxy-Authorization` is never forwarded to origin.
+
+### HTTP proxy 407 (D76)
+
+Opt-in `spec.proxy.httpAuth` on `listeners.proxy` only ([ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)). Default-off. Live via `replaceHTTPAuth`. Empty realm materializes `labmitm-proxy` (must not equal management `Bearer realm="labmitm"`).
+
+| Entry | 407? |
+|---|---|
+| HTTP/1.1 CONNECT / absolute-form `http://` | yes (after hop gates; CONNECT after port parse, before Hijack) |
+| Client-facing h2c GET/POST | yes (`reconstructH2Request` copies headers; then `serveAbsolute`) |
+| Client-facing h2c RFC 9113 CONNECT | yes (`h2cConnectRequest` copies `Stream.Headers`; return `Tunnel{Status:407}` — do **not** call `writeProxyAuthChallenge`). **Not** `protocols.connect` (HTTP/1.1 CONNECT 403 can coexist with h2c 407). |
+| Absolute-form `https://`, origin-form on `:8888`, orig-dest, PRI flag-off, inner intercept, SOCKS, Replay, h2c Extended CONNECT (`:protocol=websocket`) | no |
+
+`writeProxyAuthChallenge` writes HTTP/1.1 407, `Proxy-Authenticate: Basic realm="…"`, short `text/plain` body, mandatory `Content-Length`, omit `Connection: close`, no chunked. Do **not** reuse `writeProxyError` (that helper always closes and has no length). A 407 CONNECT stays with `http.Server` (D19). Flow `Status=407` `Error=proxy_auth` (no username/password). `rules` `action.status: 407` is a synthetic origin-like response after DNS — not this feature.
 
 ## SOCKS CONNECT (opt-in)
 
@@ -165,18 +178,22 @@ Normative for every `CONNECT` (D19). Tests: two GETs on one CONNECT; “forgot t
 
 ```text
 1. Handler sees Method == CONNECT.
-2. Require Hijacker. Hijack() BEFORE writing the body and BEFORE return.
-3. Admit + resolve-then-guard on CONNECT host:port (and later SNI).
-4. Dial the selected allowed IP:port (no second resolve).
-5. Write "HTTP/1.1 200 Connection Established\r\n\r\n" on the hijacked conn.
-6. Decide intercept (D20):
+2. protocols.connect 403 (if disabled) is in ServeHTTP before metrics.accept().
+3. serveCONNECT: require host:port (400 still wins). When httpAuth.enabled,
+   write 407 via ResponseWriter BEFORE Hijack (contract A; post-accept).
+4. Require Hijacker. Hijack() BEFORE writing the body and BEFORE return
+   only when proceeding to the tunnel. Never Hijack a 407 CONNECT.
+5. Admit + resolve-then-guard on CONNECT host:port (and later SNI).
+6. Dial the selected allowed IP:port (no second resolve).
+7. Write "HTTP/1.1 200 Connection Established\r\n\r\n" on the hijacked conn.
+8. Decide intercept (D20):
    - intercept && hostMatches && port in spec.tls.ports (default {443})
      → tls.Server on client + tls.Client on upstream (internal/tlsmitm).
      Handshake failure → close both, store metadata flow Error=tls_handshake
      or Error=upstream_tls. Do NOT fall back to a blind tunnel.
    - otherwise → bidirectional copy; metadata-only flow (Protocol=connect,
      intercepted=false). No inner HTTP parse.
-7. Intercept success: inner HTTP session (HTTP/1.1, or HTTP/2 when enabled).
+9. Intercept success: inner HTTP session (HTTP/1.1, or HTTP/2 when enabled).
 ```
 
 **Inner HTTP (intercepted CONNECT only):**
@@ -317,9 +334,9 @@ Default-off `protocols.http2.clientCleartext` (Reset-only). Requires [ADR 0012](
 |---|---|
 | Flag-off `PRI * HTTP/2.0` | Hard close before `gate.acquire`. Metric `reason="http2"`. Transcript [testdata/proxy/pri-close.txt](https://github.com/hilather/go-lab-mitmproxy/blob/main/testdata/proxy/pri-close.txt). |
 | Flag-on PRI | Hijack, no Write. `http.Server` already consumed `PRI * HTTP/2.0\r\n\r\n`. Leftover is `SM\r\n\r\n` plus SETTINGS in the `bufio.ReadWriter`. `ServeConn` must **not** `ReadFull` the 24-byte preface from the raw conn. Transcript [testdata/proxy/h2c-pri-leftover.txt](https://github.com/hilather/go-lab-mitmproxy/blob/main/testdata/proxy/h2c-pri-leftover.txt) must fail if the preface is re-read from the conn after Hijack. |
-| Regular `GET`/`POST` `:scheme=http` `:authority` `:path` | Absolute-form equivalent. Same guards as `serveAbsolute`. **Allowed** (not CONNECT-only). |
+| Regular `GET`/`POST` `:scheme=http` `:authority` `:path` | Absolute-form equivalent. Same guards as `serveAbsolute` (including D76 407 when `httpAuth.enabled`). **Allowed** (not CONNECT-only). |
 | `:scheme=https` regular | `400` `validation_failed`. Metric `reason="absolute_https"`. |
-| `:method=CONNECT` no `:protocol` `:authority=host:port` (RFC 9113 §8.5) | `resolveThenGuard` + `dialTCP` inside `TunnelHandler`. http2x writes `:status=200` HEADERS first (no HTTP/1.1 200). Then `TunnelRaw` AfterAck → `Server.tunnel` (same `idleTimeout` / `sessionTimeout` as HTTP/1.1 CONNECT) or `TunnelIntercept` AfterAck → `serveInterceptConn` on the framed stream (D62). Handshake failure closes/RST the stream — **no DATA tunnel** (D20). One stream = one origin TCP (D27). WINDOW_UPDATE via `outFlow.take`. Orig-dest tagged CONNECT is `400`, no Dial (D57). Missing port is `400`; no Dial. **Not** `protocols.connect` (that gate is HTTP/1.1 CONNECT on the proxy hop). |
+| `:method=CONNECT` no `:protocol` `:authority=host:port` (RFC 9113 §8.5) | After port parse, when `httpAuth.enabled`: read `Proxy-Authorization` from `Stream.Headers` (`h2cConnectRequest` must copy them) and return `Tunnel{Status:407}` without Dial / AfterAck. Else `resolveThenGuard` + `dialTCP` inside `TunnelHandler`. http2x writes `:status=200` HEADERS first (no HTTP/1.1 200). Then `TunnelRaw` AfterAck → `Server.tunnel` (same `idleTimeout` / `sessionTimeout` as HTTP/1.1 CONNECT) or `TunnelIntercept` AfterAck → `serveInterceptConn` on the framed stream (D62). Handshake failure closes/RST the stream — **no DATA tunnel** (D20). One stream = one origin TCP (D27). WINDOW_UPDATE via `outFlow.take`. Orig-dest tagged CONNECT is `400`, no Dial (D57). Missing port is `400`; no Dial. **Not** `protocols.connect` (that gate is HTTP/1.1 CONNECT on the proxy hop; h2c CONNECT may still 407 while HTTP/1.1 CONNECT 403s). |
 | `:method=CONNECT` `:protocol=websocket` | Only if `extendedConnect`. Absolute-form websocket bootstrap then `TunnelWebSocket` AfterAck (D63). Other `:protocol` values RST, no flow. Flag-off RST. **Not** `protocols.websocket` (that gate is HTTP/1.1 `Upgrade: websocket`). |
 | Missing `:authority` | `400`; no Dial. |
 

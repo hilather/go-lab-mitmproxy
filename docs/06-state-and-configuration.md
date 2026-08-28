@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-28 (D75 action.bytesPerSecond)
-Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016
+Last reviewed: 2026-08-28 (D75 action.bytesPerSecond; replaceHTTPAuth D76)
+Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016, 0017
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
 
@@ -78,6 +78,10 @@ spec:
       allowLoopback: true
       allowHosts: []
       denyHosts: []
+    httpAuth:                      # D76; default-off; live replaceHTTPAuth
+      enabled: false
+      realm: ""                    # empty → labmitm-proxy
+      users: []                    # file refs; required ≥1 when enabled
 
   tls:
     intercept: false
@@ -232,14 +236,15 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `replaceTargets` | `targets` object | Live on next request |
 | `replaceCompat` | `compat` object (`enabled` + `pathPrefix`) | Live on next management request. Prefix collision with restPath/mcpPath is `validation_failed`. |
 | `setFeature` | `feature`: `{id, enabled}` | Closed IDs: `protocols.http2`, `protocols.websocket`, `protocols.connect`, `protocols.absoluteForm`, `listeners.proxy.acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST` (enabled only), `rules.enabled` (items unchanged), `ui.enabled`. Rejects `listeners.originalDestination` (Reset-only) and `tls.intercept` (use `replaceTLS`). Plan warns `live_next_connection`. |
+| `replaceHTTPAuth` | `httpAuth` object (`enabled` + `realm` + `users[]`) | 8th `KnownOp`. Live snapshot swap, no Reset, no inbox wipe. File-ref users restat on this op only. `setFeature` of `proxy.httpAuth` is `validation_failed` (boolean-only catalog). Plan warns `live_next_connection`. |
 
-`:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset. Plan of `setFeature` / `replaceCompat` warns `live_next_connection` (in-flight sessions keep the snapshot they pinned; SOCKS peek and new ServeHTTP/CONNECT see the swap). The only other Apply warning is `store_evict`.
+`:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset. Plan of `setFeature` / `replaceCompat` / `replaceHTTPAuth` warns `live_next_connection` (in-flight sessions keep the snapshot they pinned; SOCKS peek and new ServeHTTP/CONNECT see the swap). The only other Apply warning is `store_evict`.
 
 **D22 carve:** 1.1 **opt-in** flags stay default-off (`http2`, `acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `compat.flowREST`). 1.2 nested flags stay default-off. Gates whose Go zero would **change 1.0 hop behavior** (`protocols.websocket` / `connect` / `absoluteForm`) default **on** at `applyDecodeDefaults`. `ui.enabled` remains the 1.0 D13 true default. Do not tell operators “all new fields default off” and also ship default-true hop gates.
 
 ### 1.1 / 1.2 flags (D51' live hop/accept vs Reset bind)
 
-[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. `setFeature` is the only protocol/accept mutation. Plus `replaceCompat` (enabled **and** `pathPrefix`). No `replaceProtocols` / `replaceProxyAccept`. `setFeature` of `tls.intercept` is `validation_failed` (use `replaceTLS`). `setFeature` of Reset-only IDs is `validation_failed` with remediation “edit bootstrap YAML and Reset”. `setFeature` / `replaceCompat` are on `KnownOp`. Websocket/connect/absoluteForm are live hop 403s (`Error=forbidden`; metric reasons `websocket`, `connect`, `absolute_form`).
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. `setFeature` is the only **boolean** protocol/accept mutation. Plus `replaceCompat` (enabled **and** `pathPrefix`) and `replaceHTTPAuth` (D76 credential subtree). No `replaceProtocols` / `replaceProxyAccept`. `setFeature` of `tls.intercept` is `validation_failed` (use `replaceTLS`). `setFeature` of Reset-only IDs is `validation_failed` with remediation “edit bootstrap YAML and Reset”. `setFeature` / `replaceCompat` / `replaceHTTPAuth` are on `KnownOp`. Websocket/connect/absoluteForm are live hop 403s (`Error=forbidden`; metric reasons `websocket`, `connect`, `absolute_form`).
 
 | Field | How to change |
 |---|---|
@@ -251,6 +256,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `rules.enabled` | **live** `setFeature` (items unchanged) |
 | `ui.enabled` | **live** `setFeature` from REST/MCP only — **no Status toggle** |
 | `tls.intercept` | **live** `replaceTLS` (generate-mode CA rotates when the TLS spec changes) |
+| `proxy.httpAuth` | **live** `replaceHTTPAuth` (D76). Not a `setFeature` ID. SOCKS `acceptUserPass` stays Reset-only. |
 | `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` | Reset-only (1.2; no `replaceProxyAccept`) |
 | `listeners.originalDestination` enabled+address | Reset-only (bind) |
 | `protocols.http2.clientCleartext` / `origin` / `extendedConnect` / `capturePush` / `grpcDecode` | Reset-only (1.2) |
@@ -269,8 +275,8 @@ Idempotency LRU default 256; reset clears it.
 1. `config.Normalize` + `config.Validate` (copy-on-write).
 2. Hashes canonical JSON (`sha256:…`). Generated CA material is **not** in the hash.
 3. Builds `rules.Engine` from `spec.rules`.
-4. Generates or loads the lab CA (`tlsmitm.Authority`). Generate-mode mints even when `intercept: false` so `GetCA` works. `replaceRules` / `replaceAdmission` / `replaceTargets` / `replaceStoreCaps` / `setFeature` / `replaceCompat` reuse the previous CA handle when the TLS spec is unchanged. `replaceTLS` and `Reset` recompile (generate-mode rotates).
-5. Loads SOCKS user-pass digests into snapshot side table `SOCKSUsers` (not Canonical, not export) only when `Previous == nil` (Start/Reset). Live Compile copies `Previous.SOCKSUsers` and does **not** stat password files (D60). Do not key that copy off TLS equality.
+4. Generates or loads the lab CA (`tlsmitm.Authority`). Generate-mode mints even when `intercept: false` so `GetCA` works. `replaceRules` / `replaceAdmission` / `replaceTargets` / `replaceStoreCaps` / `setFeature` / `replaceCompat` / `replaceHTTPAuth` reuse the previous CA handle when the TLS spec is unchanged. `replaceTLS` and `Reset` recompile (generate-mode rotates).
+5. Loads SOCKS user-pass digests into snapshot side table `SOCKSUsers` (not Canonical, not export) only when `Previous == nil` (Start/Reset). Live Compile copies `Previous.SOCKSUsers` and does **not** stat password files (D60). Do not key that copy off TLS equality. HTTP auth digests (`HTTPAuthUsers`) load on Start/Reset (`Previous == nil`) **and** when live ops include `replaceHTTPAuth` (`CompileOpts.ReloadHTTPAuth`). Other live ops copy `Previous.HTTPAuthUsers` and do not stat those files. `replaceHTTPAuth` must not keep stale digests.
 
 `internal/snapshot.Store` holds active / previous / bootstrap behind atomic pointers. The proxy loads once per request / CONNECT (`Options.Snapshots`) and pins spec, engine, CA, and store epoch for the session. In-flight sessions keep the pointer they loaded; new accepts see the swapped snapshot. An in-flight `Insert` after `ResetTo` uses the accept-time epoch and is discarded (`ErrStaleEpoch`).
 

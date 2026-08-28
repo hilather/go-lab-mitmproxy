@@ -15,6 +15,7 @@ const (
 	DefaultCompatPathPrefix     = "/compat"
 	DefaultMaxConcurrentStreams = 100
 	DefaultProxyHostname        = "labmitm.lab"
+	DefaultHTTPAuthRealm        = "labmitm-proxy"
 	DefaultMaxSessions          = 256
 	DefaultMaxSessionsPerIP     = 32
 	DefaultMaxInFlight          = 64

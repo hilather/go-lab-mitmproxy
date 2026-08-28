@@ -1,0 +1,9 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: x
+spec:
+  proxy:
+    httpAuth:
+      enabled: true
+      users: []

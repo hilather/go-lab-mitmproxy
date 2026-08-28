@@ -317,11 +317,13 @@ Reset rereads the mounted bootstrap, compiles it, and swaps only on success.
 A bad file leaves the live snapshot **and** the flow store untouched.
 
 Live apply verbs (`replaceRules`, `replaceTLS`, `replaceAdmission`,
-`replaceTargets`, `replaceStoreCaps`, `setFeature`, `replaceCompat`).
+`replaceTargets`, `replaceStoreCaps`, `setFeature`, `replaceCompat`,
+`replaceHTTPAuth`).
 `protocols.http2`, `protocols.websocket` / `connect` / `absoluteForm`,
-SOCKS accept, compat flow REST, `rules.enabled`, and `ui.enabled` are
-live without wiping the inbox. Listener addresses and original-destination
-bind stay bootstrap + **Reset** only.
+SOCKS accept, compat flow REST, `rules.enabled`, `ui.enabled`, and
+opt-in HTTP proxy 407 (`spec.proxy.httpAuth`) are live without wiping
+the inbox. Listener addresses and original-destination bind stay
+bootstrap + **Reset** only.
 
 ### MCP (`POST /mcp`)
 
@@ -474,6 +476,9 @@ Cross-file links below are absolute.
 - [0012 1.2 protocol expansion](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)
 - [0013 Live protocol feature gates](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)
 - [0014 QA block modes](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md)
+- [0015 WebSocket frame rules](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md)
+- [0016 Rules throttle action](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md)
+- [0017 HTTP proxy 407](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)
 
 ### Task lists and program board
 

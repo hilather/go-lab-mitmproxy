@@ -44,6 +44,14 @@ func TestFeaturesFromSpecCompactFromStatus(t *testing.T) {
 	if !out.HTTP2Origin || !out.AcceptUDPAssociate {
 		t.Fatalf("1.2 extras=%+v", out)
 	}
+	if out.HTTPAuth {
+		t.Fatalf("httpAuth default=%+v", out)
+	}
+	sp.Proxy.HTTPAuth.Enabled = true
+	on := featuresFromSpec(st, sp)
+	if !on.HTTPAuth {
+		t.Fatal("httpAuth must follow spec.proxy.httpAuth.enabled")
+	}
 }
 
 func TestFromFlowSOCKSUser(t *testing.T) {

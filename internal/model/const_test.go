@@ -21,7 +21,7 @@ func TestKnownEnums(t *testing.T) {
 	if !KnownRole(RoleAdministrator) || KnownRole("root") {
 		t.Fatal("role set")
 	}
-	if !KnownOp(OpReplaceStoreCaps) || !KnownOp(OpSetFeature) || !KnownOp(OpReplaceCompat) || KnownOp("addZone") || KnownOp("replaceProtocols") || KnownOp("replaceProxyAccept") {
+	if !KnownOp(OpReplaceStoreCaps) || !KnownOp(OpSetFeature) || !KnownOp(OpReplaceCompat) || !KnownOp(OpReplaceHTTPAuth) || KnownOp("addZone") || KnownOp("replaceProtocols") || KnownOp("replaceProxyAccept") {
 		t.Fatal("op set")
 	}
 	if !KnownRulePhase(RulePhaseRequest) || !KnownRulePhase(RulePhaseWebSocket) || KnownRulePhase("both") {

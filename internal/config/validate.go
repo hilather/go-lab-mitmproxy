@@ -23,6 +23,16 @@ type validateOpts struct {
 	// length checks. compiler.Compile sets this when Previous != nil so live
 	// apply does not stat SOCKS secrets (D60).
 	skipUserPassFiles bool
+	// skipHTTPAuthFiles omits HTTP proxy-auth file stats. Live compile sets
+	// this unless the ops include replaceHTTPAuth (D76).
+	skipHTTPAuthFiles bool
+}
+
+// LiveApplyOpts selects which secret files live Compile may restat.
+type LiveApplyOpts struct {
+	// SkipHTTPAuthFiles, when true, copies Previous.HTTPAuthUsers without
+	// stating spec.proxy.httpAuth user files. false on replaceHTTPAuth.
+	SkipHTTPAuthFiles bool
 }
 
 // Validate checks a (preferably normalized) state. It does not mutate st.
@@ -32,9 +42,19 @@ func Validate(st *model.State) error {
 
 // ValidateLiveApply is Validate for live Compile (Previous set). It does not
 // stat SOCKS username/password files so replaceRules cannot fail on a vanished
-// file and cannot pick up new bytes without Reset (D60).
+// file and cannot pick up new bytes without Reset (D60). HTTP auth files are
+// also skipped; use ValidateLiveApplyOpts when replaceHTTPAuth must restat.
 func ValidateLiveApply(st *model.State) error {
-	return validateState(st, validateOpts{skipUserPassFiles: true})
+	return ValidateLiveApplyOpts(st, LiveApplyOpts{SkipHTTPAuthFiles: true})
+}
+
+// ValidateLiveApplyOpts is live Validate with D76 HTTP-auth file-stat control.
+// SOCKS user-pass files are always skipped (D60).
+func ValidateLiveApplyOpts(st *model.State, live LiveApplyOpts) error {
+	return validateState(st, validateOpts{
+		skipUserPassFiles: true,
+		skipHTTPAuthFiles: live.SkipHTTPAuthFiles,
+	})
 }
 
 func validateState(st *model.State, opts validateOpts) error {
@@ -47,7 +67,7 @@ func validateState(st *model.State, opts validateOpts) error {
 	validateListeners(&st.Spec.Listeners, &vs, opts)
 	validateCompat(&st.Spec, &vs)
 	validateProtocols(&st.Spec.Protocols, &vs)
-	validateProxy(&st.Spec.Proxy, &vs)
+	validateProxy(&st.Spec.Proxy, &vs, opts)
 	validateTLS(&st.Spec.TLS, &vs)
 	validateRules(&st.Spec.Rules, &vs)
 	validateStore(&st.Spec.Store, &vs)
@@ -142,13 +162,13 @@ func validateProxyListener(p *model.ProxyListenerSpec, vs *[]domainerr.FieldViol
 			})
 		}
 	}
-	validateUserPassUsers(p.UserPass.Users, vs, opts.skipUserPassFiles)
+	validateFileRefUsers(p.UserPass.Users, "spec.listeners.proxy.userPass.users", vs, opts.skipUserPassFiles)
 }
 
-func validateUserPassUsers(users []model.UserPassUserSpec, vs *[]domainerr.FieldViolation, skipFiles bool) {
+func validateFileRefUsers(users []model.UserPassUserSpec, base string, vs *[]domainerr.FieldViolation, skipFiles bool) {
 	ids := map[string]string{}
 	for i, u := range users {
-		path := indexPath("spec.listeners.proxy.userPass.users", i)
+		path := indexPath(base, i)
 		id := strings.TrimSpace(u.ID)
 		if id == "" {
 			*vs = append(*vs, domainerr.FieldViolation{Path: path + ".id", Code: violationEmptyID, Message: "user id is required"})
@@ -294,7 +314,7 @@ func validateHostPort(path, addr string, allowEmpty bool, vs *[]domainerr.FieldV
 	}
 }
 
-func validateProxy(p *model.ProxySpec, vs *[]domainerr.FieldViolation) {
+func validateProxy(p *model.ProxySpec, vs *[]domainerr.FieldViolation, opts validateOpts) {
 	if strings.TrimSpace(p.Hostname) == "" {
 		*vs = append(*vs, domainerr.FieldViolation{
 			Path:    "spec.proxy.hostname",
@@ -303,6 +323,7 @@ func validateProxy(p *model.ProxySpec, vs *[]domainerr.FieldViolation) {
 		})
 	}
 	validateAdmission(&p.Admission, vs)
+	validateHTTPAuth(&p.HTTPAuth, vs, opts.skipHTTPAuthFiles)
 	for i, h := range p.Targets.AllowHosts {
 		if strings.TrimSpace(h) == "" {
 			*vs = append(*vs, domainerr.FieldViolation{
@@ -321,6 +342,24 @@ func validateProxy(p *model.ProxySpec, vs *[]domainerr.FieldViolation) {
 			})
 		}
 	}
+}
+
+func validateHTTPAuth(h *model.HTTPAuthSpec, vs *[]domainerr.FieldViolation, skipFiles bool) {
+	if h.Enabled && len(h.Users) == 0 {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.proxy.httpAuth.users",
+			Code:    violationInvalidValue,
+			Message: "httpAuth.enabled requires at least one user",
+		})
+	}
+	if strings.ContainsAny(h.Realm, "\r\n") {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.proxy.httpAuth.realm",
+			Code:    violationInvalidValue,
+			Message: "realm must not contain CR or LF",
+		})
+	}
+	validateFileRefUsers(h.Users, "spec.proxy.httpAuth.users", vs, skipFiles)
 }
 
 func validateAdmission(a *model.AdmissionSpec, vs *[]domainerr.FieldViolation) {

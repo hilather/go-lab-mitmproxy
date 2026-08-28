@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Integration, Platform
-Last reviewed: 2026-08-23
-Related ADRs: 0005, 0006, 0007
+Last reviewed: 2026-08-28 (overlay stays httpAuth off)
+Related ADRs: 0005, 0006, 0007, 0017
 
 This document is the bill of materials for LabMITM in `mcp-integration-lab`. SWAP-001 lands the overlay in **this** repo. The first Git tag is **v1.1.0**. Lab PRs L1–L3 compose LabMITM: vendor tag **v1.1.0** + local image `labmitm:local` (not a GHCR digest).
 
@@ -114,7 +114,7 @@ services:
         url: http://${LAB_PUBLIC_HOST}:${LABMITM_WEB_PORT}/mcp
       - name: CA certificate
         url: http://${LAB_PUBLIC_HOST}:${LABMITM_WEB_PORT}/v1/ca
-    note: "HTTP/1.1 forward proxy (no Proxy-Authorization): ${LAB_PUBLIC_HOST}:${LABMITM_PROXY_PORT}. Point systems under test at it as HTTP_PROXY / HTTPS_PROXY. Install GET /v1/ca into the SUT trust store for HTTPS intercept. Generate-mode CA rotates on restart. Origin allowlist is exact Origins only (loopback already allowed; no \"*\"). Remote inspector needs http://${LAB_PUBLIC_HOST}:${LABMITM_WEB_PORT} in bootstrap."
+    note: "HTTP/1.1 forward proxy (overlay omits spec.proxy.httpAuth; hop stays unauthenticated): ${LAB_PUBLIC_HOST}:${LABMITM_PROXY_PORT}. Point systems under test at it as HTTP_PROXY / HTTPS_PROXY. Install GET /v1/ca into the SUT trust store for HTTPS intercept. Generate-mode CA rotates on restart. Origin allowlist is exact Origins only (loopback already allowed; no \"*\"). Remote inspector needs http://${LAB_PUBLIC_HOST}:${LABMITM_WEB_PORT} in bootstrap."
     credential:
       file: /run/lab-secrets/labmitm-token
       usage: "HTTP header 'Authorization: Bearer <token>' for native /v1, MCP, and the flow-inspector UI; on the lab host: secrets/labmitm-token"

@@ -14,7 +14,9 @@
 # protocols.websocket.inspectFrames. Overlay must not turn them on.
 # Orig-dest bind and 1.2 nested flags stay Reset-only. 1.1 hop/accept
 # (http2, SOCKS CONNECT, websocket/connect/absoluteForm, compat) are
-# live setFeature (D51'). Empty spec remains a 1.0 process. Catalog is
+# live setFeature (D51'). spec.proxy.httpAuth stays omitted (D76
+# default-off). Overlay must not enable HTTP Proxy-Authorization.
+# Empty spec remains a 1.0 process. Catalog is
 # 31 /v1 rows including features.get. D7 stands.
 apiVersion: labmitm.dev/v1alpha1
 kind: LabMITM

@@ -51,8 +51,16 @@ func TestFeaturesFromSpecCompactFromStatus(t *testing.T) {
 	if out.OriginalDestination || out.SOCKS4 {
 		t.Fatalf("unexpected compact true: %+v", out)
 	}
+	if out.HTTPAuth {
+		t.Fatalf("httpAuth default=%+v", out)
+	}
+	sp.Proxy.HTTPAuth.Enabled = true
+	on := featuresFromSpec(st, sp)
+	if !on.HTTPAuth {
+		t.Fatal("httpAuth must follow spec.proxy.httpAuth.enabled")
+	}
 	empty := featuresFromSpec(nil, nil)
-	if empty.HTTP2 || empty.HTTP2ClientCleartext {
+	if empty.HTTP2 || empty.HTTP2ClientCleartext || empty.HTTPAuth {
 		t.Fatalf("nil inputs=%+v", empty)
 	}
 }

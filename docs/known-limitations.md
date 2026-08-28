@@ -2,9 +2,9 @@
 
 Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-28 (D75 throttle is not a connection shaper)
+Last reviewed: 2026-08-28 (D75 throttle is not a connection shaper; HTTP proxy 407 D76 default-off)
 
-This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.3.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.3.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68. ADR [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) records **D51'** (live hop/accept vs Reset bind) and the **D22 carve** (1.0-preserving hop gates default on).
+This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.3.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.3.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68. ADR [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) records **D51'** (live hop/accept vs Reset bind) and the **D22 carve** (1.0-preserving hop gates default on). ADR [0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) records **D69** (QA block modes). ADR [0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) records **D72–D74** (WebSocket frame rules). ADR [0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md) records **D75** (rules throttle). ADR [0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) records **D76** (opt-in HTTP proxy 407; default-off).
 
 LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge proxy and not an attack framework. It never wraps, vendors, or execs Python mitmproxy. **D7 stands.** Overlay YAML ([examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml)) keeps every 1.1 **opt-in** and 1.2 flag **off** (D22-carve hop gates omitted so they stay on). Catalog is 31 `/v1` rows including `features.get`.
 
@@ -28,7 +28,7 @@ LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge prox
 
 ## Live hop/accept vs Reset bind (D51' operator residual)
 
-[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. Hop/accept flags the running proxy honors are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree) **without Reset or wiping flows**. Disabled hop gates 403 `forbidden` before rules/Dial. There is no `replaceProtocols` / `replaceProxyAccept`. Mutation stays `changes.plan` / `changes.apply`. `features.get` lists the 11-row catalog (`GET /v1/features`, `mitm_features_list`, `labmitm://features`). Compact `status.features` five 1.1 booleans stay on `status.get`. **No Status toggle for `ui.enabled`.** 1.2 h2c CONNECT is **not** `protocols.connect`; `extendedConnect` `:protocol=websocket` is **not** `protocols.websocket`.
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. Hop/accept flags the running proxy honors are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree) **without Reset or wiping flows**. Disabled hop gates 403 `forbidden` before rules/Dial. There is no `replaceProtocols` / `replaceProxyAccept`. Mutation stays `changes.plan` / `changes.apply`. `features.get` lists the 11-row catalog (`GET /v1/features`, `mitm_features_list`, `labmitm://features`). Compact `status.features` spec-flag booleans stay on `status.get` (including additive `httpAuth`, [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)). **No Status toggle for `ui.enabled`.** 1.2 h2c CONNECT is **not** `protocols.connect`; `extendedConnect` `:protocol=websocket` is **not** `protocols.websocket`.
 
 QA bootstrap with websocket off (must `labmitm validate`): [examples/qa-websocket-off.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/qa-websocket-off.yaml). Apply of the same bit does not wipe the inbox.
 
@@ -42,6 +42,7 @@ QA bootstrap with websocket off (must `labmitm validate`): [examples/qa-websocke
 | `rules.enabled` | **live** `setFeature` (items unchanged) |
 | `ui.enabled` | **live** `setFeature` from REST/MCP only — **no Status toggle** |
 | `tls.intercept` | **live** `replaceTLS` (generate-mode CA rotates when the TLS spec changes) |
+| `proxy.httpAuth` | **live** `replaceHTTPAuth` (D76). Not a `setFeature` ID. SOCKS `acceptUserPass` stays Reset-only. |
 | `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` | Reset-only (1.2; no `replaceProxyAccept`) |
 | `listeners.originalDestination` enabled+address | Reset-only (bind) |
 | `protocols.http2.clientCleartext` / `origin` / `extendedConnect` / `capturePush` / `grpcDecode` | Reset-only (1.2) |
@@ -78,7 +79,7 @@ The 1.2 protocol expansion (ADR 0012 D58–D68) is the claimed product on this t
 - **Windows / macOS original-destination.** Linux-only (`SO_ORIGINAL_DST` / `IP6T_SO_ORIGINAL_DST`). Non-linux `enabled: true` fails `Start` closed and binds nothing.
 - **Compat subset, not mitmproxy 11.** List/get/delete/clear/replay + raw content only. Out: mitmweb, dumpfile, CLI flags, addon, HTTP Basic, PUT mutate, UUID ids, filter DSL, HAR export. Headline: “LabMITM compat flow REST (mitmproxy-inspired subset).” Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md).
 - **HTTP Basic on management (D6).** `Authorization: Basic` is 401 Bearer.
-- **HTTP `Proxy-Authorization`.** SOCKS user-pass does not add it. The HTTP hop stays unauthenticated (D17 remainder).
+- **HTTP `Proxy-Authorization` default-off.** Empty `spec: {}` stays an unauthenticated HTTP hop (D17 remainder). Opt-in `spec.proxy.httpAuth` (D76 / [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)) is live `replaceHTTPAuth` on `listeners.proxy` only. Overlay stays flags-off. Orig-dest, inner intercept, Replay, SOCKS, and h2c Extended CONNECT are out. HTTP 407 is **not** a network boundary.
 - **Client-facing TLS on `listeners.proxy`** (HTTPS proxy). h2c is cleartext PRI only; inner `h2` remains the intercepted leaf ALPN path.
 - **Forwarding origin `PUSH_PROMISE` to the inner client.** Capture-only; inner `EnablePush` stays 0.
 - **Public CA, SSL-strip, exploit/fuzzer UX, chaos engine, durable flow-directory, multi-replica store.**
@@ -128,7 +129,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 
 ## Not a public edge proxy (unchanged)
 
-- No HTTP `Proxy-Authorization`. The HTTP hop is unauthenticated; SOCKS user-pass is opt-in (`acceptUserPass`) and is **not** a network boundary. Publishing `:8888` on a LAN is an operator choice with documented risk.
+- HTTP hop `Proxy-Authorization` is default-off (D76). Enabling `httpAuth` on a published bind is still operator risk and is **not** a network boundary. SOCKS user-pass is a separate Reset-only plane (`acceptUserPass`). Publishing `:8888` on a LAN is an operator choice with documented risk.
 - Intercept **breaks origin mTLS and certificate pinning**.
 - Not a general attack tool. No fuzzer, payload generator, SSL-strip, or exploit UX.
 - Default standalone binds stay loopback `127.0.0.1:8888` / `127.0.0.1:8088` (D10). The lab overlay is the place that publishes `:8888`/`:8088`.

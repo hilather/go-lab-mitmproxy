@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-28 (D69 rule action labels; D73 action=block)
-Related ADRs: 0001, 0014, 0015
+Last reviewed: 2026-08-28 (D69 rule action labels; D73 action=block; reason=proxy_auth)
+Related ADRs: 0001, 0014, 0015, 0016, 0017
 
 ## Logs (`log/slog` JSON)
 
@@ -30,7 +30,7 @@ Bounded labels only.
 | Name | Kind | Labels |
 |---|---|---|
 | `labmitm_proxy_sessions_total` | counter | `result` (`ok`, `rejected`, `timeout`) |
-| `labmitm_proxy_rejected_total` | counter | `reason` (`admission`, `http2`, `socks`, `socks_auth`, `socks_command`, `target_denied`, `absolute_https`, `origdest`) |
+| `labmitm_proxy_rejected_total` | counter | `reason` (`admission`, `http2`, `socks`, `socks_auth`, `socks_command`, `target_denied`, `absolute_https`, `origdest`, `websocket`, `connect`, `absolute_form`, `proxy_auth`). Unknown tokens collapse to `admission` (`ProxyRejectReason`). |
 | `labmitm_socks_sessions_total` | counter | `result` (`ok`, `denied`, `auth`, `command`) |
 | `labmitm_flows_total` | counter | `scheme`, `intercepted`, `result` |
 | `labmitm_tls_intercepts_total` | counter | `result` (`ok`, `mint_fail`, `tls_handshake`, `upstream_tls`, `upstream_verify_fail`, `http2_inner`) |

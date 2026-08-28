@@ -141,8 +141,8 @@ type FlowEvent struct {
 
 // Warning is a bounded, stable-coded note.
 type Warning struct {
-	Code    string
-	Message string
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // DiffEntry is one canonical-path change. Paths are sorted in plans.

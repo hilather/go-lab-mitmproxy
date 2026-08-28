@@ -82,6 +82,7 @@ type statusFeaturesJSON struct {
 	AcceptUserPass         bool `json:"acceptUserPass"`
 	OriginalDestination    bool `json:"originalDestination"`
 	CompatFlowREST         bool `json:"compatFlowREST"`
+	HTTPAuth               bool `json:"httpAuth"`
 }
 
 type listenerJSON struct {
@@ -579,6 +580,7 @@ func featuresFromSpec(st *app.Status, sp *model.Spec) statusFeaturesJSON {
 		out.AcceptBind = sp.Listeners.Proxy.AcceptBind
 		out.AcceptUDPAssociate = sp.Listeners.Proxy.AcceptUDPAssociate
 		out.AcceptUserPass = sp.Listeners.Proxy.AcceptUserPass
+		out.HTTPAuth = sp.Proxy.HTTPAuth.Enabled
 	}
 	return out
 }

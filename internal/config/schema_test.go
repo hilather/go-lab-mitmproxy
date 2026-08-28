@@ -32,7 +32,7 @@ func TestSchemaPublished(t *testing.T) {
 	required := []string{
 		"spec", "listeners", "proxy", "tls", "rules", "store", "ui", "management", "observability",
 		"admission", "targets", "ca", "upstream", "mgmtAuth", "token", "rule",
-		"originalDest", "protocols", "http2", "websocket", "protocolGate", "userPass", "userPassUser", "compat", "flowRESTCompat",
+		"originalDest", "protocols", "http2", "websocket", "protocolGate", "userPass", "userPassUser", "compat", "flowRESTCompat", "httpAuth",
 	}
 	for _, name := range required {
 		def, ok := defs[name].(map[string]any)
@@ -76,7 +76,7 @@ func TestSchemaListsModelJSONFields(t *testing.T) {
 		model.ObservabilitySpec{}, model.MetricsSpec{}, model.AuditSpec{},
 		model.OriginalDestListenerSpec{}, model.ProtocolsSpec{}, model.HTTP2Spec{},
 		model.WebSocketSpec{}, model.ProtocolGateSpec{}, model.UserPassSpec{}, model.UserPassUserSpec{},
-		model.CompatSpec{}, model.FlowRESTCompatSpec{},
+		model.CompatSpec{}, model.FlowRESTCompatSpec{}, model.HTTPAuthSpec{},
 	} {
 		rt := reflect.TypeOf(sample)
 		for i := 0; i < rt.NumField(); i++ {

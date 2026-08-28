@@ -62,6 +62,12 @@ func applyOne(st *model.State, op model.Operation, i int) error {
 				domainerr.FieldViolation{Path: path + ".compat", Code: "required", Message: "replaceCompat requires compat"})
 		}
 		st.Spec.Compat = *op.Compat
+	case model.OpReplaceHTTPAuth:
+		if op.HTTPAuth == nil {
+			return domainerr.ValidationFailed("missing httpAuth",
+				domainerr.FieldViolation{Path: path + ".httpAuth", Code: "required", Message: "replaceHTTPAuth requires httpAuth"})
+		}
+		st.Spec.Proxy.HTTPAuth = *op.HTTPAuth
 	case model.OpSetFeature:
 		if op.Feature == nil {
 			return domainerr.ValidationFailed("missing feature",
@@ -125,7 +131,16 @@ func anyReplaceStoreCaps(ops []model.Operation) bool {
 func anyLiveFeatureOp(ops []model.Operation) bool {
 	for i := range ops {
 		switch ops[i].Op {
-		case model.OpSetFeature, model.OpReplaceCompat:
+		case model.OpSetFeature, model.OpReplaceCompat, model.OpReplaceHTTPAuth:
+			return true
+		}
+	}
+	return false
+}
+
+func anyReplaceHTTPAuth(ops []model.Operation) bool {
+	for i := range ops {
+		if ops[i].Op == model.OpReplaceHTTPAuth {
 			return true
 		}
 	}

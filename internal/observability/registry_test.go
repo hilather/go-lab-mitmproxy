@@ -109,8 +109,8 @@ func TestBoundedResultHelpers(t *testing.T) {
 	if ProxyRejectReason("socks") != "socks" || ProxyRejectReason("socks_auth") != "socks_auth" ||
 		ProxyRejectReason("socks_command") != "socks_command" || ProxyRejectReason("origdest") != "origdest" ||
 		ProxyRejectReason("websocket") != "websocket" || ProxyRejectReason("connect") != "connect" ||
-		ProxyRejectReason("absolute_form") != "absolute_form" || ProxyRejectReason("feature") != "admission" ||
-		ProxyRejectReason("x") != "admission" {
+		ProxyRejectReason("absolute_form") != "absolute_form" || ProxyRejectReason("proxy_auth") != "proxy_auth" ||
+		ProxyRejectReason("feature") != "admission" || ProxyRejectReason("x") != "admission" {
 		t.Fatal("reject reason")
 	}
 	if SocksSessionResult("OK") != "ok" || SocksSessionResult("nope") != "denied" {

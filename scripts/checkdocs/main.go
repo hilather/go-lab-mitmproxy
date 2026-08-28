@@ -56,6 +56,7 @@ var RequiredRootDocs = []string{
 	"docs/adr/0014-qa-block-modes.md",
 	"docs/adr/0015-websocket-frame-rules.md",
 	"docs/adr/0016-rules-throttle-action.md",
+	"docs/adr/0017-http-proxy-407.md",
 	"tasks/00-program-board.md",
 	"tasks/README.md",
 	".github/workflows/ci.yml",

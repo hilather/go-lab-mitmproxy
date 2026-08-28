@@ -154,7 +154,7 @@ func (s *App) Validate(ctx context.Context, actor Actor, in ValidateIn) (*Plan, 
 	if err := applyOperations(base, in.Operations); err != nil {
 		return nil, err
 	}
-	next, err := compileCandidate(ctx, base, prev, s.now())
+	next, err := compileCandidate(ctx, base, prev, s.now(), in.Operations)
 	if err != nil {
 		return nil, asDomain(err)
 	}
@@ -199,7 +199,7 @@ func (s *App) buildCandidate(ctx context.Context, in ChangeIn, requireRev bool) 
 	if err := applyOperations(copied, in.Operations); err != nil {
 		return nil, err
 	}
-	next, err := compileCandidate(ctx, copied, prev, s.now())
+	next, err := compileCandidate(ctx, copied, prev, s.now(), in.Operations)
 	if err != nil {
 		return nil, asDomain(err)
 	}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -117,7 +119,7 @@ func TestContractReads(t *testing.T) {
 	if feat == nil {
 		t.Fatalf("status missing features: %v", st)
 	}
-	for _, k := range []string{"http2", "socks5", "socks4", "originalDestination", "compatFlowREST"} {
+	for _, k := range []string{"http2", "socks5", "socks4", "originalDestination", "compatFlowREST", "httpAuth"} {
 		if _, ok := feat[k]; !ok {
 			t.Fatalf("status.features missing %s: %v", k, feat)
 		}
@@ -705,4 +707,79 @@ func domainCode(t *testing.T, err error) string {
 		}
 	}
 	return s
+}
+
+func TestContractReplaceHTTPAuth(t *testing.T) {
+	s, _ := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	dir := t.TempDir()
+	uf := filepath.Join(dir, "user")
+	pf := filepath.Join(dir, "pass")
+	if err := os.WriteFile(uf, []byte("labuser\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pf, []byte("labpass12\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rev, _ := state["runtimeRevision"].(string)
+	args := map[string]any{
+		"expectedRevision": rev,
+		"idempotencyKey":   "http-auth-mcp",
+		"reason":           "enable proxy 407",
+		"operations": []model.Operation{{
+			Op: model.OpReplaceHTTPAuth,
+			HTTPAuth: &model.HTTPAuthSpec{
+				Enabled: true,
+				Realm:   "labmitm-proxy",
+				Users:   []model.UserPassUserSpec{{ID: "lab-proxy", UsernameFile: uf, PasswordFile: pf}},
+			},
+		}},
+	}
+	plan := structuredMap(t, callTool(t, cs, "mitm_change_plan", args))
+	warns, _ := plan["warnings"].([]any)
+	found := false
+	for _, w := range warns {
+		m, _ := w.(map[string]any)
+		if m["code"] == "live_next_connection" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("plan missing live_next_connection: %v", plan)
+	}
+	bad := callToolExpectError(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": "sha256:deadbeef",
+		"operations": []model.Operation{{
+			Op:       model.OpReplaceHTTPAuth,
+			HTTPAuth: &model.HTTPAuthSpec{Enabled: false},
+		}},
+	})
+	if domainCode(t, bad) != "revision_conflict" {
+		t.Fatalf("apply conflict=%v", bad)
+	}
+	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", args))
+	if apply["applied"] != true {
+		t.Fatalf("apply=%v", apply)
+	}
+	replay := structuredMap(t, callTool(t, cs, "mitm_change_apply", args))
+	if replay["applied"] != true {
+		t.Fatalf("replay=%v", replay)
+	}
+	st := structuredMap(t, callTool(t, cs, "mitm_status_get", map[string]any{}))
+	feat, _ := st["features"].(map[string]any)
+	if feat["httpAuth"] != true {
+		t.Fatalf("status.features.httpAuth=%v", feat["httpAuth"])
+	}
+	flist := structuredMap(t, callTool(t, cs, "mitm_features_list", map[string]any{}))
+	fitems, _ := flist["items"].([]any)
+	if len(fitems) != 11 {
+		t.Fatalf("features items=%v", flist)
+	}
+	exp := structuredMap(t, callTool(t, cs, "mitm_state_export", map[string]any{"format": "yaml"}))
+	body, _ := exp["body"].(string)
+	if strings.Contains(body, "labpass12") {
+		t.Fatal("export leaked password")
+	}
 }
