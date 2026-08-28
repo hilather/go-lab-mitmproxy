@@ -6,10 +6,30 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
-- QA block modes as additive `spec.rules` actions ([ADR 0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) D69): `silent` (TCP RST/FIN or HTTP/2 RST_STREAM `CANCEL`), `hang` (required `hang.timeout` 1s–30s, then silent close), and `redirect` (301/302/303/307/308 + required `Location`). Issue #52 `http_status` is the existing `status` type (no alias). Catalog does not grow. Live apply stays `replaceRules`.
-- WebSocket frame rules (`phase: websocket`, actions `drop` / `block`) after inspect `101` / inner D63 `:status=200` ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) D72–D74). Live path is existing `replaceRules` (and `setFeature rules.enabled` for the master switch). `inspectFrames` stays Reset-only. Catalog stays 31 `/v1` rows. GET-by-id `frames[].action` (`drop` / `block`; omitted when forwarded). `labmitm_rule_hits_total{action="block"}` is a new token; websocket `drop` reuses `{action="drop"}`. `labmitm_ws_frames_total` still counts forwarded frames only.
-- `action.type: throttle` with `action.bytesPerSecond` (256 B/s–64 MiB/s, IEC YAML) paces the winning request or response **body** after headers go out. Live via existing `replaceRules`. Catalog stays 31 `/v1` rows. ADR [0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md) (D75).
-- Opt-in HTTP proxy 407 on `listeners.proxy` ([ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) D76). Schema `spec.proxy.httpAuth` (default `enabled: false`). Live apply verb `replaceHTTPAuth` (8th `KnownOp`) via `changes.plan` / `changes.apply`. No new capability ID; catalog stays 31; `features.get` stays 11. Compact `status.features.httpAuth` (K10 reopen). Basic `Proxy-Authenticate` / `Proxy-Authorization` on HTTP/1.1 CONNECT and absolute-form, plus client-facing h2c GET and RFC 9113 CONNECT. 407 via `ResponseWriter` before Hijack with `Content-Length`. Orig-dest, inner intercept, Replay, SOCKS, and h2c Extended CONNECT are out. Overlay stays flags-off. Management stays bearer (D6).
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.4.0 - 2026-08-28
+
+QA knobs from issue #52: block modes (ADR [0014](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/adr/0014-qa-block-modes.md) D69), WebSocket frame rules (ADR [0015](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/adr/0015-websocket-frame-rules.md) D72–D74), throttle (ADR [0016](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/adr/0016-rules-throttle-action.md) D75), and opt-in HTTP 407 (ADR [0017](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/adr/0017-http-proxy-407.md) D76). Catalog stays 31 `/v1` rows. Data-plane 407 is default-off. `inspectFrames` stays Reset-only. Management stays bearer. **D7 stands.** Notes: [docs/releases/v1.4.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/releases/v1.4.0.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/known-limitations.md).
+
+### Added
+
+- QA block modes as additive `spec.rules` actions ([ADR 0014](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/adr/0014-qa-block-modes.md) D69): `silent` (TCP RST/FIN or HTTP/2 RST_STREAM `CANCEL`), `hang` (required `hang.timeout` 1s–30s, then silent close), and `redirect` (301/302/303/307/308 + required `Location`). Issue #52 `http_status` is the existing `status` type (no alias). Catalog does not grow. Live apply stays `replaceRules`.
+- WebSocket frame rules (`phase: websocket`, actions `drop` / `block`) after inspect `101` / inner D63 `:status=200` ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/adr/0015-websocket-frame-rules.md) D72–D74). Live path is existing `replaceRules` (and `setFeature rules.enabled` for the master switch). `inspectFrames` stays Reset-only. Catalog stays 31 `/v1` rows. GET-by-id `frames[].action` (`drop` / `block`; omitted when forwarded). `labmitm_rule_hits_total{action="block"}` is a new token; websocket `drop` reuses `{action="drop"}`. `labmitm_ws_frames_total` still counts forwarded frames only.
+- `action.type: throttle` with `action.bytesPerSecond` (256 B/s–64 MiB/s, IEC YAML) paces the winning request or response **body** after headers go out. Live via existing `replaceRules`. Catalog stays 31 `/v1` rows. ADR [0016](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/adr/0016-rules-throttle-action.md) (D75).
+- Opt-in HTTP proxy 407 on `listeners.proxy` ([ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/v1.4.0/docs/adr/0017-http-proxy-407.md) D76). Schema `spec.proxy.httpAuth` (default `enabled: false`). Live apply verb `replaceHTTPAuth` (8th `KnownOp`) via `changes.plan` / `changes.apply`. No new capability ID; catalog stays 31; `features.get` stays 11. Compact `status.features.httpAuth` (K10 reopen). Basic `Proxy-Authenticate` / `Proxy-Authorization` on HTTP/1.1 CONNECT and absolute-form, plus client-facing h2c GET and RFC 9113 CONNECT. 407 via `ResponseWriter` before Hijack with `Content-Length`. Orig-dest, inner intercept, Replay, SOCKS, and h2c Extended CONNECT are out. Overlay stays flags-off. Management stays bearer (D6).
 
 ### Changed
 
