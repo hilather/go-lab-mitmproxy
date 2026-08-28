@@ -136,7 +136,7 @@ func (s *Server) roundTripH2C(ctx context.Context, in http2x.Stream, pinned *rul
 
 // responseWriterIsClient is false for captureRW: that buffer is not the
 // client hop. Throttle must wrap the returned Body so HEADERS go out
-// before paced DATA (D70).
+// before paced DATA (D75).
 func responseWriterIsClient(w http.ResponseWriter) bool {
 	if w == nil {
 		return false
