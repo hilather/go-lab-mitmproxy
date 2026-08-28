@@ -20,10 +20,6 @@ const (
 	ruleAbort                  // delay-cancel: end without linger/RST
 )
 
-func (r ruleResult) stop() bool {
-	return r != ruleContinue
-}
-
 func (sess *ruleSession) setCloseMode(hit *rules.Hit) {
 	if sess == nil {
 		return
