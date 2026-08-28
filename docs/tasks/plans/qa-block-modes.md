@@ -2,15 +2,15 @@
 
 Status: Proposed (plan only; not implemented)
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-28 (skeptic sweep 2 folded)
+Last reviewed: 2026-08-28 (skeptic ACCEPT)
 Related: [issue #52](https://github.com/hilather/go-lab-mitmproxy/issues/52), [docs/05-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/05-rules.md), [docs/02-proxy-semantics.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/02-proxy-semantics.md), ADR draft 0013 (this document)
-Skeptic: sweep 1 BLOCKED (2 folded); sweep 2 BLOCKED (1 folded); sweep 3 pending
+Skeptic: ACCEPT after 3 sweeps (sweep 1–2 blockers folded; sweep 3 nits folded)
 
 PLAN ONLY. This file is the implementation contract. Do not implement from this PR.
 
 ## Verdict
 
-`PENDING` until skeptic-plan-review reaches `ACCEPT` or `BLOCKED` (cap 3 sweeps). Sweep 1 blockers are folded below.
+`ACCEPT` (skeptic-plan-review, 3 sweeps). Do not implement in this PR.
 
 ## Goal
 
@@ -182,6 +182,8 @@ ruleSilentClose // silent, or hang after timeout: no HTTP bytes
 
 `drop` / `status` stay on `ruleSynthesize`. Do not fold them into silent.
 
+Today `ActionDelay` can return `handled=true` with no write when sleep is cancelled (`runRequestRulesWrite`). That is **not** `ruleSilentClose` (must not RST). Use `ruleContinue` or a fourth `ruleAbort` that just ends the request without linger/RST. `finishHTTPResponse` / `finishConnResponse` are void today; threading `ruleSilentClose` **must change those signatures**, not only `finishResponseWrite`.
+
 **Thread the result to every caller.** A boolean `handled` plus “skip write” is not enough. Today these no-response paths emit HTTP instead of RST:
 
 | Caller | Today if no HTTP write | Required for `ruleSilentClose` |
@@ -269,13 +271,14 @@ Eval clamp: `min(hang.timeout, sessionTimeout)` when `sessionTimeout > 0` (defau
 
 Go API is `(*net.TCPConn).SetLinger(0)` (abortive close / RST on Linux), not `SetLinger(true, 0)`.
 
-`rst` requires a recursive unwrap helper in `internal/proxy` (name illustrative: `tcpConnOf`):
+`rst` must **reuse/extend** the existing `tcpConnOf` in `internal/proxy/origdest.go` (already unwraps `taggedConn` / `peekedConn` / `recordingConn`). A greenfield switch that only lists TCP/TLS/`readerConn` makes orig-dest `:8890` `close: rst` take the FIN fallback.
 
-1. `*net.TCPConn` → use it.
-2. `*tls.Conn` → `NetConn()` and recurse.
-3. `*readerConn` (`wrapHijacked` in `intercept.go`) → inner `Conn` and recurse.
-4. `http2x` `framedStreamConn` (h2c CONNECT + intercept + inner HTTP/1.1): **not** a `*net.TCPConn`. Do not linger it. `close: rst` on this hop is `RST_STREAM` `CANCEL` on that CONNECT stream (same sentinel as h2 silent), not `SetLinger`. `Close()` after `wrote==true` is DATA endStream (FIN-like) and is **wrong** for `rst`. `close: fin` may end the stream without linger.
-5. Else FIN fallback (`Close` only) and still count the rule hit.
+1. Existing `tcpConnOf` wrappers (`taggedConn`, `peekedConn`, `recordingConn`) → recurse.
+2. `*net.TCPConn` → use it.
+3. `*tls.Conn` → `NetConn()` and recurse.
+4. `*readerConn` (`wrapHijacked` in `intercept.go`) → inner `Conn` and recurse.
+5. `http2x` `framedStreamConn` (h2c CONNECT + intercept + inner HTTP/1.1): **not** a `*net.TCPConn`. Do not linger it. Type-assert through `tls.Conn` to `*framedStreamConn`. `close: rst` after intercept TLS (`wrote==true`) needs an **RST-after-write** path (`RST_STREAM` `CANCEL`); `framedStreamConn.Close()` is DATA endStream and is **wrong** for `rst`. The StreamHandler sentinel does not apply on AfterAck. `close: fin` may end the stream without linger.
+6. Else FIN fallback (`Close` only) and still count the rule hit.
 
 `serveInterceptConn` handshakes on `wrapHijacked(...)`, so `tls.Conn.NetConn()` is `*readerConn`, **not** `*net.TCPConn`. A one-step unwrap always misses RST on intercept HTTP/1.1. The helper is mandatory; the intercept-h1 transcript must distinguish RST from FIN (or the implementation is wrong).
 
@@ -355,7 +358,7 @@ Plus Go tests (existing `startProxy` / `throughProxy` style, like `TestRequestDr
 - Intercept inner HTTP/1.1 silent `close: fin`: clean EOF, not RST.
 - Inner h2 request-phase silent → RST_STREAM `CANCEL`, **no** 502 HEADERS; a second stream on the same CONNECT still succeeds; drop/status on h2 still return 403/418.
 - Inner h2 **response-phase** silent → RST_STREAM `CANCEL`, origin response is **not** forwarded (`outResp == nil` fallback must not win).
-- Client-facing h2c request-phase silent (and orig-dest-on-h2c): RST_STREAM `CANCEL`, **no** 500 from `captureRW.response()`.
+- Client-facing h2c request-phase **and response-phase** silent (and orig-dest-on-h2c): RST_STREAM `CANCEL`, **no** 500 from `captureRW.response()` (`finishHTTPResponse` must not swallow `ruleSilentClose`).
 - Extended CONNECT websocket request-phase silent (`innerH2Tunnel`): RST + flow, not 403 HEADERS.
 - h2 hang does not hold the D44 origin mutex (second stream request-phase proceeds).
 - Delay regression still does not steal `UpstreamTimeout`.
@@ -387,7 +390,7 @@ This plan PR does not change product behavior and does not need a changelog entr
 
 1. File ADR 0013 from the draft; expand `KnownRuleAction` + structs + validate + JSON Schema + config fixtures. No proxy behavior yet (validate-only can merge only if docs say types are not wired — prefer one PR that wires them).
 2. `internal/rules` helpers + unit tests.
-3. Proxy result enum; request/response HTTP/1.1 silent/hang/redirect; keep drop/status on the synthesize path. Recursive `tcpConnOf` + intercept RST transcript.
+3. Proxy result enum; request/response HTTP/1.1 silent/hang/redirect in `forwardOriginHTTP` (absolute-form **and** orig-dest); keep drop/status on the synthesize path. Recursive `tcpConnOf` + intercept RST transcript + orig-dest HTTP/1.1 silent transcript.
 4. `http2x.ErrSilentClose` → `ErrCodeCancel` (StreamHandler **and** TunnelHandler). Thread `ruleSilentClose` through `roundTripInnerH2` (request 502 trap **and** response `outResp == nil` fallback), `roundTripH2C` (no `rw.response()`), and `innerH2Tunnel` (no 403 ack). Same step as the 502 trap.
 5. Live-apply / REST / MCP / parity.
 6. Numbered pack, changelog, generate, full required targets.
@@ -395,7 +398,7 @@ This plan PR does not change product behavior and does not need a changelog entr
 ## Risks
 
 - **No-response → HTTP traps.** `badGatewayH2`, `outResp == nil` origin fallback, `captureRW.response()` 500, `innerH2Tunnel` 403. Named result + `ErrSilentClose` on every hop, not a boolean.
-- **Hijack on the ResponseWriter path** for HTTP/1.1 silent/hang only. Never Hijack `captureRW`. Drop/status must not start Hijacking (would change keep-alive / 403 write).
+- **Hijack in `forwardOriginHTTP`**, not only `serveAbsolute`. Covers orig-dest HTTP/1.1. Never Hijack `captureRW`. Drop/status must not start Hijacking (would change keep-alive / 403 write).
 - **Recursive unwrap for SetLinger.** One-step `tls.Conn.NetConn()` is `*readerConn` on intercept. Intercept-h1 RST vs FIN transcript is the tripwire.
 - **h2 connection vs stream.** Closing the CONNECT/h2c TCP would stall sibling streams. RST_STREAM `CANCEL` only.
 - **Admission fill from hang.** HTTP/1.1 holds a gate slot; h2c/CONNECT do not take a second slot. 30s cap + docs; not a reason to reject the action.
@@ -419,4 +422,4 @@ Process: never skip sweep 1; fresh Task skeptic each sweep; fold blockers; cap 3
 |---|---|---|---|
 | 1 | fresh Task | BLOCKED | (1) h2/h2c/tunnel no-write traps (`captureRW` 500, `outResp==nil` origin fallback, `innerH2Tunnel` 403, `ErrSilentClose`→`CANCEL`). (2) intercept `rst` must recursively unwrap `wrapHijacked`/`readerConn`; one-step TLS unwrap is always FIN. Also folded nits: `State=completed` not `ferr`→`FlowStateError`; `SetLinger(0)`; `syntheticResponse` must know redirect; no new late_skip flush detector; hang admission is per-hop; sentinel in impl sequence. |
 | 2 | fresh Task | BLOCKED | Orig-dest HTTP/1.1 silent Hijack lives in `forwardOriginHTTP` (shared with `serveAbsolute`), not only `serveAbsolute`. `captureRW` still returns `ruleSilentClose`. Folded nits: `h2cTunnel` has no request-phase rules (out of scope); framed CONNECT `rst` is stream `CANCEL` not linger; response-phase capture is `Status=0`/`Error=rule_*`/`completed` + drain origin body; drop invented late_skip flush test bullet. |
-| 3 | (pending) | | |
+| 3 | fresh Task | ACCEPT | No new blockers. Folded nits: reuse `origdest.go` `tcpConnOf`; framed CONNECT needs RST-after-write (not Close); delay-cancel is not `ruleSilentClose`; change `finishHTTPResponse` / `finishConnResponse` signatures; add h2c response-phase silent test. |
