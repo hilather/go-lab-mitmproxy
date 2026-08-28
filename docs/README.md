@@ -71,6 +71,12 @@ The numbered pack is the source of truth.
 | [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) | 1.2 protocol expansion (D58–D68); D7 stands |
 | [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) | Live protocol feature gates (D51', D22 carve); 1.2 flags stay Reset-only |
 
+## Plans
+
+| Path | Topic |
+|---|---|
+| [qa-websocket-frame-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-websocket-frame-rules.md) | #52 post-101 WebSocket frame rules (plan only; in review) |
+
 ## Task lists
 
 | Path | Package |
