@@ -30,6 +30,9 @@ func (s *Server) serveCONNECT(w http.ResponseWriter, req *http.Request, sess *ru
 			"CONNECT host:port required", "")
 		return
 	}
+	if s.rejectHTTPAuth(w, req, host, started, sess, true) {
+		return
+	}
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {

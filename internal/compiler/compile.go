@@ -25,6 +25,9 @@ type CompileOpts struct {
 	Previous *snapshot.Snapshot
 	// RotateCA forces a new generate-mode CA (and a files-mode reload).
 	RotateCA bool
+	// ReloadHTTPAuth restats spec.proxy.httpAuth user files (D76). Set when
+	// Previous is nil (Start/Reset) or the live ops include replaceHTTPAuth.
+	ReloadHTTPAuth bool
 }
 
 // Compile normalizes and validates st (copy-on-write), hashes canonical JSON,
@@ -64,6 +67,10 @@ func Compile(ctx context.Context, st *model.State, opts CompileOpts) (*snapshot.
 	if err != nil {
 		return nil, err
 	}
+	httpAuthUsers, err := compileHTTPAuthUsers(n.Spec, opts)
+	if err != nil {
+		return nil, err
+	}
 	return &snapshot.Snapshot{
 		Canonical:         n,
 		Revision:          rev,
@@ -73,12 +80,15 @@ func Compile(ctx context.Context, st *model.State, opts CompileOpts) (*snapshot.
 		Rules:             rules.New(n.Spec.Rules),
 		CA:                ca,
 		SOCKSUsers:        socksUsers,
+		HTTPAuthUsers:     httpAuthUsers,
 	}, nil
 }
 
 func validateForCompile(n *model.State, opts CompileOpts) error {
 	if opts.Previous != nil {
-		return config.ValidateLiveApply(n)
+		return config.ValidateLiveApplyOpts(n, config.LiveApplyOpts{
+			SkipHTTPAuthFiles: !opts.ReloadHTTPAuth,
+		})
 	}
 	return config.Validate(n)
 }

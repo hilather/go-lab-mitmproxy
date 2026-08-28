@@ -56,6 +56,8 @@ This ADR supersedes:
 
 `http2ClientCleartext`, `http2Origin`, `http2ExtendedConnect`, `http2CapturePush`, `http2GRPCDecode`, `inspectWebSocketFrames`, `acceptBind`, `acceptUDPAssociate`, `acceptUserPass`.
 
+[ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) **reopens K10** for one additive compact key: `httpAuth` (from `spec.proxy.httpAuth.enabled`). That reopen is 0017, not this ADR.
+
 No new `capabilities.catalog()` rows. Catalog stays 30 `/v1` rows. Legal camelCase only; after normalize, keys must not match reserved `socks*` / `tproxy` / `exploit` / …. That is why there is no `socksBind` / `socksUserPass` field.
 
 ### Frozen open questions
@@ -95,7 +97,9 @@ Replay uses the **live** snapshot, not capture-time flags. D21 stands: `Transpor
 
 ## Review triggers
 
-Review when HTTP/3 / QUIC, TPROXY, GSSAPI, HTTP `Proxy-Authorization`, client-facing TLS on `listeners.proxy`, forwarding origin `PUSH_PROMISE` to the inner client, a generic gRPC / protobuf framework, or live-apply of 1.2 flags is proposed (each needs a new ADR). Review if the D48 remainder (nested inner CONNECT without `:protocol`) is reconsidered.
+Review when HTTP/3 / QUIC, TPROXY, GSSAPI, client-facing TLS on `listeners.proxy`, forwarding origin `PUSH_PROMISE` to the inner client, a generic gRPC / protobuf framework, or live-apply of 1.2 flags is proposed (each needs a new ADR). Review if the D48 remainder (nested inner CONNECT without `:protocol`) is reconsidered.
+
+HTTP `Proxy-Authorization` landed as [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) / D76 (live `replaceHTTPAuth`; K10 additively names `httpAuth`). This ADR’s D17 remainder still describes the default-off empty-spec hop; 0017 supersedes it only when `httpAuth.enabled`.
 
 ## Notes (D51')
 

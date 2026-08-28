@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -82,7 +84,7 @@ func TestContractReads(t *testing.T) {
 	for _, k := range []string{
 		"http2", "socks5", "socks4", "originalDestination", "compatFlowREST",
 		"http2ClientCleartext", "http2Origin", "http2ExtendedConnect", "http2CapturePush", "http2GRPCDecode",
-		"inspectWebSocketFrames", "acceptBind", "acceptUDPAssociate", "acceptUserPass",
+		"inspectWebSocketFrames", "acceptBind", "acceptUDPAssociate", "acceptUserPass", "httpAuth",
 	} {
 		v, ok := feat[k]
 		if !ok {
@@ -697,6 +699,72 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("want action.type violation: %s", bad.Body.String())
+	}
+}
+
+func TestContractReplaceHTTPAuth(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+	dir := t.TempDir()
+	uf := filepath.Join(dir, "user")
+	pf := filepath.Join(dir, "pass")
+	if err := os.WriteFile(uf, []byte("labuser\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pf, []byte("labpass12\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rev := decodeJSON(t, doReq(t, h, http.MethodGet, "/v1/state", ""))["runtimeRevision"].(string)
+	body, err := json.Marshal(map[string]any{
+		"expectedRevision": rev,
+		"idempotencyKey":   "http-auth-rest",
+		"reason":           "enable proxy 407",
+		"operations": []model.Operation{{
+			Op: model.OpReplaceHTTPAuth,
+			HTTPAuth: &model.HTTPAuthSpec{
+				Enabled: true,
+				Realm:   "labmitm-proxy",
+				Users:   []model.UserPassUserSpec{{ID: "lab-proxy", UsernameFile: uf, PasswordFile: pf}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := doReq(t, h, http.MethodPost, "/v1/changes:plan", string(body))
+	requireStatus(t, plan, http.StatusOK)
+	pj := decodeJSON(t, plan)
+	warns, _ := pj["warnings"].([]any)
+	found := false
+	for _, w := range warns {
+		m, _ := w.(map[string]any)
+		if m["code"] == "live_next_connection" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("plan missing live_next_connection: %s", plan.Body.String())
+	}
+	bad := doReq(t, h, http.MethodPost, "/v1/changes:apply", `{"expectedRevision":"sha256:deadbeef","operations":[{"op":"replaceHTTPAuth","httpAuth":{"enabled":false}}]}`)
+	requireProblem(t, bad, http.StatusConflict, "revision_conflict")
+	apply := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(body))
+	requireStatus(t, apply, http.StatusOK)
+	replay := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(body))
+	requireStatus(t, replay, http.StatusOK)
+	st := decodeJSON(t, doReq(t, h, http.MethodGet, "/v1/status", ""))
+	feat, _ := st["features"].(map[string]any)
+	if feat["httpAuth"] != true {
+		t.Fatalf("status.features.httpAuth=%v", feat["httpAuth"])
+	}
+	featList := decodeJSON(t, doReq(t, h, http.MethodGet, "/v1/features", ""))
+	items, _ := featList["items"].([]any)
+	if len(items) != 11 {
+		t.Fatalf("features.get grew: %d", len(items))
+	}
+	exp := doReq(t, h, http.MethodGet, "/v1/state:export?format=yaml", "")
+	requireStatus(t, exp, http.StatusOK)
+	if strings.Contains(exp.Body.String(), "labpass12") {
+		t.Fatal("export leaked password")
 	}
 }
 

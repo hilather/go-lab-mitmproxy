@@ -1,0 +1,17 @@
+# 407 then CONNECT + Basic on the same TCP. 407 has Content-Length, not chunked.
+C: CONNECT {{HOST}} HTTP/1.1
+C: Host: {{HOST}}
+C:
+S: HTTP/1.1 407 Proxy Authentication Required
+S: Content-Length: *
+S: Content-Type: text/plain; charset=utf-8
+S: Date: *
+S: Proxy-Authenticate: Basic realm="labmitm-proxy"
+S:
+S: proxy authentication required
+C: CONNECT {{HOST}} HTTP/1.1
+C: Host: {{HOST}}
+C: Proxy-Authorization: Basic {{BASIC}}
+C:
+S: HTTP/1.1 200 Connection Established
+S:

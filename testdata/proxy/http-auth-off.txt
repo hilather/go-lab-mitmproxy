@@ -1,0 +1,6 @@
+# Flag-off: stray Proxy-Authorization is ignored and stripped; hop succeeds.
+C: GET http://{{HOST}}/hello HTTP/1.1
+C: Host: {{HOST}}
+C: Proxy-Authorization: Basic {{BASIC}}
+C:
+S: HTTP/1.1 200 *

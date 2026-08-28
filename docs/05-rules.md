@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-28 (D75 action.type throttle)
-Related ADRs: 0002, 0013, 0014, 0015, 0016
+Last reviewed: 2026-08-28 (D75 action.type throttle; status 407 is not proxy auth)
+Related ADRs: 0002, 0013, 0014, 0015, 0016, 0017
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
 
@@ -16,7 +16,7 @@ Proxy hooks (cleartext absolute-form and intercepted inner HTTP/1.1 **and** inne
 3. Stream vs mutate (D21): capture-only tees to `maxBodyBytes`; `body` / `status` / `drop` / `breakpoint` / `redirect` buffer to `maxBodyBytes` and fail-closed (`body_skipped`) beyond that. `silent` / `hang` / `throttle` are capture-only.
 4. Breakpoint: `Insert` paused, `WaitPaused(ctx)` with ctx deadline `min(rule.timeout, store.maxWait)` (1s–60s). Timeout / stale epoch continues unmodified. `Resume` / `Drop` are store primitives (REST in API-001). Unit test Resume without HTTP.
 
-Raw CONNECT tunnels have no inner HTTP, so rules do not apply. Response-phase hits on HTTP/1.1 `101` remain `late_skip`. Inner D63 `:status=200` remains `late_skip`. Client-facing h2c Extended CONNECT has no request-phase or response-phase `matchHit`. `phase: websocket` may match inspected frames when `inspectFrames` is on ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md)). Replay is **not** a rule action (API-001).
+Raw CONNECT tunnels have no inner HTTP, so rules do not apply. Response-phase hits on HTTP/1.1 `101` remain `late_skip`. Inner D63 `:status=200` remains `late_skip`. Client-facing h2c Extended CONNECT has no request-phase or response-phase `matchHit`. `phase: websocket` may match inspected frames when `inspectFrames` is on ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md)). Replay is **not** a rule action (API-001). `action.status: 407` is a **synthetic origin-like response** after DNS on absolute-form / inner HTTP. It is **not** proxy auth (`Proxy-Authenticate` / `replaceHTTPAuth` / D76). Do not invent a `proxyAuth` rule action.
 
 ## Schema
 

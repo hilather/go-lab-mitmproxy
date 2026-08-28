@@ -57,6 +57,9 @@ func TestDecodeDefaultsYAML(t *testing.T) {
 	if !st.Spec.Protocols.AbsoluteForm.Enabled {
 		t.Fatal("omitted protocols.absoluteForm.enabled must materialize true at decode")
 	}
+	if st.Spec.Proxy.HTTPAuth.Enabled {
+		t.Fatal("omitted httpAuth.enabled must stay false")
+	}
 }
 
 func TestDecodeAcceptSOCKS5HyphenUnknownField(t *testing.T) {

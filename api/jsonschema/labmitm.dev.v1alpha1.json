@@ -166,13 +166,23 @@
         "keyFile": { "type": "string" }
       }
     },
+    "httpAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "default false; live replaceHTTPAuth (D76)" },
+        "realm": { "type": "string", "description": "empty materializes labmitm-proxy" },
+        "users": { "type": "array", "items": { "$ref": "#/$defs/userPassUser" } }
+      }
+    },
     "proxy": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "hostname": { "type": "string", "description": "default labmitm.lab" },
         "admission": { "$ref": "#/$defs/admission" },
-        "targets": { "$ref": "#/$defs/targets" }
+        "targets": { "$ref": "#/$defs/targets" },
+        "httpAuth": { "$ref": "#/$defs/httpAuth" }
       }
     },
     "admission": {

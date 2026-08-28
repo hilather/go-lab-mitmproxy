@@ -38,6 +38,9 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *r
 		writeProxyError(w, http.StatusForbidden, domainerr.CodeForbidden, "absolute-form is disabled", "spec.protocols.absoluteForm.enabled")
 		return ruleAbort
 	}
+	if s.rejectHTTPAuth(w, req, host, started, sess, false) {
+		return ruleAbort
+	}
 
 	guardCtx, guardCancel := s.upstreamCtxSess(req.Context(), sess)
 	res, err := resolveThenGuard(guardCtx, s.resolver, sess.spec.Proxy.Targets, host, port)

@@ -1,0 +1,12 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: x
+spec:
+  proxy:
+    httpAuth:
+      enabled: true
+      users:
+        - id: lab-proxy
+          usernameFile: testdata/config/valid/no-such-http-auth-user
+          passwordFile: testdata/config/valid/socks-password

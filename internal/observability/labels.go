@@ -97,7 +97,7 @@ func ProxySessionResult(result string) string {
 // ProxyRejectReason collapses a reject cause to a bounded label.
 func ProxyRejectReason(reason string) string {
 	switch strings.ToLower(strings.TrimSpace(reason)) {
-	case "admission", "http2", "socks", "socks_auth", "socks_command", "target_denied", "absolute_https", "origdest", "websocket", "connect", "absolute_form":
+	case "admission", "http2", "socks", "socks_auth", "socks_command", "target_denied", "absolute_https", "origdest", "websocket", "connect", "absolute_form", "proxy_auth":
 		return strings.ToLower(strings.TrimSpace(reason))
 	default:
 		return "admission"

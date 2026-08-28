@@ -682,6 +682,7 @@ func TestApplySetFeatureRejectedIDs(t *testing.T) {
 		{FeatureIDTLSIntercept, "use replaceTLS"},
 		{"protocols.http2.clientCleartext", ""},
 		{"not-a-feature", ""},
+		{"proxy.httpAuth", ""},
 	}
 	for _, tc := range cases {
 		_, err := svc.Apply(ctx, actor(), ChangeIn{
@@ -925,5 +926,147 @@ func TestReplaceRulesThrottleApply(t *testing.T) {
 	hit := eng.Match(model.RulePhaseResponse, rules.Request{Path: "/big/file"})
 	if hit == nil || hit.Action.Type != model.ActionThrottle || hit.Action.BytesPerSecond != 8<<10 {
 		t.Fatalf("hit=%+v", hit)
+	}
+}
+
+func httpAuthFiles(t *testing.T) (userFile, passFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	userFile = filepath.Join(dir, "user")
+	passFile = filepath.Join(dir, "pass")
+	if err := os.WriteFile(userFile, []byte("labuser\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(passFile, []byte("labpass12\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return userFile, passFile
+}
+
+func TestPlanReplaceHTTPAuthWarnsLiveNextConnection(t *testing.T) {
+	svc, boot := mustBoot(t)
+	uf, pf := httpAuthFiles(t)
+	plan, err := svc.Plan(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Operations: []model.Operation{{
+			Op: model.OpReplaceHTTPAuth,
+			HTTPAuth: &model.HTTPAuthSpec{
+				Enabled: true,
+				Realm:   "labmitm-proxy",
+				Users: []model.UserPassUserSpec{{
+					ID: "lab-proxy", UsernameFile: uf, PasswordFile: pf,
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireLiveNextConnection(t, plan.Warnings)
+}
+
+func TestApplyReplaceHTTPAuth(t *testing.T) {
+	svc, boot := mustBoot(t)
+	uf, pf := httpAuthFiles(t)
+	auth := model.HTTPAuthSpec{
+		Enabled: true,
+		Realm:   "labmitm-proxy",
+		Users: []model.UserPassUserSpec{{
+			ID: "lab-proxy", UsernameFile: uf, PasswordFile: pf,
+		}},
+	}
+	res, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		IdempotencyKey:   "http-auth-1",
+		Operations:       []model.Operation{{Op: model.OpReplaceHTTPAuth, HTTPAuth: &auth}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Applied {
+		t.Fatal("not applied")
+	}
+	requireLiveNextConnection(t, res.Warnings)
+	got := svc.Active().Canonical.Spec.Proxy.HTTPAuth
+	if !got.Enabled || got.Realm != "labmitm-proxy" || len(got.Users) != 1 {
+		t.Fatalf("httpAuth %+v", got)
+	}
+	if len(svc.Active().HTTPAuthUsers) != 1 || svc.Active().HTTPAuthUsers[0].ID != "lab-proxy" {
+		t.Fatalf("HTTPAuthUsers=%+v", svc.Active().HTTPAuthUsers)
+	}
+	if svc.Active().Canonical.Spec.Store.MaxFlows != boot.Canonical.Spec.Store.MaxFlows {
+		t.Fatal("inbox caps changed")
+	}
+
+	again, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		IdempotencyKey:   "http-auth-1",
+		Operations:       []model.Operation{{Op: model.OpReplaceHTTPAuth, HTTPAuth: &auth}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.RuntimeRevision != res.RuntimeRevision {
+		t.Fatal("idempotent apply must replay")
+	}
+
+	exp, err := svc.Export(context.Background(), actor(), ExportYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(exp.Body)
+	if strings.Contains(body, "labpass12") || strings.Contains(body, "labuser") {
+		t.Fatal("export leaked HTTP auth secrets")
+	}
+	if !strings.Contains(body, uf) {
+		t.Fatal("export should keep usernameFile path")
+	}
+}
+
+func TestReplaceHTTPAuthVanishedFileFailsThatOpOnly(t *testing.T) {
+	svc, boot := mustBoot(t)
+	uf, pf := httpAuthFiles(t)
+	auth := model.HTTPAuthSpec{
+		Enabled: true,
+		Users:   []model.UserPassUserSpec{{ID: "lab-proxy", UsernameFile: uf, PasswordFile: pf}},
+	}
+	first, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		IdempotencyKey:   "http-auth-seed",
+		Operations:       []model.Operation{{Op: model.OpReplaceHTTPAuth, HTTPAuth: &auth}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(uf); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(pf); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: first.RuntimeRevision,
+		IdempotencyKey:   "http-auth-vanish",
+		Operations:       []model.Operation{{Op: model.OpReplaceHTTPAuth, HTTPAuth: &auth}},
+	})
+	if err == nil {
+		t.Fatal("replaceHTTPAuth must fail on vanished files")
+	}
+	if svc.Active().Revision != first.RuntimeRevision {
+		t.Fatal("failed replaceHTTPAuth swapped")
+	}
+	rules, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: first.RuntimeRevision,
+		IdempotencyKey:   "http-auth-rules-after-vanish",
+		Operations:       []model.Operation{enableRules()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rules.Applied {
+		t.Fatal("replaceRules after vanished HTTP auth files must succeed")
+	}
+	if len(svc.Active().HTTPAuthUsers) != 1 {
+		t.Fatal("replaceRules must copy Previous.HTTPAuthUsers")
 	}
 }

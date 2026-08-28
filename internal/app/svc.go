@@ -222,7 +222,7 @@ func cloneState(st *model.State) (*model.State, error) {
 	return &out, nil
 }
 
-func compileCandidate(ctx context.Context, st *model.State, prev *snapshot.Snapshot, now time.Time) (*snapshot.Snapshot, error) {
+func compileCandidate(ctx context.Context, st *model.State, prev *snapshot.Snapshot, now time.Time, ops []model.Operation) (*snapshot.Snapshot, error) {
 	opts := compiler.CompileOpts{Now: now, Previous: prev}
 	if prev != nil {
 		opts.BootstrapRevision = prev.BootstrapRevision
@@ -230,6 +230,9 @@ func compileCandidate(ctx context.Context, st *model.State, prev *snapshot.Snaps
 		if opts.BootstrapRevision == "" {
 			opts.BootstrapRevision = prev.Revision
 		}
+	}
+	if prev == nil || anyReplaceHTTPAuth(ops) {
+		opts.ReloadHTTPAuth = true
 	}
 	return compiler.Compile(ctx, st, opts)
 }

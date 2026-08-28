@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-28 (D73 frames[].action)
-Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013
+Last reviewed: 2026-08-28 (D73 frames[].action; replaceHTTPAuth D76)
+Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
 
@@ -125,13 +125,13 @@ Heartbeat comment every 15s. MCP `subscriptions/listen` on `labmitm://flows` not
 }
 ```
 
-Eleven frozen rows. Compact `status.features` five 1.1 booleans stay on `GET /v1/status` and are **not** nested as `features.catalog`. Mutation is `POST /v1/changes:plan` / `:apply` (`setFeature` / `replaceTLS` / Reset), not a dedicated features write verb.
+Eleven frozen rows. Compact `status.features` booleans stay on `GET /v1/status` (including additive `httpAuth` from `spec.proxy.httpAuth.enabled`; [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) K10 reopen) and are **not** nested as `features.catalog`. Mutation is `POST /v1/changes:plan` / `:apply` (`setFeature` / `replaceTLS` / `replaceHTTPAuth` / Reset), not a dedicated features write verb. `setFeature` of `proxy.httpAuth` is `validation_failed`.
 
 Unauthenticated `GET /v1/features` is 401.
 
 ## Config plan/apply
 
-See [docs/06-state-and-configuration.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/06-state-and-configuration.md). `:plan` is dry-run. `:apply` requires `expectedRevision`.
+See [docs/06-state-and-configuration.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/06-state-and-configuration.md). `:plan` is dry-run. `:apply` requires `expectedRevision`. Eighth apply verb `replaceHTTPAuth` carries `spec.proxy.httpAuth` (D76). No new `/v1` path. Catalog stays 31.
 
 ## Embedded operator UI
 

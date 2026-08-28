@@ -108,11 +108,20 @@ type ListenerTLS struct {
 	KeyFile  string `json:"keyFile"`
 }
 
-// ProxySpec is the forward-proxy posture (admission + target guards).
+// ProxySpec is the forward-proxy posture (admission + target guards + optional HTTP 407).
 type ProxySpec struct {
 	Hostname  string        `json:"hostname"`
 	Admission AdmissionSpec `json:"admission"`
 	Targets   TargetsSpec   `json:"targets"`
+	HTTPAuth  HTTPAuthSpec  `json:"httpAuth"`
+}
+
+// HTTPAuthSpec is opt-in HTTP Basic proxy authentication on listeners.proxy (D76).
+// Empty Realm materializes labmitm-proxy. Users are file refs (UserPassUserSpec shape).
+type HTTPAuthSpec struct {
+	Enabled bool               `json:"enabled"`
+	Realm   string             `json:"realm"`
+	Users   []UserPassUserSpec `json:"users"`
 }
 
 // AdmissionSpec caps concurrent proxy sessions and in-flight work.
