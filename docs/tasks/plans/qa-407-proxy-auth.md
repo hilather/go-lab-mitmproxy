@@ -1,17 +1,17 @@
 # Plan: QA 407 proxy auth on the data plane
 
-Status: Proposed (skeptic review in progress)
+Status: Proposed (skeptic round 2)
 Owners: Proxy, Configuration, Control Plane, Security
 Last reviewed: 2026-08-28
 Issue: [#52](https://github.com/hilather/go-lab-mitmproxy/issues/52) item “407 proxy auth on data plane (corp-proxy auth simulation)”; live via MCP/REST
-Related ADRs: 0002 (D7, D19), 0005 (D6), 0012 (D60, D17 remainder), 0013 (D51', `setFeature`)
+Related ADRs: 0002 (D7, D19), 0005 (D6), 0012 (D60, D17 remainder, K10 `features` names), 0013 (D51', `setFeature`)
 This plan: **ADR 0014 required** (next free number; 0013 is live hop gates)
 
 This document is an implementation contract. It does not implement. Stop at ACCEPT or BLOCKED after skeptic-plan-review.
 
 ## Verdict
 
-**Pending skeptic.** Sweep 1 (author, never skipped) is below. Fresh skeptic required. Cap 3 revision rounds, then BLOCKED.
+**REVISE after skeptic round 1 (F1–F7 folded in).** Fresh skeptic round 2 required. Cap 3, then BLOCKED.
 
 ## Problem
 
@@ -37,6 +37,7 @@ Default-off. Deterministic (D12). No third-party MITM/proxy libraries (D7).
 - A new capability ID or a dedicated `POST /v1/features/{id}` write (ADR 0013 already rejected that).
 - Growing `features.get`’s frozen 11-row catalog or opening `setFeature` to non-boolean bodies.
 - Live-rebind of listener addresses or orig-dest (D51' remainder).
+- 407 on client-facing h2c **Extended CONNECT** (`:protocol=websocket`). That path is `h2cWebSocketTunnel`, not RFC 9113 CONNECT. Flag-off stays RST. Document as residual.
 
 ## Knob decision
 
@@ -47,7 +48,9 @@ Default-off. Deterministic (D12). No third-party MITM/proxy libraries (D7).
 | **`replaceAdmission`** | **Reject** | `AdmissionSpec` is session caps / timeouts. Credentials and 407 policy do not belong there. `maxConcurrentStreams` already rides this verb; do not overload it. |
 | **`replaceHTTPAuth`** (new live apply verb) | **Accept** | Same family as `replaceTargets` / `replaceRules`: live snapshot swap, no Reset, no inbox wipe. Carries the full `spec.proxy.httpAuth` subtree (`enabled`, `realm`, `users[]`). No new capability ID. Mutation stays `changes.plan` / `changes.apply` (`mitm.admin`). |
 
-Live via MCP/REST means `POST /v1/changes:plan` + `:apply` and `mitm_change_plan` / `mitm_change_apply`. Compact `GET /v1/status` `features.httpAuth` (additive boolean, default false) mirrors `.enabled` the same way `acceptUserPass` is mirrored today. Do **not** nest a catalog row under `status.features`. Do **not** add a Status toggle (those are `setFeature` IDs only, ADR 0013 closed product call 3).
+Live via MCP/REST means `POST /v1/changes:plan` + `:apply` and `mitm_change_plan` / `mitm_change_apply`. That satisfies #52 without a `features.get` row or Status toggle (ADR 0013 product call 3: Status toggles `setFeature` IDs only).
+
+Compact `GET /v1/status` `features.httpAuth` (additive boolean, default false) is **allowed only because ADR 0014 reopens ADR 0012 K10** (frozen `features` JSON names). It is **not** a drive-by “same as `acceptUserPass`.” `acceptUserPass` is already on K10 and is filled from spec in `featuresFromSpec`, not `CatalogFromSpec`. Implementers must add `httpAuth` to **both** REST and MCP `statusFeaturesJSON` and name the reopen in ADR 0014. Do **not** nest a catalog row under `status.features`. Do **not** add a Status toggle.
 
 `listeners.proxy.acceptUserPass` stays **Reset-only** (1.2, D51' remainder, D60). HTTP 407 is a **different plane**.
 
@@ -79,20 +82,34 @@ must not 407 inner intercept.
 
 D69 — Opt-in HTTP proxy authentication on the forward-proxy hop only.
 Schema spec.proxy.httpAuth (default enabled: false). Live apply verb
-replaceHTTPAuth. File-ref users compiled into snapshot side table
-HTTPAuthUsers (not Canonical, not export). Digest =
+replaceHTTPAuth (8th KnownOp). File-ref users compiled into snapshot
+side table HTTPAuthUsers (not Canonical, not export). Digest =
 SHA-256(uint8(len(user)) || user || uint8(len(pass)) || pass), same
 construction as DigestSOCKSUser. Constant-time compare against every
 digest. Basic only (RFC 7617). Management stays bearer (D6).
 
 Check after hop classification / hop gates, before Hijack, before
-resolveThenGuard / Dial. 407 via ResponseWriter; never Hijack a 407
-CONNECT (D19). Orig-dest, inner intercept, SOCKS, Replay: out.
+resolveThenGuard / Dial. HTTP/1.1 407 via ResponseWriter with a
+determinate Content-Length; never Hijack a 407 CONNECT (D19).
+h2c RFC 9113 CONNECT: read Proxy-Authorization from Stream.Headers
+(h2cConnectRequest today copies no headers); return
+Tunnel{Status:407, Headers:[{proxy-authenticate,…}]} — no AfterAck,
+no Origin, do not call writeProxyAuthChallenge (no ResponseWriter).
+Orig-dest, inner intercept, SOCKS, Replay, h2c Extended CONNECT
+(:protocol=websocket): out.
 
-Live Compile: replaceHTTPAuth may stat user files
-(CompileOpts.ReloadHTTPAuth). Every other live op copies
-Previous.HTTPAuthUsers (do not fail replaceRules on a vanished file).
-Start/Reset always load files.
+Live Compile wiring (today cannot do this — must change it):
+compileCandidate must receive the op list. Set
+CompileOpts.ReloadHTTPAuth iff Previous==nil OR any op is
+replaceHTTPAuth. validateForCompile: live compile always
+skipUserPassFiles=true (D60); skipHTTPAuthFiles=!ReloadHTTPAuth.
+ValidateLiveApply(st) as written (no options) is insufficient.
+Start/Reset always load files. Other live ops copy
+Previous.HTTPAuthUsers.
+
+Reopens ADR 0012 K10 for one additive compact status key:
+features.httpAuth. Does not grow features.get (11 rows).
+Does not add a setFeature ID.
 
 Does not supersede: D6, D7, D12, D16, D19, D20, D21, D51' remainder
 (1.2 nested flags including acceptUserPass stay Reset-only), D60.
@@ -103,6 +120,9 @@ Does not supersede: D6, D7, D12, D16, D19, D20, D21, D51' remainder
 - Overlay examples stay httpAuth.enabled false.
 - Catalog stays 31 /v1 rows. No new capability IDs.
 - features.get stays 11 rows. setFeature honor list unchanged.
+- KnownOp grows replaceHTTPAuth; anyLiveFeatureOp includes it
+  (live_next_connection). docs/06 apply-verb table is the operator
+  contract (8th row).
 - HTTP 407 is not a network boundary (same sentence as D60).
 - D7 stands.
 
@@ -113,6 +133,7 @@ Does not supersede: D6, D7, D12, D16, D19, D20, D21, D51' remainder
 - replaceAdmission: rejected (wrong object).
 - Reuse SOCKS userPass.users: rejected (Reset-only D60 plane).
 - Management Basic: rejected (D6).
+- Drive-by status.features.httpAuth without reopening K10: rejected.
 ```
 
 Decision number **D69** (0012 ended at D68; 0013 used D51' / D22 carve, no D69).
@@ -123,14 +144,15 @@ Decision number **D69** (0012 ended at D68; 0013 used D51' / D22 carve, no D69).
 
 | Entry | 407? | Notes |
 |---|---|---|
-| Forward-proxy HTTP `CONNECT` | **yes** | After orig-dest branch, after `protocols.connect.enabled` (403 wins if off), after `host:port` parse (400 wins if missing port), **before** `metrics.accept()` for the success path, **before Hijack**, before `resolveThenGuard` / Dial. |
-| Absolute-form `http://` | **yes** | After websocket / `absoluteForm` gates, **before** `resolveThenGuard`. |
+| Forward-proxy HTTP `CONNECT` | **yes** | Two windows, do not conflate. `protocols.connect` 403 is in `ServeHTTP` **before** `metrics.accept()` ([`handler.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/handler.go) 52–70). Port parse + Hijack are **after** accept, first lines of `serveCONNECT`. **Contract (A):** check auth in `serveCONNECT` after `host:port` (400 still wins), **before Hijack**, increment `reject("proxy_auth")`, do **not** move `metrics.accept()` and do **not** claim 407 is pre-accept. Missing-port CONNECT today is already accept+400; leave that. |
+| Absolute-form `http://` | **yes** | After websocket / `absoluteForm` gates, **before** `resolveThenGuard`. Post-`metrics.accept()` (ServeHTTP already accepted). |
 | Absolute-form `https://` | **no** | Stays 400 `absolute_https`. |
 | Origin-form on `:8888` | **no** | Stays 400 `absolute-form or CONNECT required`. |
 | Orig-dest origin-form / tagged CONNECT | **no** | Not a proxy hop (D31 / D57). |
 | PRI flag-off | **no** | Hard close `reason=http2` before acquire. |
-| Client-facing h2c regular GET/POST | **yes** | Same as absolute-form, per stream, before Dial. |
-| Client-facing h2c RFC 9113 CONNECT | **yes** | 407 HEADERS (`:status=407` + `proxy-authenticate`), no Dial, no AfterAck tunnel. |
+| Client-facing h2c regular GET/POST | **yes** | `reconstructH2Request` copies `in.Headers` (including `proxy-authorization`). Then `serveAbsolute`. Auth sees the header. `http2x.writeResponse` does **not** strip `proxy-authenticate` (only `proxy-authorization` is in `hopHeaders`). Session `metrics.accept()` already ran once per TCP in `serveH2C`. |
+| Client-facing h2c RFC 9113 CONNECT | **yes** | **Accept must work.** `h2cConnectRequest` today builds `Header: make(http.Header)` and copies **no** fields — checking `req.Header` is permanent 407 (forbidden non-goal). Read `in.Headers` (or copy `proxy-authorization` onto the synthetic request) **before** Dial. Return `http2x.Tunnel{Status: 407, Headers: [{Name: "proxy-authenticate", Value: "Basic realm=…"}]}`. `writeStatus` will emit it (`proxy-authenticate` is not in `hopHeaders`). No AfterAck, no Origin, **do not** call `writeProxyAuthChallenge`. Add an h2c CONNECT **success/retry** test, not only 407. Post-session-accept (`serveH2C` accepts once per TCP). |
+| Client-facing h2c Extended CONNECT | **no** | Residual. `h2cWebSocketTunnel` is not this feature. |
 | Intercepted inner HTTP/1.1 or h2 | **no** | CONNECT already authenticated. Inner `Proxy-Authorization` stays hop-by-hop stripped. |
 | SOCKS | **no** | `acceptUserPass` / RFC 1929 only. |
 | Replay | **no** | Operator origin fetch (D21). |
@@ -159,9 +181,9 @@ else:
 - File refs only. First non-comment line 1–255 bytes. User `id` unique `[a-z0-9-]{1,64}`. Duplicate credential digests rejected.
 - `Proxy-Authorization` remains hop-by-hop stripped on the origin hop ([`internal/httputilx`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/httputilx/hop.go)). Never forward it.
 - Never log / export / attach username, password, or raw `Proxy-Authorization`.
-- **Do not** use `writeProxyError` for 407: it sets `Connection: close` ([`internal/proxy/error.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/error.go)). 407 is a challenge. New helper `writeProxyAuthChallenge`: HTTP/1.1 407, `Proxy-Authenticate`, **omit** `Connection: close` so a client may retry CONNECT on the same TCP. Body may be short `text/plain` (`proxy_auth: …`).
+- **Do not** use `writeProxyError` for 407: it sets `Connection: close` and writes a body **without** `Content-Length` ([`internal/proxy/error.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/error.go)). RFC 9112: no length and no chunked ⇒ the message ends by closing the connection. Deleting only `Connection: close` is not keep-alive. New helper `writeProxyAuthChallenge`: HTTP/1.1 407, `Proxy-Authenticate: Basic realm="…"`, short `text/plain` body, **mandatory `Content-Length`**, omit `Connection: close`. Do not emit chunked (PlayTranscript is line-exact; many CONNECT clients mishandle TE on 407).
 - D19: only Hijack when proceeding to the tunnel. A 407 CONNECT stays with `http.Server`.
-- Admission still runs first (429/503 beats 407). Hop-disable 403 beats 407.
+- Admission still runs first (429/503 beats 407). HTTP/1.1 hop-disable 403 beats 407. **h2c CONNECT does not honor `protocols.connect`** (docs/02); it can 407 while HTTP/1.1 CONNECT 403s. Document that. Do not call a shared `checkHTTPAuth` from `forwardOriginHTTP` / `roundTripInner` (inner false-positive).
 - In-flight CONNECT keeps the pinned snapshot (ADR 0013 `live_next_connection`). Next `ServeHTTP` / h2c stream sees the swap.
 - HTTP 407 is **not** a substitute for a network boundary (D10 / D60 wording).
 
@@ -193,16 +215,24 @@ spec:
         #   passwordFile: /run/secrets/proxy-pass
 ```
 
-Reuse the `UserPassUserSpec` shape (do not invent a second secret-file struct). New `$defs.httpAuth` in the **hand-maintained** [api/jsonschema/labmitm.dev.v1alpha1.json](https://github.com/hilather/go-lab-mitmproxy/blob/main/api/jsonschema/labmitm.dev.v1alpha1.json). Update [`internal/config/schema_test.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/config/schema_test.go) `$defs` list and the `ProxySpec` field walk.
+Reuse the `UserPassUserSpec` **shape** (do not invent a second secret-file struct). Do **not** reuse `validateUserPassUsers` — it hardcodes `spec.listeners.proxy.userPass.users`. New helper with `spec.proxy.httpAuth.users[i]` paths.
 
-`replaceHTTPAuth` body is the `httpAuth` object. `KnownOp` / `Operation` grow one field. `anyLiveFeatureOp` does **not** need to include it unless plan warnings should say `live_next_connection` — **yes, warn** `live_next_connection` (same pin story as `setFeature`).
+JSON Schema is **hand-maintained** and `$defs.proxy` is `additionalProperties: false` with only `hostname` / `admission` / `targets` today. A dangling `$defs.httpAuth` that is not referenced from `$defs.proxy.properties` is rejected by the published schema. Required:
 
-Compiler:
+- `"httpAuth": { "$ref": "#/$defs/httpAuth" }` on `$defs.proxy.properties`
+- `$defs.httpAuth` + reuse `$defs.userPassUser` (or inline the same three fields)
+- add `httpAuth` to the `$defs` required list in [`internal/config/schema_test.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/config/schema_test.go)
+- `ProxySpec` field walk already fails if the JSON tag is missing from the schema
+
+`replaceHTTPAuth` body is the `httpAuth` object. `KnownOp` grows an **8th** verb (`internal/model/operation.go` is a closed switch; docs/06 apply-verb table is the operator contract). `Operation` grows one field. **`anyLiveFeatureOp` must include `replaceHTTPAuth`** so plan warns `live_next_connection`.
+
+Compiler (today’s wiring cannot implement the flag — change it):
 
 - Snapshot field `HTTPAuthUsers []SOCKSUserDigest` (or a renamed shared `UserDigest` type). Never Canonical, never `GET /v1/state` / export.
-- `CompileOpts.ReloadHTTPAuth` true only when the change set contains `replaceHTTPAuth` **or** `Previous == nil`.
-- `ValidateLiveApply`: keep `skipUserPassFiles` for SOCKS. Add `skipHTTPAuthFiles` default true on live compile; false when `ReloadHTTPAuth`.
-- `replaceRules` / `setFeature` / `replaceTLS` / vanished HTTP auth files must not fail.
+- [`compileCandidate`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/app/svc.go) currently passes `CompileOpts{Now, Previous: prev}` with **no ops**. It must take the op list (or a bool) and set `ReloadHTTPAuth` iff `Previous == nil` **or** any op is `replaceHTTPAuth`.
+- `validateForCompile` today is only `Previous != nil → ValidateLiveApply(st)`. `ValidateLiveApply` takes **no options** and hardcodes `skipUserPassFiles: true`. Split: live compile always `skipUserPassFiles: true` (D60); `skipHTTPAuthFiles: !ReloadHTTPAuth`.
+- If HTTP auth is implemented like SOCKS (`Previous != nil` ⇒ copy digests always), `replaceHTTPAuth` updates Canonical paths and **keeps old digests** — live credential apply is a no-op. Forbidden.
+- `replaceRules` / `setFeature` / `replaceTLS` + vanished HTTP auth files must not fail (copy Previous).
 
 Reserved-key fixtures: `httpAuth` is legal; `proxy-authorization` as a **config section** fails KnownFields; do not add it to `reservedExact` unless a test wants a reserved alias — prefer KnownFields.
 
@@ -236,8 +266,8 @@ Overlay [`examples/labmitm.yaml`](https://github.com/hilather/go-lab-mitmproxy/b
 
 1. Land ADR 0014 + numbered-pack D17/D69 edits + known-limitations residual rewrite.
 2. Model / schema / validate / normalize / testdata valid+invalid+reserved.
-3. Compiler `HTTPAuthUsers` + `ReloadHTTPAuth` + vanish-file tests (mirror `internal/compiler/socks_test.go`).
-4. `replaceHTTPAuth` in `internal/app` (plan/apply/idempotency/CA reuse/inbox not wiped).
+3. Compiler `HTTPAuthUsers` + `ReloadHTTPAuth`. Change `compileCandidate` to take ops. Change `validateForCompile` / `ValidateLiveApply` options. Vanish-file tests (mirror `internal/compiler/socks_test.go`) plus “replaceHTTPAuth must not keep stale digests.”
+4. `replaceHTTPAuth` in `internal/app` (plan/apply/idempotency/CA reuse/inbox not wiped; `anyLiveFeatureOp`).
 5. Proxy helper + CONNECT / absolute-form / h2c hooks + `writeProxyAuthChallenge`.
 6. proxytest transcripts + unit tests listed below.
 7. REST/MCP DTO lockstep + contract + `make test-parity`.
@@ -255,7 +285,7 @@ Transcripts under `testdata/proxy/` (PlayTranscript):
 - `http-auth-absolute-407.txt` — enabled, no header → 407 + `Proxy-Authenticate: Basic realm="labmitm-proxy"`; origin not contacted.
 - `http-auth-absolute-ok.txt` — second request on same TCP (or follow-up script) with valid Basic → 200 origin-form; origin `Proxy-Authorization` absent (hop-by-hop).
 - `http-auth-connect-407.txt` — CONNECT without creds → 407, **no** `200 Connection Established`, origin not dialed. Must fail if Hijack-then-407 is implemented.
-- `http-auth-connect-retry.txt` — 407 then CONNECT + Basic on the **same** TCP → 200 + tunnel. Existing `connect-hijack.txt` still green when `enabled: false`.
+- `http-auth-connect-retry.txt` — 407 then CONNECT + Basic on the **same** TCP → 200 + tunnel. Transcript must see `Content-Length` on the 407 and must **not** see `Transfer-Encoding: chunked`. Existing `connect-hijack.txt` still green when `enabled: false`.
 - `http-auth-off.txt` — empty/`enabled: false` + stray `Proxy-Authorization` → existing unauthenticated success; header still stripped upstream.
 
 Go tests (`internal/proxy`, not necessarily PlayTranscript):
@@ -265,7 +295,10 @@ Go tests (`internal/proxy`, not necessarily PlayTranscript):
 - `protocols.connect.enabled: false` still 403 (not 407).
 - Orig-dest origin-form with `httpAuth.enabled` → **no** 407, dest-IP Dial only.
 - Inner intercept GET with `httpAuth.enabled` → **no** 407 (CONNECT already authed).
-- h2c GET and h2c CONNECT 407 HEADERS, no Dial (`clientCleartext` on).
+- h2c GET 407 then retry with Basic → origin GET, no `proxy-authorization` upstream (`clientCleartext` on).
+- h2c RFC 9113 CONNECT 407 HEADERS (no Dial), then a **second CONNECT stream** (or same-session retry) with `proxy-authorization` copied from `in.Headers` → tunnel/intercept. Must fail if `h2cConnectRequest` empty-header bug is left in place.
+- h2c Extended CONNECT (`:protocol=websocket`) is **not** 407’d by this feature (RST/existing path).
+- HTTP/1.1 `protocols.connect.enabled: false` still 403; h2c CONNECT may still 407 (document; do not silently apply the 403 gate).
 - Live `replaceHTTPAuth` enabled flip: next absolute-form 407; in-flight CONNECT (already 200) not torn down.
 - SOCKS `acceptUserPass` unchanged when HTTP auth is on.
 - Management `/v1/flows` without bearer still 401 (existing); never 407.
@@ -296,12 +329,12 @@ Go tests (`internal/proxy`, not necessarily PlayTranscript):
 | Doc | Change |
 |---|---|
 | `docs/adr/0014-http-proxy-407.md` | New |
-| `docs/adr/0012-…` | Review-trigger note: HTTP Proxy-Authorization landed as 0014 |
+| `docs/adr/0012-…` | Review-trigger note: HTTP Proxy-Authorization landed as 0014; K10 list additively names `httpAuth` (reopen is 0014) |
 | `docs/01-architecture.md` | D17 remainder + D69; non-goal line |
-| `docs/02-proxy-semantics.md` | Classification table + 407 writer + CONNECT-before-Hijack |
+| `docs/02-proxy-semantics.md` | Classification table + 407 writer + CONNECT-before-Hijack + metrics contract (A) |
 | `docs/05-rules.md` | `status: 407` is not proxy auth |
-| `docs/06-state-and-configuration.md` | Schema, `replaceHTTPAuth`, live vs SOCKS file stat |
-| `docs/07-control-plane-and-parity.md` | Compact `features.httpAuth`; catalog still 31 |
+| `docs/06-state-and-configuration.md` | Schema, 8th apply verb `replaceHTTPAuth`, live vs SOCKS file stat |
+| `docs/07-control-plane-and-parity.md` | Compact `features.httpAuth` (K10 reopen via 0014); catalog still 31; `features.get` still 11 |
 | `docs/08-rest-api.md` | Apply op (no new path) |
 | `docs/10-security-architecture.md` | HTTP hop row; D6 unchanged |
 | `docs/11-observability.md` | `reason=proxy_auth` |
@@ -327,7 +360,7 @@ Verified against `origin/main` `701a163` (v1.3.0 notes present).
 | CONNECT has no request-phase rules | [`internal/proxy/connect.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/connect.go) `serveCONNECT`; docs/05 | Hold — `replaceRules` cannot be the primary knob |
 | Absolute-form rules run after DNS | [`internal/proxy/forward.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/forward.go) `resolveThenGuard` then `forwardOriginHTTP` → `matchHit` | Hold |
 | CONNECT Hijack is immediate after port check | [`internal/proxy/connect.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/connect.go) | Hold — 407 must be inserted **before** `Hijack` |
-| CONNECT disable 403 is before Hijack / before `metrics.accept()` | [`internal/proxy/handler.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/handler.go) | Hold — 407 belongs in that window |
+| CONNECT disable 403 is before Hijack / before `metrics.accept()` | [`internal/proxy/handler.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/handler.go) | Hold for 403. **Revised:** 407 uses contract (A) in `serveCONNECT` after port parse — post-accept, pre-Hijack. Do not call that the 403 window. |
 | `writeProxyError` always `Connection: close` | [`internal/proxy/error.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/proxy/error.go) | Hold — dedicated 407 writer required |
 | Hop-by-hop already strips `Proxy-Authorization` | [`internal/httputilx/hop.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/httputilx/hop.go) | Hold |
 | `action.status` already allows 407 | [`internal/config/validate.go`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/config/validate.go) 400–599 | Hold — leave as orthogonal |
@@ -337,15 +370,18 @@ Verified against `origin/main` `701a163` (v1.3.0 notes present).
 | `acceptUserPass` is Reset-only | ADR 0013 table; docs/06 | Hold — do not live-apply SOCKS user-pass as a side effect |
 | No `docs/tasks/plans/` on main | glob empty | Hold — this file is new |
 
-Sweep 1 found **no blocker**. Stale assumption “`setFeature` does not exist” is **false** on v1.3.0; the plan treats it as existing and **rejects it as the primary 407 knob**.
+Sweep 1 found **no blocker** at author time. Stale assumption “`setFeature` does not exist” is **false** on v1.3.0; the plan treats it as existing and **rejects it as the primary 407 knob**.
+
+Skeptic round 1 (fresh) verdict **REVISE**: F1 h2c CONNECT empty-header accept hole (blocker); F2 accept-window conflation; F3 407 without `Content-Length`; F4 `compileCandidate` cannot set `ReloadHTTPAuth`; F5 K10 reopen required for compact `features.httpAuth`. F6/F7 schema-ref + 8th `KnownOp` (minor). All folded into this revision.
 
 ## Skeptic review trail
 
 | Round | Role | Verdict | Findings |
 |---|---|---|---|
 | 1 | Author sweep 1 | continue | See table above |
-| 1 | Fresh skeptic | *pending* | |
-| 2 | … | | |
+| 1 | Fresh skeptic | REVISE | F1 blocker (h2c CONNECT headers); F2–F5 major; F6–F7 minor |
+| 2 | Author revision | folded | Contract (A); Content-Length; compileCandidate+ops; K10; h2c accept test |
+| 2 | Fresh skeptic | *pending* | |
 | 3 | … | | |
 
 **Cap 3.** Unresolved blocker after round 3 → **BLOCKED** (do not implement).
@@ -358,6 +394,8 @@ Sweep 1 found **no blocker**. Stale assumption “`setFeature` does not exist”
 - Sharing SOCKS and HTTP user files by reference.
 - 407 as an admission or rule action type.
 - UI login-style proxy-auth page.
+- h2c Extended CONNECT (`:protocol=websocket`) 407.
+- Moving `metrics.accept()` so 407 is pre-accept (rejected; contract A).
 
 ## Plan-only PR contents
 
