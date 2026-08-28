@@ -332,21 +332,34 @@ func TestContractThrottleReplaceRules(t *testing.T) {
 
 	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
 	rev, _ := state["runtimeRevision"].(string)
-	bad := callToolExpectError(t, cs, "mitm_change_apply", map[string]any{
-		"expectedRevision": rev,
-		"reason":           "invalid throttle",
-		"operations": []model.Operation{{
+	// MCP schema is inferred from Rule*Spec (no omitempty). Initialize maps
+	// so json.Marshal emits {} / [] instead of null (schema type object/array).
+	throttleRule := func(id string, bps int64, pathPrefix string) model.Operation {
+		return model.Operation{
 			Op: model.OpReplaceRules,
 			Rules: &model.RulesSpec{
 				Enabled: true,
 				Items: []model.RuleSpec{{
-					ID:      "bad-bps",
+					ID:      id,
 					Enabled: true,
 					Phase:   model.RulePhaseResponse,
-					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 0},
+					Match:   model.RuleMatchSpec{PathPrefix: pathPrefix},
+					Action: model.RuleActionSpec{
+						Type:           model.ActionThrottle,
+						BytesPerSecond: bps,
+						Headers: model.RuleHeadersSpec{
+							Set:    map[string]string{},
+							Remove: []string{},
+						},
+					},
 				}},
 			},
-		}},
+		}
+	}
+	bad := callToolExpectError(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"reason":           "invalid throttle",
+		"operations":       []model.Operation{throttleRule("bad-bps", 0, "")},
 	})
 	if domainCode(t, bad) != "validation_failed" {
 		t.Fatalf("apply invalid=%v", bad)
@@ -355,19 +368,7 @@ func TestContractThrottleReplaceRules(t *testing.T) {
 	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", map[string]any{
 		"expectedRevision": rev,
 		"reason":           "enable throttle",
-		"operations":       []model.Operation{{
-			Op: model.OpReplaceRules,
-			Rules: &model.RulesSpec{
-				Enabled: true,
-				Items: []model.RuleSpec{{
-					ID:      "slow-download",
-					Enabled: true,
-					Phase:   model.RulePhaseResponse,
-					Match:   model.RuleMatchSpec{PathPrefix: "/big"},
-					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8192},
-				}},
-			},
-		}},
+		"operations":       []model.Operation{throttleRule("slow-download", 8192, "/big")},
 	}))
 	if apply["applied"] != true {
 		t.Fatalf("apply=%v", apply)

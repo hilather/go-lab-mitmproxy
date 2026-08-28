@@ -352,18 +352,20 @@ func TestContractThrottleReplaceRules(t *testing.T) {
 	st := doReq(t, h, http.MethodGet, "/v1/state", "")
 	rev := decodeJSON(t, st)["runtimeRevision"].(string)
 
+	// REST CoerceWireTree requires IEC strings for sizeFields (bytesPerSecond)
+	// and omits zero duration fields so delay/timeout are not bare numbers.
 	badBody, err := json.Marshal(map[string]any{
 		"expectedRevision": rev,
 		"reason":           "invalid throttle",
-		"operations": []model.Operation{{
-			Op: model.OpReplaceRules,
-			Rules: &model.RulesSpec{
-				Enabled: true,
-				Items: []model.RuleSpec{{
-					ID:      "bad-bps",
-					Enabled: true,
-					Phase:   model.RulePhaseResponse,
-					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 0},
+		"operations": []map[string]any{{
+			"op": model.OpReplaceRules,
+			"rules": map[string]any{
+				"enabled": true,
+				"items": []map[string]any{{
+					"id":      "bad-bps",
+					"enabled": true,
+					"phase":   model.RulePhaseResponse,
+					"action":  map[string]any{"type": model.ActionThrottle, "bytesPerSecond": "0B"},
 				}},
 			},
 		}},
@@ -377,16 +379,16 @@ func TestContractThrottleReplaceRules(t *testing.T) {
 	goodBody, err := json.Marshal(map[string]any{
 		"expectedRevision": rev,
 		"reason":           "enable throttle",
-		"operations": []model.Operation{{
-			Op: model.OpReplaceRules,
-			Rules: &model.RulesSpec{
-				Enabled: true,
-				Items: []model.RuleSpec{{
-					ID:      "slow-download",
-					Enabled: true,
-					Phase:   model.RulePhaseResponse,
-					Match:   model.RuleMatchSpec{PathPrefix: "/big"},
-					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8192},
+		"operations": []map[string]any{{
+			"op": model.OpReplaceRules,
+			"rules": map[string]any{
+				"enabled": true,
+				"items": []map[string]any{{
+					"id":      "slow-download",
+					"enabled": true,
+					"phase":   model.RulePhaseResponse,
+					"match":   map[string]any{"pathPrefix": "/big"},
+					"action":  map[string]any{"type": model.ActionThrottle, "bytesPerSecond": "8KiB"},
 				}},
 			},
 		}},
