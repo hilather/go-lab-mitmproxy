@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -756,6 +758,188 @@ func proxyDo(t *testing.T, proxyAddr, method, target, body string) *http.Respons
 		t.Fatal(err)
 	}
 	return resp
+}
+
+func TestResponseThrottlePacesBodyNotHeaders(t *testing.T) {
+	payload := bytes.Repeat([]byte("a"), 32<<10)
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Origin", "yes")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	spec := withRules(t, model.RuleSpec{
+		ID:      "slow-download",
+		Enabled: true,
+		Phase:   model.RulePhaseResponse,
+		Match:   model.RuleMatchSpec{PathPrefix: "/big"},
+		Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8 << 10},
+	})
+	px := startProxy(t, Options{Spec: spec})
+	start := time.Now()
+	resp := proxyDo(t, px.Addr().String(), http.MethodGet, originURL+"/big", "")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("X-Origin") != "yes" {
+		t.Fatalf("headers/status %d %v", resp.StatusCode, resp.Header)
+	}
+	if time.Since(start) >= 2*time.Second {
+		t.Fatalf("headers waited %s (looks like delay)", time.Since(start))
+	}
+	bodyStart := time.Now()
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("body len %d", len(got))
+	}
+	if time.Since(bodyStart) < 4*time.Second {
+		t.Fatalf("body elapsed %s want >= 4s", time.Since(bodyStart))
+	}
+	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {
+		t.Fatal("expected throttle hit")
+	}
+}
+
+func TestRequestThrottlePacesOriginBody(t *testing.T) {
+	payload := bytes.Repeat([]byte("b"), 32<<10)
+	var first, last time.Time
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		first = time.Now()
+		_, err := io.ReadAll(r.Body)
+		last = time.Now()
+		if err != nil {
+			t.Errorf("origin read: %v", err)
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	spec := withRules(t, model.RuleSpec{
+		ID:      "slow-upload",
+		Enabled: true,
+		Phase:   model.RulePhaseRequest,
+		Match:   model.RuleMatchSpec{Method: http.MethodPost, PathPrefix: "/big"},
+		Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8 << 10},
+	})
+	px := startProxy(t, Options{Spec: spec})
+	resp := proxyDo(t, px.Addr().String(), http.MethodPost, originURL+"/big", string(payload))
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(b) != "ok" {
+		t.Fatalf("status %d body %q", resp.StatusCode, b)
+	}
+	if first.IsZero() || last.IsZero() {
+		t.Fatal("origin did not see body")
+	}
+	if last.Sub(first) < 4*time.Second {
+		t.Fatalf("origin body span %s want >= 4s", last.Sub(first))
+	}
+	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {
+		t.Fatal("expected throttle hit")
+	}
+}
+
+func TestThrottleEmptyGETNoStall(t *testing.T) {
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	spec := withRules(t, model.RuleSpec{
+		ID:      "slow",
+		Enabled: true,
+		Phase:   model.RulePhaseResponse,
+		Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 256},
+	})
+	px := startProxy(t, Options{Spec: spec})
+	start := time.Now()
+	resp := proxyDo(t, px.Addr().String(), http.MethodGet, originURL+"/", "")
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.ReadAll(resp.Body)
+	if time.Since(start) >= 2*time.Second {
+		t.Fatalf("empty GET stalled %s", time.Since(start))
+	}
+	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {
+		t.Fatal("expected throttle hit")
+	}
+}
+
+func TestWebSocketThrottleLateSkip(t *testing.T) {
+	origin, _ := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "no hijack", 500)
+			return
+		}
+		c, bufrw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_, _ = io.WriteString(bufrw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nX-Origin: yes\r\n\r\n")
+		_ = bufrw.Flush()
+		_, _ = io.Copy(io.Discard, bufrw)
+	}))
+	spec := withRules(t, model.RuleSpec{
+		ID:      "slow-ws",
+		Enabled: true,
+		Phase:   model.RulePhaseResponse,
+		Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 256},
+	})
+	px := startProxy(t, Options{Spec: spec})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.WriteRequest(
+		"GET http://"+origin+"/ws HTTP/1.1",
+		"Host: "+origin,
+		"Upgrade: websocket",
+		"Connection: Upgrade",
+		"Sec-WebSocket-Version: 13",
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+	); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if px.Metrics().RuleHits(rules.ActionLateSkip) < 1 {
+		t.Fatal("expected late_skip")
+	}
+	if px.Metrics().RuleHits(model.ActionThrottle) != 0 {
+		t.Fatal("101 must not count throttle")
+	}
+}
+
+func TestOriginRequestPreservesBodyIdentity(t *testing.T) {
+	orig := &idCloser{ReadCloser: io.NopCloser(strings.NewReader("hello"))}
+	req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1/p", orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Body = orig
+	s := &Server{}
+	out, _ := s.originRequest(context.Background(), req, resolved{
+		Host:     "127.0.0.1",
+		Port:     "80",
+		Selected: net.ParseIP("127.0.0.1"),
+	}, "127.0.0.1", "80", nil, nil)
+	if out == nil || out.Body == nil {
+		t.Fatal("nil out")
+	}
+	tc, ok := out.Body.(*teeCloser)
+	if !ok {
+		t.Fatalf("body type %T", out.Body)
+	}
+	if tc.c != orig {
+		t.Fatal("Clone must keep the same Body wrapper so LimitReader survives originRequest")
+	}
+}
+
+type idCloser struct {
+	io.ReadCloser
 }
 
 func TestSleepDelayCancelled(t *testing.T) {

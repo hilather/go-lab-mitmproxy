@@ -41,6 +41,8 @@ const (
 	MaxRuleDelay                = 30 * time.Second
 	MinHangTimeout              = time.Second
 	MaxHangTimeout              = 30 * time.Second
+	MinRuleBytesPerSecond       = int64(256)
+	MaxRuleBytesPerSecond       = int64(64 << 20)
 	MaxBreakpointTimeout        = 60 * time.Second
 	MaxRuleBodyReplace          = int64(64 << 10)
 	MaxRedirectLocation         = 2048

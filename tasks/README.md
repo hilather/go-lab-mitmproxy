@@ -1,7 +1,7 @@
 # Agent Task Plan
 
 Status: Proposed
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-28 (docs/tasks/plans pointer)
 
 This directory divides the initial LabMITM implementation into reviewable work packages. Task files are implementation contracts, not substitutes for normative design documents.
 
@@ -46,3 +46,5 @@ Each task produces:
 ## Program order
 
 Start with `00-program-board.md`. The numbered pack under `docs/` is the source of truth.
+
+Post-GA plans (skeptic-plan-review; not 1.0 work packages) live under [`docs/tasks/plans/`](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-bandwidth-throttle.md).

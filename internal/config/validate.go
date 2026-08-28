@@ -447,10 +447,19 @@ func validateRules(r *model.RulesSpec, vs *[]domainerr.FieldViolation) {
 			*vs = append(*vs, domainerr.FieldViolation{
 				Path:    path + ".action.type",
 				Code:    violationInvalidValue,
-				Message: "action.type must be breakpoint, drop, delay, status, header, body, silent, hang, redirect, or block",
+				Message: "action.type must be breakpoint, drop, delay, status, header, body, silent, hang, redirect, block, or throttle",
 			})
 		}
 		validateRulePhaseAction(path, item, vs)
+		if item.Action.Type == model.ActionThrottle {
+			if item.Action.BytesPerSecond < MinRuleBytesPerSecond || item.Action.BytesPerSecond > MaxRuleBytesPerSecond {
+				*vs = append(*vs, domainerr.FieldViolation{
+					Path:    path + ".action.bytesPerSecond",
+					Code:    violationInvalidValue,
+					Message: "action.bytesPerSecond must be between 256B and 64MiB",
+				})
+			}
+		}
 		if item.Action.Delay < 0 || item.Action.Delay > MaxRuleDelay {
 			*vs = append(*vs, domainerr.FieldViolation{
 				Path:    path + ".action.delay",

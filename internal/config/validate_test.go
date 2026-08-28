@@ -126,6 +126,59 @@ func TestValidateRuleRequiresPhaseAndAction(t *testing.T) {
 	_ = requireValidation(t, err, violationRequired)
 }
 
+func TestValidateThrottleBytesPerSecond(t *testing.T) {
+	cases := []struct {
+		name string
+		bps  string
+	}{
+		{"zero", "0B"},
+		{"below-min", "255B"},
+		{"above-max", "65MiB"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: slow\n        phase: response\n        action:\n          type: throttle\n          bytesPerSecond: " + tc.bps + "\n"
+			_, err := Load([]byte(doc))
+			de := requireValidation(t, err, violationInvalidValue)
+			found := false
+			for _, v := range de.FieldViolations {
+				if strings.Contains(v.Message, "action.bytesPerSecond must be between 256B and 64MiB") {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("missing range message: %+v", de.FieldViolations)
+			}
+		})
+	}
+}
+
+func TestValidateDelayIgnoresBytesPerSecond(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: wait\n        phase: request\n        action:\n          type: delay\n          delay: 1s\n          bytesPerSecond: 8KiB\n"
+	st, err := Load([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Spec.Rules.Items[0].Action.Type != model.ActionDelay {
+		t.Fatal("delay")
+	}
+}
+
+func TestValidateUnknownActionTypeMessageIncludesThrottle(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: nope\n        phase: request\n        action:\n          type: fuzz\n"
+	_, err := Load([]byte(doc))
+	de := requireValidation(t, err, violationInvalidValue)
+	found := false
+	for _, v := range de.FieldViolations {
+		if strings.Contains(v.Message, "action.type must be breakpoint, drop, delay, status, header, body, silent, hang, redirect, block, or throttle") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("message: %+v", de.FieldViolations)
+	}
+}
+
 func TestValidateTokenRequiresRole(t *testing.T) {
 	dir := t.TempDir()
 	tok := filepath.Join(dir, "token")

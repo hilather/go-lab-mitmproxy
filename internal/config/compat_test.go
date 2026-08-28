@@ -58,6 +58,10 @@ var expectedInvalid = map[string]string{
 	"rules-unknown-opcode.yaml":                   violationInvalidValue,
 	"rules-unknown-direction.yaml":                violationInvalidValue,
 	"rules-opcode-on-request.yaml":                violationInvalidValue,
+	"rules-throttle-zero.yaml":                    violationInvalidValue,
+	"rules-throttle-too-small.yaml":               violationInvalidValue,
+	"rules-throttle-too-large.yaml":               violationInvalidValue,
+	"rules-throttle-bare.yaml":                    violationInvalidValue,
 }
 
 // TestConfigCompat is the positive+negative fixture matrix for make test-config-compat.

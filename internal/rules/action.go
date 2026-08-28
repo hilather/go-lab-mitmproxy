@@ -9,7 +9,7 @@ import (
 )
 
 // Mutates reports whether the winning action requires buffering to
-// maxBodyBytes (D21). delay/header stay on the capture-only tee path.
+// maxBodyBytes (D21). delay/header/throttle stay on the capture-only tee path.
 func Mutates(hit *Hit) bool {
 	if hit == nil {
 		return false
@@ -31,6 +31,18 @@ func ClampDelay(d time.Duration) time.Duration {
 		return MaxDelay
 	}
 	return d
+}
+
+// ClampBytesPerSecond bounds a throttle rate. Below min (including 0) is 0
+// (passthrough). Above max clamps to MaxBytesPerSecond.
+func ClampBytesPerSecond(bps int64) int64 {
+	if bps < MinBytesPerSecond {
+		return 0
+	}
+	if bps > MaxBytesPerSecond {
+		return MaxBytesPerSecond
+	}
+	return bps
 }
 
 // ClampBreakpointTimeout bounds WaitPaused to [1s, 60s], then min(storeMaxWait)

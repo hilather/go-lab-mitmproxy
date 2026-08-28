@@ -10,6 +10,7 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -265,9 +266,10 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 	rev, _ := state["runtimeRevision"].(string)
 	action := func(typ string, extra map[string]any) map[string]any {
 		a := map[string]any{
-			"type":   typ,
-			"delay":  int64(0),
-			"status": 0,
+			"type":           typ,
+			"delay":          int64(0),
+			"bytesPerSecond": int64(0),
+			"status":         0,
 			"headers": map[string]any{
 				"set":    map[string]string{},
 				"remove": []string{},
@@ -320,6 +322,59 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 	})
 	if domainCode(t, bad) != "validation_failed" {
 		t.Fatalf("http_status=%v", bad)
+	}
+}
+
+func TestContractThrottleReplaceRules(t *testing.T) {
+	s, svc := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+
+	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rev, _ := state["runtimeRevision"].(string)
+	bad := callToolExpectError(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"reason":           "invalid throttle",
+		"operations": []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      "bad-bps",
+					Enabled: true,
+					Phase:   model.RulePhaseResponse,
+					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 0},
+				}},
+			},
+		}},
+	})
+	if domainCode(t, bad) != "validation_failed" {
+		t.Fatalf("apply invalid=%v", bad)
+	}
+
+	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"reason":           "enable throttle",
+		"operations":       []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      "slow-download",
+					Enabled: true,
+					Phase:   model.RulePhaseResponse,
+					Match:   model.RuleMatchSpec{PathPrefix: "/big"},
+					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8192},
+				}},
+			},
+		}},
+	}))
+	if apply["applied"] != true {
+		t.Fatalf("apply=%v", apply)
+	}
+	hit := svc.Active().Rules.Match(model.RulePhaseResponse, rules.Request{Path: "/big/x"})
+	if hit == nil || hit.Action.Type != model.ActionThrottle || hit.Action.BytesPerSecond != 8192 {
+		t.Fatalf("compiled hit=%+v", hit)
 	}
 }
 
@@ -475,7 +530,7 @@ func TestContractWebSocketFrameRules(t *testing.T) {
 						"opcode": model.RuleOpcodeText, "direction": "", "payloadContains": "secret",
 					},
 					"action": map[string]any{
-						"type": model.ActionDrop, "delay": 0, "status": 0,
+						"type": model.ActionDrop, "delay": 0, "bytesPerSecond": 0, "status": 0,
 						"headers":    map[string]any{"set": map[string]string{}, "remove": []string{}},
 						"body":       map[string]any{"replace": ""},
 						"breakpoint": map[string]any{"timeout": 0},

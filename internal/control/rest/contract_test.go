@@ -11,6 +11,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/auth"
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 )
 
@@ -343,6 +344,62 @@ func TestContractMutations(t *testing.T) {
 
 	reset := doReq(t, h, http.MethodPost, "/v1/state:reset", `{"reason":"test"}`)
 	requireStatus(t, reset, http.StatusOK)
+}
+
+func TestContractThrottleReplaceRules(t *testing.T) {
+	s, svc := newTestServer(t)
+	h := s.Handler()
+	st := doReq(t, h, http.MethodGet, "/v1/state", "")
+	rev := decodeJSON(t, st)["runtimeRevision"].(string)
+
+	badBody, err := json.Marshal(map[string]any{
+		"expectedRevision": rev,
+		"reason":           "invalid throttle",
+		"operations": []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      "bad-bps",
+					Enabled: true,
+					Phase:   model.RulePhaseResponse,
+					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 0},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(badBody))
+	requireProblem(t, bad, http.StatusBadRequest, "validation_failed")
+
+	goodBody, err := json.Marshal(map[string]any{
+		"expectedRevision": rev,
+		"reason":           "enable throttle",
+		"operations": []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      "slow-download",
+					Enabled: true,
+					Phase:   model.RulePhaseResponse,
+					Match:   model.RuleMatchSpec{PathPrefix: "/big"},
+					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8192},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(goodBody))
+	requireStatus(t, apply, http.StatusOK)
+	hit := svc.Active().Rules.Match(model.RulePhaseResponse, rules.Request{Path: "/big/x"})
+	if hit == nil || hit.Action.Type != model.ActionThrottle || hit.Action.BytesPerSecond != 8192 {
+		t.Fatalf("compiled hit=%+v", hit)
+	}
 }
 
 func TestStoreOverNewCapCode(t *testing.T) {

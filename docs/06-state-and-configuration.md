@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-28 (D69 hang/silent/redirect; D72–D74 websocket frame rules)
-Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015
+Last reviewed: 2026-08-28 (D75 action.bytesPerSecond)
+Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
 
@@ -165,7 +165,7 @@ The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://githu
 - The only upstream input field is `insecureSkipVerify`. `tls.upstream.verify` is **not** on the struct.
 - `tls.ports` entries are `1–65535`. After normalize, empty → `[443]`.
 - `tls.intercept: true` with `ca.mode: files` and unreadable key → validate fail (do not bind).
-- `rules.items[].id` unique and `[a-z0-9-]{1,64}`. Every item requires `phase` (`request`|`response`|`websocket`) and `action.type` (`breakpoint` \| `drop` \| `delay` \| `status` \| `header` \| `body` \| `silent` \| `hang` \| `redirect` \| `block`). `phase: websocket` allows only `drop` or `block`. `block` is illegal on `request|response`. Non-empty `match.opcode` / `direction` / `payloadContains` on `request|response` is `validation_failed`. `action.delay` ∈ [0, 30s]. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML. `hang.timeout` required and ∈ [1s, 30s]. `redirect.location` required (≤2048 bytes; no CR/LF/NUL). `redirect.status` empty or 301/302/303/307/308. `silent.close` / `hang.close` empty, `rst`, or `fin`. `http_status` is not a legal type.
+- `rules.items[].id` unique and `[a-z0-9-]{1,64}`. Every item requires `phase` (`request`|`response`|`websocket`) and `action.type` (`breakpoint` \| `drop` \| `delay` \| `status` \| `header` \| `body` \| `silent` \| `hang` \| `redirect` \| `block` \| `throttle`). `phase: websocket` allows only `drop` or `block`. `block` is illegal on `request|response`. `throttle` is illegal on `websocket`. Non-empty `match.opcode` / `direction` / `payloadContains` on `request|response` is `validation_failed`. `action.delay` ∈ [0, 30s]. When `type=throttle`, `action.bytesPerSecond` ∈ [256B, 64MiB] (IEC YAML; REST apply JSON is IEC; MCP apply JSON is integer bytes). Other types ignore `bytesPerSecond`. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML. `hang.timeout` required and ∈ [1s, 30s]. `redirect.location` required (≤2048 bytes; no CR/LF/NUL). `redirect.status` empty or 301/302/303/307/308. `silent.close` / `hang.close` empty, `rst`, or `fin`. `http_status` is not a legal type.
 - `store.maxBodyBytes` ≥ 1 KiB and ≤ `store.maxBytes`. `maxFlows` ≥ 1. `maxBytes` ≥ 1 MiB.
 - Loader: `management.auth.mode: bearer` with **zero tokens is valid** (empty `spec: {}` must load). Each listed token requires `id`, `secretFile`, and `role`. Overlay `secretFile` paths that are not mounted do not fail validate; if the file exists, the first non-comment line must be ≥32 bytes (256 bits) after trim. `scopes` materialize to `[]` when omitted.
 - Serve/bind (SEC-001): binding management with `mode: bearer` and zero usable tokens is **refused**. `dev-loopback-unauth` is rejected in the container default fixture (`testdata/container/config.yaml` is `mode: bearer`). Keep ADR 0005’s listen-refuse sentence as serve-time. Token files are reread on reset and apply.

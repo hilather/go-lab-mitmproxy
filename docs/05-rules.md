@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-28 (D69 QA block modes; D72–D74 websocket frame rules)
-Related ADRs: 0002, 0014, 0015
+Last reviewed: 2026-08-28 (D75 action.type throttle)
+Related ADRs: 0002, 0013, 0014, 0015, 0016
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
 
@@ -13,7 +13,7 @@ Proxy hooks (cleartext absolute-form and intercepted inner HTTP/1.1 **and** inne
 
 1. After request parse + target guards: request-phase match.
 2. After upstream response headers (before any client body byte): response-phase match.
-3. Stream vs mutate (D21): capture-only tees to `maxBodyBytes`; `body` / `status` / `drop` / `breakpoint` / `redirect` buffer to `maxBodyBytes` and fail-closed (`body_skipped`) beyond that. `silent` / `hang` are capture-only.
+3. Stream vs mutate (D21): capture-only tees to `maxBodyBytes`; `body` / `status` / `drop` / `breakpoint` / `redirect` buffer to `maxBodyBytes` and fail-closed (`body_skipped`) beyond that. `silent` / `hang` / `throttle` are capture-only.
 4. Breakpoint: `Insert` paused, `WaitPaused(ctx)` with ctx deadline `min(rule.timeout, store.maxWait)` (1s–60s). Timeout / stale epoch continues unmodified. `Resume` / `Drop` are store primitives (REST in API-001). Unit test Resume without HTTP.
 
 Raw CONNECT tunnels have no inner HTTP, so rules do not apply. Response-phase hits on HTTP/1.1 `101` remain `late_skip`. Inner D63 `:status=200` remains `late_skip`. Client-facing h2c Extended CONNECT has no request-phase or response-phase `matchHit`. `phase: websocket` may match inspected frames when `inspectFrames` is on ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md)). Replay is **not** a rule action (API-001).
@@ -39,8 +39,9 @@ rules:
         direction: ""          # websocket phase only; client | origin
         payloadContains: ""    # websocket phase only; unmasked substring
       action:
-        type: delay            # breakpoint | drop | delay | status | header | body | silent | hang | redirect | block (block: websocket only)
+        type: delay            # breakpoint | drop | delay | status | header | body | silent | hang | redirect | block | throttle (block: websocket only)
         delay: 2s              # 0–30s
+        bytesPerSecond: 8KiB   # throttle: 256B–64MiB (IEC YAML)
         status: 0              # status/drop: empty/0 or 400–599; not the redirect 3xx
         headers:
           set: {}
@@ -68,6 +69,7 @@ Match fields are AND. Empty match matches everything (still requires `rules.enab
 | `drop` | Close after optional status (default 403); no upstream | Close after sending nothing more; **illegal in 1.0 if bytes already flushed**. If response headers not yet sent, send `status` or 502. | Omit this frame. Continue the inspect loop (including after a dropped `close`). |
 | `block` | `validation_failed` | `validation_failed` | Do not forward the frame. Close both TCP sides. `Error` empty. `State=completed`. |
 | `delay` | Sleep then continue | Sleep then continue | `validation_failed` |
+| `throttle` | Pace **request** body at `bytesPerSecond`; headers immediate | Pace **response** body at `bytesPerSecond`; headers/status immediate | `validation_failed` |
 | `status` | Do not dial; synthesize response with `status` + optional headers/body | Replace status line; headers/body as specified | `validation_failed` |
 | `header` | Mutate request headers before dial | Mutate response headers before client write | `validation_failed` |
 | `body` | Replace request body (fails closed if truncated / over 64 KiB spec) | Replace response body (same) | `validation_failed` |
@@ -76,9 +78,13 @@ Match fields are AND. Empty match matches everything (still requires `rules.enab
 | `hang` | Hold `hang.timeout` (1s–30s), then silent close. Not resumable | Same after origin headers | `validation_failed` |
 | `redirect` | No Dial; synthesize 301/302/303/307/308 (default 302) + required `Location` | Replace status + `Location` | `validation_failed` |
 
-Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML. `hang.timeout` required and ∈ [1s, 30s]. `redirect.location` required (≤2048 bytes, no CR/LF/NUL). `redirect.status` empty or 301/302/303/307/308. `silent.close` / `hang.close` empty, `rst`, or `fin`. `http_status` is not a legal type. `phase: websocket` allows only `drop` or `block`. `block` is illegal on `request|response`. Non-empty `opcode` / `direction` / `payloadContains` on `request|response` is `validation_failed`. Unknown `opcode` or `direction` is `validation_failed`. Websocket-phase items are valid when `inspectFrames` is false.
+Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. When `type=throttle`, `action.bytesPerSecond` ∈ [256B, 64MiB] (IEC YAML string; REST apply JSON is IEC; MCP apply JSON is integer bytes). Other action types ignore `bytesPerSecond`. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML. `hang.timeout` required and ∈ [1s, 30s]. `redirect.location` required (≤2048 bytes, no CR/LF/NUL). `redirect.status` empty or 301/302/303/307/308. `silent.close` / `hang.close` empty, `rst`, or `fin`. `http_status` is not a legal type. `phase: websocket` allows only `drop` or `block`. `block` is illegal on `request|response`. `throttle` is illegal on `websocket`. Non-empty `opcode` / `direction` / `payloadContains` on `request|response` is `validation_failed`. Unknown `opcode` or `direction` is `validation_failed`. Websocket-phase items are valid when `inspectFrames` is false.
 
 `payloadContains` compares unmasked bytes. Visibility cap is the pinned full `store.maxBodyBytes` (else 1 MiB), not remaining capture budget. Declared length over that cap is a miss; first-match continues. No message reassembly; `continuation` matches as `continuation` only.
+
+First-match-wins: one item cannot combine `delay` and `throttle`, and `phase: both` stays invalid. Two items are required to pace both directions. `Mutates(throttle)=false` — stay on the capture-only tee path.
+
+Throttle is not a 30s sleep. A 1 MiB body at 256 B/s is about 68 minutes and will hit default `upstreamTimeout` (60s), `idleTimeout` (120s), or `sessionTimeout` (10m). Raise those knobs when a long trickle is the goal: live `replaceAdmission` updates the session gate and pinned deadlines; `http.Server.IdleTimeout` stays Start-time. Concurrent matching requests each get the full configured rate (not a shared connection shaper). WebSocket `101` / Extended CONNECT websocket stay `late_skip` for request/response phase. Raw CONNECT / SOCKS tunnels have no HTTP-body rules. Replay does not evaluate rules.
 
 ## Breakpoint flow
 

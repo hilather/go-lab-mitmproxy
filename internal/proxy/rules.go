@@ -147,6 +147,31 @@ func requestPath(req *http.Request) string {
 	return req.URL.Path
 }
 
+func wrapLimitBody(ctx context.Context, body io.ReadCloser, bps int64, sleep func(context.Context, time.Duration) bool) io.ReadCloser {
+	if body == nil || body == http.NoBody {
+		return body
+	}
+	r := rules.LimitReader(ctx, body, bps, sleep)
+	if rc, ok := r.(io.ReadCloser); ok {
+		return rc
+	}
+	return io.NopCloser(r)
+}
+
+func (s *Server) wrapRequestThrottle(ctx context.Context, req *http.Request, hit *rules.Hit) {
+	if req == nil || hit == nil {
+		return
+	}
+	req.Body = wrapLimitBody(ctx, req.Body, hit.Action.BytesPerSecond, s.sleepDelay)
+}
+
+func (s *Server) wrapResponseThrottle(ctx context.Context, resp *http.Response, hit *rules.Hit) {
+	if resp == nil || hit == nil {
+		return
+	}
+	resp.Body = wrapLimitBody(ctx, resp.Body, hit.Action.BytesPerSecond, s.sleepDelay)
+}
+
 func (s *Server) sleepDelay(ctx context.Context, d time.Duration) bool {
 	d = rules.ClampDelay(d)
 	if d <= 0 {
@@ -555,6 +580,9 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 			return ruleAbort
 		}
 		return ruleContinue
+	case model.ActionThrottle:
+		s.wrapRequestThrottle(ctx, req, hit)
+		return ruleContinue
 	case model.ActionHeader:
 		applyHTTPHeaders(req.Header, hit.Action.Headers)
 		return ruleContinue
@@ -642,6 +670,8 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 		switch respHit.Action.Type {
 		case model.ActionDelay:
 			_ = s.sleepDelay(ctx, respHit.Action.Delay)
+		case model.ActionThrottle:
+			// Headers and status stay full-speed; wrap the body after tee.
 		case model.ActionHeader:
 			applyHTTPHeaders(resp.Header, respHit.Action.Headers)
 		case model.ActionBody:
@@ -712,6 +742,9 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 	}
 	if respCap == nil {
 		respCap = s.teeResponse(resp, sess)
+	}
+	if respHit != nil && respHit.Action.Type == model.ActionThrottle {
+		s.wrapResponseThrottle(ctx, resp, respHit)
 	}
 	_ = write(resp)
 	if skipCapture {

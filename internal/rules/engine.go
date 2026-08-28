@@ -7,10 +7,13 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
 
-// Caps match config.MaxRuleDelay / MaxBreakpointTimeout / MaxRuleBodyReplace
-// so eval stays fail-closed even if a test-constructed snapshot skipped validate.
+// Caps match config.MaxRuleDelay / MinRuleBytesPerSecond / MaxRuleBytesPerSecond
+// / MaxBreakpointTimeout / MaxRuleBodyReplace so eval stays fail-closed even if
+// a test-constructed snapshot skipped validate.
 const (
 	MaxDelay               = 30 * time.Second
+	MinBytesPerSecond      = 256
+	MaxBytesPerSecond      = 64 << 20
 	MinBreakpointTimeout   = time.Second
 	MaxBreakpointTimeout   = 60 * time.Second
 	MaxBodyReplace         = 64 << 10

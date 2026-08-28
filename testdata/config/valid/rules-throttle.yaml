@@ -1,0 +1,25 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  rules:
+    enabled: true
+    items:
+      - id: slow-download
+        enabled: true
+        phase: response
+        match:
+          pathPrefix: /big
+        action:
+          type: throttle
+          bytesPerSecond: 8KiB
+      - id: slow-upload
+        enabled: true
+        phase: request
+        match:
+          method: POST
+          pathPrefix: /big
+        action:
+          type: throttle
+          bytesPerSecond: 4KiB

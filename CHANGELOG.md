@@ -8,6 +8,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 - QA block modes as additive `spec.rules` actions ([ADR 0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) D69): `silent` (TCP RST/FIN or HTTP/2 RST_STREAM `CANCEL`), `hang` (required `hang.timeout` 1s–30s, then silent close), and `redirect` (301/302/303/307/308 + required `Location`). Issue #52 `http_status` is the existing `status` type (no alias). Catalog does not grow. Live apply stays `replaceRules`.
 - WebSocket frame rules (`phase: websocket`, actions `drop` / `block`) after inspect `101` / inner D63 `:status=200` ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) D72–D74). Live path is existing `replaceRules` (and `setFeature rules.enabled` for the master switch). `inspectFrames` stays Reset-only. Catalog stays 31 `/v1` rows. GET-by-id `frames[].action` (`drop` / `block`; omitted when forwarded). `labmitm_rule_hits_total{action="block"}` is a new token; websocket `drop` reuses `{action="drop"}`. `labmitm_ws_frames_total` still counts forwarded frames only.
+- `action.type: throttle` with `action.bytesPerSecond` (256 B/s–64 MiB/s, IEC YAML) paces the winning request or response **body** after headers go out. Live via existing `replaceRules`. Catalog stays 31 `/v1` rows. ADR [0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md) (D75).
 
 ### Changed
 

@@ -72,6 +72,15 @@ The numbered pack is the source of truth.
 | [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) | Live protocol feature gates (D51', D22 carve); 1.2 flags stay Reset-only |
 | [0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) | QA block modes as additive rule actions (D69); `silent` / `hang` / `redirect` |
 | [0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) | WebSocket frame rules (D72–D74); `inspectFrames` stays Reset-only |
+| [0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md) | Additive `action.type: throttle` (D75); catalog stays 31 rows |
+
+## Post-GA plans
+
+Normative docs still win. These plans freeze a follow-on workstream after skeptic-plan-review.
+
+| Path | Topic |
+|---|---|
+| [qa-bandwidth-throttle.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-bandwidth-throttle.md) | Issue #52 bandwidth throttle (ACCEPT; implemented) |
 
 ## Task lists
 
