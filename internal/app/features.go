@@ -55,7 +55,7 @@ func CatalogFromSpec(spec model.Spec) []Feature {
 			ID:          FeatureIDHTTP2,
 			YAMLPath:    "spec.protocols.http2.enabled",
 			Title:       "Inner HTTP/2",
-			Description: "Inner+origin ALPN h2 on intercepted CONNECT from the session snapshot. Disabled keeps http/1.1 NextProtos. Client-facing PRI stays a hard close.",
+			Description: "Inner+origin ALPN h2 on intercepted CONNECT. Off keeps HTTP/1.1; client-facing PRI stays a hard close.",
 			Enabled:     spec.Protocols.HTTP2.Enabled,
 			ApplyMode:   FeatureApplyLive,
 			Verb:        FeatureVerbSetFeature,
@@ -64,7 +64,7 @@ func CatalogFromSpec(spec model.Spec) []Feature {
 			ID:          FeatureIDWebSocket,
 			YAMLPath:    "spec.protocols.websocket.enabled",
 			Title:       "WebSocket upgrade",
-			Description: "HTTP/1.1 Upgrade: websocket (cleartext next request on :8888 and orig-dest HTTP; inner HTTP/1.1 next CONNECT/SOCKS/orig-dest TLS). Disabled returns 403 before rules/origin. Inner 403 does not send Connection: close. No frame inspect.",
+			Description: "HTTP/1.1 Upgrade: websocket on cleartext and intercepted inner HTTP/1.1. Off refuses the upgrade.",
 			Enabled:     spec.Protocols.WebSocket.Enabled,
 			ApplyMode:   FeatureApplyLive,
 			Verb:        FeatureVerbSetFeature,
@@ -73,7 +73,7 @@ func CatalogFromSpec(spec model.Spec) []Feature {
 			ID:          FeatureIDConnect,
 			YAMLPath:    "spec.protocols.connect.enabled",
 			Title:       "HTTP CONNECT",
-			Description: "Forward-proxy HTTP CONNECT on the proxy listener. Disabled returns 403 before Hijack. SOCKS CONNECT is a different ID. Orig-dest tagged CONNECT stays 400.",
+			Description: "Forward-proxy HTTP CONNECT. SOCKS CONNECT is a different ID. Orig-dest tagged CONNECT stays 400.",
 			Enabled:     spec.Protocols.Connect.Enabled,
 			ApplyMode:   FeatureApplyLive,
 			Verb:        FeatureVerbSetFeature,
@@ -82,7 +82,7 @@ func CatalogFromSpec(spec model.Spec) []Feature {
 			ID:          FeatureIDAbsoluteForm,
 			YAMLPath:    "spec.protocols.absoluteForm.enabled",
 			Title:       "Absolute-form HTTP",
-			Description: "Absolute-form http:// requests on the proxy listener. Disabled returns 403. Orig-dest origin-form is not this flag. Absolute https:// stays 400.",
+			Description: "Absolute-form http:// requests on the proxy listener. Orig-dest origin-form is not this flag. Absolute https:// stays 400.",
 			Enabled:     spec.Protocols.AbsoluteForm.Enabled,
 			ApplyMode:   FeatureApplyLive,
 			Verb:        FeatureVerbSetFeature,
@@ -153,7 +153,7 @@ func CatalogFromSpec(spec model.Spec) []Feature {
 	}
 }
 
-// CompactStatusFlags returns the five status.get booleans from a catalog.
+// CompactStatusFlags projects compact status.features booleans from a catalog.
 func CompactStatusFlags(items []Feature) StatusFeatures {
 	var out StatusFeatures
 	for _, f := range items {
