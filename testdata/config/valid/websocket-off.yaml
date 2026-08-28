@@ -1,0 +1,9 @@
+# Explicit D22-carve hop off. Loader must preserve false (not default back on).
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: websocket-off
+spec:
+  protocols:
+    websocket:
+      enabled: false

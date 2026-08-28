@@ -16,7 +16,7 @@ ADR 0008’s review trigger is this request: *“or a live-apply verb is request
 
 This ADR **replaces D51 with D51'** and **carves D22**. It does **not** repeal D22 for 1.1 opt-in flags. It does **not** live-rebind orig-dest. It does **not** make 1.2 nested flags live ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) still requires a new ADR for that). **D7, D16, D19, D20, D21 stand.** Resolve-then-guard is unchanged: every A/AAAA is still checked; a disabled hop 403s **before** DNS / Dial.
 
-This change is documentation only. Schema, `setFeature`, hop 403, REST/MCP listing, and UI are not in this tree.
+This ADR recorded D51' before schema / `setFeature` / hop 403 / `features.get` / Status listing landed. Those surfaces **are** on this process now.
 
 ## Decision
 

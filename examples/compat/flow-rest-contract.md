@@ -1,12 +1,13 @@
 # LabMITM compat flow REST (mitmproxy-inspired subset)
 
 Status: Lab-facing contract (1.1, opt-in)
-Last reviewed: 2026-08-19
+Last reviewed: 2026-08-28
 
 This is **not** mitmproxy 11 compatible. There is no mitmweb, dumpfile, CLI flag
 clone, addon VM, HTTP Basic, PUT mutate, UUID ids, or filter DSL. IDs are
-ULIDs. Auth is the same lab static bearer as native `/v1`. Enable is Reset-only
-via `spec.compat.flowREST`. Default prefix is `/compat`.
+ULIDs. Auth is the same lab static bearer as native `/v1`. Enable is live
+`setFeature` (`compat.flowREST`) or `replaceCompat` (enabled and `pathPrefix`).
+Default prefix is `/compat`.
 
 See [ADR 0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md)
 and [docs/07](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).

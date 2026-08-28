@@ -1,5 +1,5 @@
 # All hop gates explicit. websocket/connect/absoluteForm stay on (D22 carve);
-# http2 stays off. Proxy does not honor the new enabled fields yet.
+# http2 stays off. Disabled gates 403 forbidden before rules/Dial.
 apiVersion: labmitm.dev/v1alpha1
 kind: LabMITM
 metadata:

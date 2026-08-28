@@ -66,6 +66,9 @@ func TestConfigCompat(t *testing.T) {
 			if st.APIVersion != model.APIVersionV1Alpha1 || st.Kind != model.KindLabMITM {
 				t.Fatalf("api=%q kind=%q", st.APIVersion, st.Kind)
 			}
+			if name == "websocket-off.yaml" && st.Spec.Protocols.WebSocket.Enabled {
+				t.Fatal("websocket-off.yaml must preserve protocols.websocket.enabled false")
+			}
 			rev, err := Revision(st)
 			if err != nil {
 				t.Fatal(err)

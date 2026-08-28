@@ -396,9 +396,11 @@ accept
 - **Control** — REST + MCP parity from one registry. Optimistic concurrency,
   idempotency, audit ring, RBAC (`mitm.read` / `mitm.write` / `mitm.admin` /
   `mitm.audit.read`).
-- **1.1 (default off, Reset-only)** — HTTP/2 on the inner hop, SOCKS5/4
-  multiplexed on the proxy listener, Linux original-destination REDIRECT,
-  optional compat flow REST under `/compat`.
+- **1.1 (opt-in; live `setFeature` except orig-dest bind)** — HTTP/2 on
+  the inner hop, SOCKS5/4 multiplexed on the proxy listener, optional
+  compat flow REST under `/compat`. Linux original-destination REDIRECT
+  bind stays Reset-only. Hop gates `websocket` / `connect` /
+  `absoluteForm` default **on** (D22 carve).
 - **Ops** — Non-root scratch image, structured logs, versioned metrics
   catalog, compose smoke.
 

@@ -1,0 +1,14 @@
+# QA: fail-closed WebSocket hop. Default is on (D22 carve); explicit false
+# 403s Upgrade before rules/Dial. 1.2 nested flags stay off / Reset-only.
+# Orig-dest bind stays Reset-only. Live apply of this bit is setFeature
+# (does not wipe flows). Residual:
+# https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md
+# https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: qa-websocket-off
+spec:
+  protocols:
+    websocket:
+      enabled: false

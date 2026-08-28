@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-28 (setFeature / replaceCompat live apply)
+Last reviewed: 2026-08-28 (operator residual split table)
 Related ADRs: 0003, 0008, 0012, 0013
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -257,6 +257,8 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `protocols.websocket.inspectFrames` | Reset-only (1.2) |
 | `proxy.admission.maxConcurrentStreams` | **`replaceAdmission`**. New TCP sessions only |
 | Listener **addresses**, management TLS files, `metrics.listen` | Reset-only (unchanged) |
+
+Operator residual (same split): [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md#live-hopaccept-vs-reset-bind-d51-operator-residual).
 
 Idempotency LRU default 256; reset clears it.
 

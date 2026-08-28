@@ -63,8 +63,8 @@
       "additionalProperties": false,
       "properties": {
         "address": { "type": "string", "description": "host:port; default 127.0.0.1:8888; empty materializes that default, not :8888" },
-        "acceptSOCKS5": { "type": "boolean", "description": "default false; Reset-only. Legal key is camelCase acceptSOCKS5" },
-        "acceptSOCKS4": { "type": "boolean", "description": "default false; Reset-only" },
+        "acceptSOCKS5": { "type": "boolean", "description": "default false; live setFeature (D51'). Legal key is camelCase acceptSOCKS5" },
+        "acceptSOCKS4": { "type": "boolean", "description": "default false; live setFeature (D51')" },
         "acceptBind": { "type": "boolean", "description": "default false; Reset-only; requires acceptSOCKS5 or acceptSOCKS4" },
         "acceptUDPAssociate": { "type": "boolean", "description": "default false; Reset-only; requires acceptSOCKS5" },
         "acceptUserPass": { "type": "boolean", "description": "default false; Reset-only; requires acceptSOCKS5 and at least one userPass user" },
@@ -109,7 +109,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "description": "default false (D22); inner+origin ALPN h2. Already honored by the proxy." },
+        "enabled": { "type": "boolean", "description": "default false (D22); inner+origin ALPN h2. Live setFeature." },
         "clientCleartext": { "type": "boolean", "description": "default false; Reset-only" },
         "origin": { "type": "boolean", "description": "default false; Reset-only; requires enabled" },
         "extendedConnect": { "type": "boolean", "description": "default false; Reset-only; requires enabled or clientCleartext" },
@@ -143,7 +143,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "description": "default false; Reset-only. mitmproxyREST is reserved" },
+        "enabled": { "type": "boolean", "description": "default false; live setFeature / replaceCompat. mitmproxyREST is reserved" },
         "pathPrefix": { "type": "string", "description": "empty + enabled materializes /compat; must not collide with configured restPath/mcpPath" }
       }
     },

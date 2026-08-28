@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-28 (Status feature catalog)
+Last reviewed: 2026-08-28 (compat flowREST live apply)
 Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
@@ -151,7 +151,7 @@ Required for GA / 1.0 (D13). Talks REST only.
 
 ## LabMITM compat flow REST (mitmproxy-inspired subset)
 
-Opt-in, default-off, Reset-only (`spec.compat.flowREST`). Extra spellings of existing `flows.*` IDs under a live prefix (default `/compat`). Disposition `REST_ONLY_PROTOCOL`: not on `catalog()`, no new MCP tools, matched after authenticate/authorize. Native `/v1/flows` stays the paginated API.
+Opt-in, default-off, live `setFeature` / `replaceCompat` (`spec.compat.flowREST`). Extra spellings of existing `flows.*` IDs under a live prefix (default `/compat`). Disposition `REST_ONLY_PROTOCOL`: not on `catalog()`, no new MCP tools, matched after authenticate/authorize. Native `/v1/flows` stays the paginated API.
 
 List is a JSON **array** of the newest 200; `X-LabMITM-Truncated: true` when more exist. Disabled prefix is `404` `not_found` (SPA cannot swallow it). Same bearer; `Authorization: Basic` is 401 Bearer; cookie mutations require CSRF. Not mitmproxy 11 compatible.
 

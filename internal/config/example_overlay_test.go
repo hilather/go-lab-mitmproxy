@@ -83,6 +83,23 @@ func TestLabOverlayExample(t *testing.T) {
 	}
 }
 
+func TestQAWebSocketOffExample(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "examples", "qa-websocket-off.yaml")
+	st, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Spec.Protocols.WebSocket.Enabled {
+		t.Fatal("qa-websocket-off must keep protocols.websocket.enabled false")
+	}
+	if !st.Spec.Protocols.Connect.Enabled || !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("omitted D22-carve connect/absoluteForm must materialize true")
+	}
+	if st.Spec.Protocols.WebSocket.InspectFrames {
+		t.Fatal("inspectFrames must stay false")
+	}
+}
+
 func TestLabMCPJungleExamples(t *testing.T) {
 	root := filepath.Join(repoRoot(t), "examples", "mcpjungle")
 	raw, err := os.ReadFile(filepath.Join(root, "servers", "labmitm.json"))

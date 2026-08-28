@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-28 (D51' residual)
 Related ADRs: 0001, 0003, 0010
 
 DEP-001 shipped the hardened image, `examples/compose.smoke.yaml`, and `scripts/test-container.sh`. Ports and image posture stay frozen here. A `v*` tag is refused unless [`.github/workflows/release.yml`](https://github.com/hilather/go-lab-mitmproxy/blob/main/.github/workflows/release.yml) `tag-gate` sees required CI green on that SHA. Current notes: [docs/releases/v1.2.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.2.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md). The lab overlay YAML is [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) (SWAP-001; published binds, `allowLegacyClients: true`). Do not mount that overlay as the smoke config without a 0o644 `labmitm-token`.
@@ -120,7 +120,7 @@ Copyable overlay: [examples/compose.originaldest.yaml](https://github.com/hilath
 
 Ready is `OrigDestBound || OrigDestOff` (D56). When the spec leaves orig-dest disabled, `OrigDestOff` is true so 1.0 processes stay ready. Non-linux `enabled: true` fails `Start` closed and binds nothing.
 
-Residuals (HTTP/3, no Python VM, no TPROXY in the appliance, Linux-only orig-dest, compat subset, Reset-only flags): [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md).
+Residuals (HTTP/3, no Python VM, no TPROXY in the appliance, Linux-only orig-dest, compat subset, live hop/accept vs Reset bind): [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md).
 
 ## Compatibility promise
 
