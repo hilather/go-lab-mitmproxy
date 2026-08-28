@@ -437,6 +437,14 @@ func TestWebSocketOversizedPayloadContainsThenOpcodeDrop(t *testing.T) {
 	c := upgradeWS(t, px.Addr().String(), origin, "/ws")
 	payload := append([]byte("secret"), bytes.Repeat([]byte("n"), 58)...)
 	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeBinary, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: payload})
+	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodePing, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: []byte("z")})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !rec.saw(wsx.OpcodePing, "z") {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !rec.saw(wsx.OpcodePing, "z") {
+		t.Fatal("one-TeePayload drain must not eat the next frame")
+	}
 	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeClose, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, CloseCode: 1000})
 	_, _ = io.Copy(io.Discard, c.Reader())
 	_ = c.Close()
@@ -460,11 +468,13 @@ func TestWebSocketOversizedPayloadContainsThenOpcodeDrop(t *testing.T) {
 }
 
 func TestWebSocketCloseLength1BeforeMatch(t *testing.T) {
+	rec := &recordedWS{}
+	origin := wireRecordingWSOrigin(t, rec)
 	sink := NewNull()
 	px := startProxy(t, Options{Spec: inspectRulesSpec(t, model.RuleSpec{
 		ID: "any", Enabled: true, Phase: model.RulePhaseWebSocket, Action: model.RuleActionSpec{Type: model.ActionDrop},
 	}), Sink: sink})
-	c := upgradeWS(t, px.Addr().String(), echoWSOrigin(t), "/ws")
+	c := upgradeWS(t, px.Addr().String(), origin, "/ws")
 	if err := c.WriteRaw([]byte{0x88, 0x81, 1, 2, 3, 4, 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -476,6 +486,12 @@ func TestWebSocketCloseLength1BeforeMatch(t *testing.T) {
 	}
 	if px.Metrics().RuleHits(model.ActionDrop) != 0 {
 		t.Fatal("empty-match drop must not swallow close-length-1")
+	}
+	rec.mu.Lock()
+	n := len(rec.wire)
+	rec.mu.Unlock()
+	if n != 0 {
+		t.Fatal("rules-path close-length-1 must not WriteHeader to the origin")
 	}
 }
 

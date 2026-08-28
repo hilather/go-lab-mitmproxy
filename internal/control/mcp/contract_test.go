@@ -357,9 +357,9 @@ func TestContractWebSocketFrames(t *testing.T) {
 		Protocol: model.FlowProtocolWebSocket,
 		State:    model.FlowStateCompleted,
 		Status:   101,
-		RuleIDs:  []string{"drop-secret"},
+		RuleIDs:  []string{"drop-secret", "kill-bin"},
 		WebSocket: &model.WebSocketInfo{
-			FrameCount: 2,
+			FrameCount: 3,
 			Frames: []model.WebSocketFrame{
 				{
 					Direction: model.WSDirectionClient,
@@ -379,6 +379,16 @@ func TestContractWebSocketFrames(t *testing.T) {
 					Payload:   []byte("secret"),
 					Size:      6,
 					Action:    model.ActionDrop,
+				},
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "binary",
+					OpcodeNum: 2,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("xx"),
+					Size:      2,
+					Action:    model.ActionBlock,
 				},
 			},
 		},
@@ -400,18 +410,18 @@ func TestContractWebSocketFrames(t *testing.T) {
 	if _, ok := ws["frames"]; ok {
 		t.Fatal("list item must omit frames")
 	}
-	if ws["frameCount"] != float64(2) {
+	if ws["frameCount"] != float64(3) {
 		t.Fatalf("frameCount=%v", ws["frameCount"])
 	}
 
 	got := structuredMap(t, callTool(t, cs, "mitm_flow_get", map[string]any{"id": id}))
 	ids, _ := got["ruleIds"].([]any)
-	if len(ids) != 1 || ids[0] != "drop-secret" {
+	if len(ids) != 2 || ids[0] != "drop-secret" || ids[1] != "kill-bin" {
 		t.Fatalf("ruleIds=%v", got["ruleIds"])
 	}
 	gws, _ := got["websocket"].(map[string]any)
 	frames, _ := gws["frames"].([]any)
-	if len(frames) != 2 {
+	if len(frames) != 3 {
 		t.Fatalf("get frames=%v", got)
 	}
 	fr := frames[0].(map[string]any)
@@ -427,6 +437,10 @@ func TestContractWebSocketFrames(t *testing.T) {
 	dropped := frames[1].(map[string]any)
 	if dropped["action"] != model.ActionDrop || dropped["payload"] != "secret" {
 		t.Fatalf("dropped frame %+v", dropped)
+	}
+	blocked := frames[2].(map[string]any)
+	if blocked["action"] != model.ActionBlock || blocked["payload"] != "xx" {
+		t.Fatalf("blocked frame %+v", blocked)
 	}
 
 	err = callToolExpectError(t, cs, "mitm_flow_replay", map[string]any{"id": id})
@@ -462,8 +476,8 @@ func TestContractWebSocketFrameRules(t *testing.T) {
 					},
 					"action": map[string]any{
 						"type": model.ActionDrop, "delay": 0, "status": 0,
-						"headers": map[string]any{"set": map[string]string{}, "remove": []string{}},
-						"body":    map[string]any{"replace": ""},
+						"headers":    map[string]any{"set": map[string]string{}, "remove": []string{}},
+						"body":       map[string]any{"replace": ""},
 						"breakpoint": map[string]any{"timeout": 0},
 					},
 				}},

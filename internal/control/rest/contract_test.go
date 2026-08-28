@@ -427,9 +427,9 @@ func TestContractWebSocketFrames(t *testing.T) {
 		Protocol: model.FlowProtocolWebSocket,
 		State:    model.FlowStateCompleted,
 		Status:   101,
-		RuleIDs:  []string{"drop-secret"},
+		RuleIDs:  []string{"drop-secret", "kill-bin"},
 		WebSocket: &model.WebSocketInfo{
-			FrameCount: 2,
+			FrameCount: 3,
 			Frames: []model.WebSocketFrame{
 				{
 					Direction: model.WSDirectionClient,
@@ -449,6 +449,16 @@ func TestContractWebSocketFrames(t *testing.T) {
 					Payload:   []byte("secret"),
 					Size:      6,
 					Action:    model.ActionDrop,
+				},
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "binary",
+					OpcodeNum: 2,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("xx"),
+					Size:      2,
+					Action:    model.ActionBlock,
 				},
 			},
 		},
@@ -471,7 +481,7 @@ func TestContractWebSocketFrames(t *testing.T) {
 	if _, ok := ws["frames"]; ok {
 		t.Fatal("list item must omit frames")
 	}
-	if ws["frameCount"] != float64(2) {
+	if ws["frameCount"] != float64(3) {
 		t.Fatalf("frameCount=%v", ws["frameCount"])
 	}
 
@@ -479,12 +489,12 @@ func TestContractWebSocketFrames(t *testing.T) {
 	requireStatus(t, got, http.StatusOK)
 	body := decodeJSON(t, got)
 	ids, _ := body["ruleIds"].([]any)
-	if len(ids) != 1 || ids[0] != "drop-secret" {
+	if len(ids) != 2 || ids[0] != "drop-secret" || ids[1] != "kill-bin" {
 		t.Fatalf("ruleIds=%v", body["ruleIds"])
 	}
 	gws, _ := body["websocket"].(map[string]any)
 	frames, _ := gws["frames"].([]any)
-	if len(frames) != 2 {
+	if len(frames) != 3 {
 		t.Fatalf("get frames=%s", got.Body.String())
 	}
 	fr := frames[0].(map[string]any)
@@ -500,6 +510,10 @@ func TestContractWebSocketFrames(t *testing.T) {
 	dropped := frames[1].(map[string]any)
 	if dropped["action"] != model.ActionDrop || dropped["payload"] != "secret" {
 		t.Fatalf("dropped frame %+v", dropped)
+	}
+	blocked := frames[2].(map[string]any)
+	if blocked["action"] != model.ActionBlock || blocked["payload"] != "xx" {
+		t.Fatalf("blocked frame %+v", blocked)
 	}
 
 	replay := doReq(t, h, http.MethodPost, "/v1/flows/"+id+":replay", "")
