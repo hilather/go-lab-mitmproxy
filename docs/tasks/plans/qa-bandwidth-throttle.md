@@ -49,11 +49,7 @@ QA need: a large download (or upload) that trickles so the system under test hit
 
 A daemon is justified only if the product needed a **shared** bytes/sec cap across unmatched traffic or across concurrent streams on one TCP session. Issue #52 does not. Per-message pace on the winning hit is the QA knob. **Do not add a daemon.**
 
-<<<<<<< HEAD
 ## Decision (D75)
-=======
-## Decision (D70)
->>>>>>> 5fabb10 (docs: number throttle ADR 0015 / D70 after rebase)
 
 See [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md). Summary:
 
