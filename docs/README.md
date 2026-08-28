@@ -47,6 +47,7 @@ The numbered pack is the source of truth.
 | [13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md) | Container and process |
 | [14-integration-lab.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/14-integration-lab.md) | Overlay BOM for mcp-integration-lab |
 | [known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) | 1.0 defaults + 1.2 residuals |
+| [releases/v1.3.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.3.0.md) | 1.3.0 tag notes (live hop/protocol feature gates D51') |
 | [releases/v1.2.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.2.0.md) | 1.2.0 tag notes (protocol expansion D58–D68) |
 | [releases/v1.1.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.1.md) | 1.1.1 tag notes (overlay/docs/D18 closeout) |
 | [releases/v1.1.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.0.md) | 1.1.0 tag notes (first Git tag) |
