@@ -24,7 +24,7 @@ This ADR recorded D51' before schema / `setFeature` / hop 403 / `features.get` /
 
 **D22 carve (not repeal) — 1.1 opt-in flags stay default-off** (`http2`, `acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `compat.flowREST`). **Gates whose zero value would change 1.0 hop behavior** (`websocket`, `connect`, `absoluteForm`) **default on** at `applyDecodeDefaults`. `ui.enabled` remains the 1.0 D13 true default.
 
-Empty `spec: {}` hop behavior is unchanged: HTTP/1.1 + SOCKS-close + no orig-dest + no `/compat` + WebSocket 101 still on. Canonicalize of today’s empty spec **will** grow three enabled objects when the schema PR lands.
+Empty `spec: {}` hop behavior is unchanged: HTTP/1.1 + SOCKS-close + no orig-dest + no `/compat` + WebSocket 101 still on. Canonicalize of empty spec **grows** those three enabled objects.
 
 ### Live vs Reset-only
 
