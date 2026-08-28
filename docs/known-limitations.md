@@ -28,7 +28,7 @@ LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge prox
 
 ## Live hop/accept vs Reset bind (D51' operator residual)
 
-[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. Hop/accept flags the running proxy honors are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree) **without Reset or wiping flows**. Disabled hop gates 403 `forbidden` before rules/Dial. There is no `replaceProtocols` / `replaceProxyAccept`. Mutation stays `changes.plan` / `changes.apply`. `features.get` lists the 11-row catalog (`GET /v1/features`, `mitm_features_list`, `labmitm://features`). Compact `status.features` five 1.1 booleans stay on `status.get`. **No Status toggle for `ui.enabled`.** 1.2 h2c CONNECT is **not** `protocols.connect`; `extendedConnect` `:protocol=websocket` is **not** `protocols.websocket`.
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. Hop/accept flags the running proxy honors are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree) **without Reset or wiping flows**. Disabled hop gates 403 `forbidden` before rules/Dial. There is no `replaceProtocols` / `replaceProxyAccept`. Mutation stays `changes.plan` / `changes.apply`. `features.get` lists the 11-row catalog (`GET /v1/features`, `mitm_features_list`, `labmitm://features`). Compact `status.features` spec-flag booleans stay on `status.get` (including additive `httpAuth`, [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-http-proxy-407.md)). **No Status toggle for `ui.enabled`.** 1.2 h2c CONNECT is **not** `protocols.connect`; `extendedConnect` `:protocol=websocket` is **not** `protocols.websocket`.
 
 QA bootstrap with websocket off (must `labmitm validate`): [examples/qa-websocket-off.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/qa-websocket-off.yaml). Apply of the same bit does not wipe the inbox.
 
@@ -42,6 +42,7 @@ QA bootstrap with websocket off (must `labmitm validate`): [examples/qa-websocke
 | `rules.enabled` | **live** `setFeature` (items unchanged) |
 | `ui.enabled` | **live** `setFeature` from REST/MCP only — **no Status toggle** |
 | `tls.intercept` | **live** `replaceTLS` (generate-mode CA rotates when the TLS spec changes) |
+| `proxy.httpAuth` | **live** `replaceHTTPAuth` (D69). Not a `setFeature` ID. SOCKS `acceptUserPass` stays Reset-only. |
 | `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` | Reset-only (1.2; no `replaceProxyAccept`) |
 | `listeners.originalDestination` enabled+address | Reset-only (bind) |
 | `protocols.http2.clientCleartext` / `origin` / `extendedConnect` / `capturePush` / `grpcDecode` | Reset-only (1.2) |
