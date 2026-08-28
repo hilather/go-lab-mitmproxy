@@ -728,6 +728,12 @@ func TestApplyReplaceCompatMissingBody(t *testing.T) {
 		Operations:       []model.Operation{{Op: model.OpReplaceCompat}},
 	})
 	requireViolation(t, err, "operations[0].compat", "required", "")
+	if svc.Active().Revision != boot.Revision {
+		t.Fatal("missing body swapped")
+	}
+	if svc.Active().Canonical.Spec.Compat.FlowREST.Enabled {
+		t.Fatal("missing body enabled compat")
+	}
 }
 
 func TestApplyReplaceCompatPrefixCollision(t *testing.T) {

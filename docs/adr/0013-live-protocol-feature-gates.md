@@ -128,7 +128,7 @@ Listing is a new `features.get` capability (`GET /v1/features`, `mitm_features_l
 
 - D51 readers must follow D51' (this ADR) for hop/accept vs bind. 1.2 nested flags remain Reset-only.
 - Operators must not be told “all new fields default off” and also shipped default-true hop gates. Docs/06 and known-limitations state the D22 carve.
-- `setFeature` / `replaceCompat` / hop 403 / `features.get` are **not** on this process. CHANGELOG must not claim flags are live until the PRs that wire apply and enforcement. Empty `spec: {}` hop behavior stays 1.0 until the schema PR materializes default-true gates and the proxy PR honors them.
+- `setFeature` / `replaceCompat` **are** live on this process for the closed honor-list (`protocols.http2`, `acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST`, `rules.enabled`, `ui.enabled`). `setFeature` of `protocols.websocket` / `connect` / `absoluteForm` is `validation_failed` until hop 403 lands. Hop 403 and `features.get` are **not** on this process. CHANGELOG does not claim websocket is live. Empty `spec: {}` hop behavior stays 1.0 until the proxy PR honors the default-true gates.
 - Catalog stays 30 `/v1` rows until `features.get` lands. No new capability IDs in this change.
 - Dial isolation unchanged: no new Dial sites. `internal/tlsmitm` still does not Dial. Target guards still check every resolved A/AAAA.
 - D7 is **not** superseded.

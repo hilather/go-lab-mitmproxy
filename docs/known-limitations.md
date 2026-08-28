@@ -17,7 +17,7 @@ LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge prox
 | Client-facing proxy hop (`:8888`) | HTTP/1.1 absolute-form + CONNECT. `PRI * HTTP/2.0` hard close | 1.2 `protocols.http2.clientCleartext` (h2c on PRI leftover). Flag-off PRI still hard close |
 | Inner + origin ALPN | `http/1.1` only. Inner `PRI` → `Error=http2_inner` | 1.1 `protocols.http2.enabled` (inner). 1.2 `origin` may offer origin `h2` only when the inner leaf negotiated `h2` |
 | SOCKS on `listeners.proxy` | Peek `0x04`/`0x05` → close | 1.1 `acceptSOCKS5` / `acceptSOCKS4` = **CONNECT only**. 1.2 `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` are **separate** flags |
-| WebSocket | `101` + bidirectional copy (`websocket.enabled` defaults **on**, D22 carve) | 1.2 `protocols.websocket.inspectFrames` (Reset-only). Gate-off is 403 before rules/Dial |
+| WebSocket | `101` + bidirectional copy (`websocket.enabled` defaults **on**, D22 carve) | 1.2 `protocols.websocket.inspectFrames` (Reset-only). Gate-off 403 is not on this process; hops still 101 until enforcement. |
 | Extended CONNECT | Inner CONNECT / `:protocol` RST, **no flow** | 1.2 `protocols.http2.extendedConnect` (`:protocol=websocket` only) |
 | `PUSH_PROMISE` | Inner `EnablePush=0`; flag-off RST toward origin | 1.2 `protocols.http2.capturePush` (capture-only, not forwarded) |
 | gRPC | HTTP/2 headers + DATA | 1.2 `protocols.http2.grpcDecode` (best-effort; grpc-web opaque) |

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
@@ -82,6 +83,11 @@ func TestCatalogFromSpecEmptyLoadDefaultsOn(t *testing.T) {
 		}
 		if items[i].Title == "" || items[i].Description == "" {
 			t.Fatalf("%s missing title/description", id)
+		}
+		if id == FeatureIDWebSocket || id == FeatureIDConnect || id == FeatureIDAbsoluteForm {
+			if !strings.Contains(items[i].Description, "setFeature is validation_failed until hop 403 lands") {
+				t.Fatalf("%s description missing staged-apply residual: %q", id, items[i].Description)
+			}
 		}
 	}
 	wantOn := map[string]bool{
