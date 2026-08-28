@@ -1,7 +1,7 @@
 # Agent Task Plan
 
 Status: Proposed
-Last reviewed: 2026-08-18 (FND-001)
+Last reviewed: 2026-08-28 (qa-block-modes plan link)
 
 This directory divides the initial LabMITM implementation into reviewable work packages. Task files are implementation contracts, not substitutes for normative design documents.
 
@@ -46,3 +46,11 @@ Each task produces:
 ## Program order
 
 Start with `00-program-board.md`. The numbered pack under `docs/` is the source of truth.
+
+## Post-GA plans
+
+Implementation contracts after PRs 1–14 live under [docs/tasks/plans/](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/). They do not replace the numbered pack.
+
+| Plan | Issue |
+|---|---|
+| [qa-block-modes.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-block-modes.md) | #52 configurable block modes (plan only) |
