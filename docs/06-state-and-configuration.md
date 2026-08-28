@@ -243,7 +243,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 |---|---|
 | `acceptSOCKS5` / `acceptSOCKS4` | **live** `setFeature` (next peek) |
 | `protocols.http2.enabled` | **live** `setFeature` (next CONNECT) |
-| `protocols.websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` | **live** `setFeature` (default **on**, D22 carve). Websocket 403 at start of **both** `serveAbsolute` and `serveOrigDestHTTP`. Inner 403 without `Connection: close`, `stop=false`. Orig-dest CONNECT stays 400. Keep connect/absoluteForm |
+| `protocols.websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` | YAML accepted now (default **on**, D22 carve). Hops are **not** gated until enforcement. `setFeature` is the accepted future verb ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) |
 | `compat.flowREST.enabled` | **live** `setFeature` (next management request) |
 | `compat.flowREST.pathPrefix` | **live** `replaceCompat` only (not `setFeature`) |
 | `rules.enabled` | **live** `setFeature` (items unchanged) |

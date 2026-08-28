@@ -73,7 +73,6 @@ func TestCanonicalEmptySpecGrowsProtocolGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(raw)
-	// Canonicalize of empty spec: {} grows three D22-carve enabled objects.
 	// Map keys are sorted; websocket carries inspectFrames beside enabled.
 	want := []string{
 		`"absoluteForm":{"enabled":true}`,

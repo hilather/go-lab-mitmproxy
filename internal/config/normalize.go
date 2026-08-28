@@ -9,8 +9,7 @@ import (
 )
 
 // Normalize returns a copy of st with nil slices materialized. Numeric and
-// bool defaults (including D22-carve protocol hop gates) are applied at
-// decode time so explicit zeros stay visible.
+// bool defaults are applied at decode time so explicit zeros stay visible.
 func Normalize(st *model.State) (*model.State, error) {
 	if st == nil {
 		return nil, domainerr.ValidationFailed("nil state",

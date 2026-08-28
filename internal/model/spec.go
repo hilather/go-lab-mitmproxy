@@ -189,7 +189,7 @@ type HTTP2Spec struct {
 
 // WebSocketSpec is WebSocket hop and capture policy.
 // Enabled defaults on at decode so empty spec keeps 1.0 Upgrade: 101.
-// InspectFrames stays default off (Reset-only).
+// InspectFrames defaults off.
 type WebSocketSpec struct {
 	Enabled       bool `json:"enabled"`
 	InspectFrames bool `json:"inspectFrames"`
