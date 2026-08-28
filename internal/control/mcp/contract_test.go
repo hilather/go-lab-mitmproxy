@@ -446,18 +446,34 @@ func TestContractWebSocketFrameRules(t *testing.T) {
 	}
 	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
 	rev, _ := state["runtimeRevision"].(string)
-	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", map[string]any{
+	res := callTool(t, cs, "mitm_change_apply", map[string]any{
 		"expectedRevision": rev,
 		"reason":           "websocket frame rules",
-		"operations": []model.Operation{{
-			Op: model.OpReplaceRules,
-			Rules: &model.RulesSpec{Enabled: true, Items: []model.RuleSpec{{
-				ID: "drop-secret", Enabled: true, Phase: model.RulePhaseWebSocket,
-				Match:  model.RuleMatchSpec{Opcode: model.RuleOpcodeText, PayloadContains: "secret"},
-				Action: model.RuleActionSpec{Type: model.ActionDrop},
-			}}},
+		"operations": []map[string]any{{
+			"op": model.OpReplaceRules,
+			"rules": map[string]any{
+				"enabled": true,
+				"items": []map[string]any{{
+					"id": "drop-secret", "enabled": true, "phase": model.RulePhaseWebSocket,
+					"match": map[string]any{
+						"host": "", "pathPrefix": "", "pathExact": "", "method": "",
+						"headerName": "", "headerContains": "", "protocol": "",
+						"opcode": model.RuleOpcodeText, "direction": "", "payloadContains": "secret",
+					},
+					"action": map[string]any{
+						"type": model.ActionDrop, "delay": 0, "status": 0,
+						"headers": map[string]any{"set": map[string]string{}, "remove": []string{}},
+						"body":    map[string]any{"replace": ""},
+						"breakpoint": map[string]any{"timeout": 0},
+					},
+				}},
+			},
 		}},
-	}))
+	})
+	if res.IsError {
+		t.Fatalf("apply error: %s structured=%v", firstText(res), res.StructuredContent)
+	}
+	apply := structuredMap(t, res)
 	if apply["applied"] != true {
 		t.Fatalf("apply=%v", apply)
 	}

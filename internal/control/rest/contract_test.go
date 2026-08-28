@@ -517,22 +517,11 @@ func TestContractWebSocketFrameRules(t *testing.T) {
 	}
 	st := doReq(t, h, http.MethodGet, "/v1/state", "")
 	rev := decodeJSON(t, st)["runtimeRevision"].(string)
-	raw, err := json.Marshal(map[string]any{
-		"expectedRevision": rev,
-		"reason":           "websocket frame rules",
-		"operations": []model.Operation{{
-			Op: model.OpReplaceRules,
-			Rules: &model.RulesSpec{Enabled: true, Items: []model.RuleSpec{{
-				ID: "drop-secret", Enabled: true, Phase: model.RulePhaseWebSocket,
-				Match:  model.RuleMatchSpec{Opcode: model.RuleOpcodeText, PayloadContains: "secret"},
-				Action: model.RuleActionSpec{Type: model.ActionDrop},
-			}}},
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	apply := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(raw))
+	apply := doReq(t, h, http.MethodPost, "/v1/changes:apply", `{
+		"expectedRevision": "`+rev+`",
+		"reason": "websocket frame rules",
+		"operations": [{"op":"replaceRules","rules":{"enabled":true,"items":[{"id":"drop-secret","enabled":true,"phase":"websocket","match":{"opcode":"text","payloadContains":"secret"},"action":{"type":"drop"}}]}}]
+	}`)
 	requireStatus(t, apply, http.StatusOK)
 	exp := doReq(t, h, http.MethodGet, "/v1/state:export?format=json", "")
 	requireStatus(t, exp, http.StatusOK)

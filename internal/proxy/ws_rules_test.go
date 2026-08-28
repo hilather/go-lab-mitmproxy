@@ -693,7 +693,7 @@ func TestWebSocketReplaceStoreCapsDoesNotChangeVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Spec.Protocols.WebSocket.InspectFrames = true
-	st.Spec.Store.MaxBodyBytes = 1024
+	st.Spec.Store.MaxBodyBytes = 64 << 10
 	st.Spec.Rules = model.RulesSpec{Enabled: true, Items: []model.RuleSpec{{
 		ID: "secret", Enabled: true, Phase: model.RulePhaseWebSocket,
 		Match:  model.RuleMatchSpec{PayloadContains: "secret"},
@@ -708,17 +708,18 @@ func TestWebSocketReplaceStoreCapsDoesNotChangeVisibility(t *testing.T) {
 	px := startProxy(t, Options{Spec: snap.Canonical.Spec, Snapshots: snaps, Authority: snap.CA, Sink: NewNull()})
 	c := upgradeWS(t, px.Addr().String(), origin, "/ws")
 	next := cloneCompiledState(t, snap)
-	next.Spec.Store.MaxBodyBytes = 4
+	next.Spec.Store.MaxBodyBytes = 1 << 10
 	swapped, err := compiler.Compile(t.Context(), next, compiler.CompileOpts{Previous: snap, Generation: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	snaps.Swap(swapped)
-	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeText, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: []byte("secret")})
+	payload := append([]byte("secret"), bytes.Repeat([]byte("x"), 2048)...)
+	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeText, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: payload})
 	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeClose, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, CloseCode: 1000})
 	_, _ = io.Copy(io.Discard, c.Reader())
 	_ = c.Close()
-	if rec.saw(wsx.OpcodeText, "secret") {
+	if rec.saw(wsx.OpcodeText, string(payload)) {
 		t.Fatal("replaceStoreCaps must not change a pinned payloadContains visibility cap")
 	}
 }
