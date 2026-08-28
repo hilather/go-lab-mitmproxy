@@ -82,6 +82,13 @@ func enableRules() model.Operation {
 	}
 }
 
+func setFeatureOp(id string, enabled bool) model.Operation {
+	return model.Operation{
+		Op:      model.OpSetFeature,
+		Feature: &model.FeaturePatch{ID: id, Enabled: enabled},
+	}
+}
+
 func shrinkStore(maxFlows int, policy string) model.Operation {
 	return model.Operation{
 		Op: model.OpReplaceStoreCaps,

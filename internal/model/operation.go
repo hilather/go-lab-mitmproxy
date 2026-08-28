@@ -7,6 +7,8 @@ const (
 	OpReplaceTLS       = "replaceTLS"
 	OpReplaceRules     = "replaceRules"
 	OpReplaceTargets   = "replaceTargets"
+	OpReplaceCompat    = "replaceCompat"
+	OpSetFeature       = "setFeature"
 )
 
 // ChangeSet is the LabDNS-shaped plan/apply envelope.
@@ -26,6 +28,14 @@ type Operation struct {
 	TLS       *TLSSpec       `json:"tls,omitempty"`
 	Rules     *RulesSpec     `json:"rules,omitempty"`
 	Targets   *TargetsSpec   `json:"targets,omitempty"`
+	Compat    *CompatSpec    `json:"compat,omitempty"`
+	Feature   *FeaturePatch  `json:"feature,omitempty"`
+}
+
+// FeaturePatch is the setFeature body: one closed catalog ID and its bool.
+type FeaturePatch struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
 }
 
 // StoreCaps is the replaceStoreCaps body.
@@ -39,7 +49,7 @@ type StoreCaps struct {
 // KnownOp reports whether op is a v1alpha1 plan/apply verb.
 func KnownOp(op string) bool {
 	switch op {
-	case OpReplaceStoreCaps, OpReplaceAdmission, OpReplaceTLS, OpReplaceRules, OpReplaceTargets:
+	case OpReplaceStoreCaps, OpReplaceAdmission, OpReplaceTLS, OpReplaceRules, OpReplaceTargets, OpReplaceCompat, OpSetFeature:
 		return true
 	default:
 		return false

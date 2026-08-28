@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-28 (ADR 0013 D51' / D22 carve)
+Last reviewed: 2026-08-28 (setFeature / replaceCompat live apply)
 Related ADRs: 0003, 0008, 0012, 0013
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -230,20 +230,22 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `replaceTLS` | `tls` object | Recompile CA/host list; in-flight CONNECT unchanged |
 | `replaceRules` | `rules` object | `{}` / empty items + `enabled: false` is stock capture |
 | `replaceTargets` | `targets` object | Live on next request |
+| `replaceCompat` | `compat` object (`enabled` + `pathPrefix`) | Live on next management request. Prefix collision with restPath/mcpPath is `validation_failed`. |
+| `setFeature` | `feature`: `{id, enabled}` | Closed IDs the running proxy already honors: `protocols.http2`, `listeners.proxy.acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST` (enabled only), `rules.enabled` (items unchanged), `ui.enabled`. Rejects `listeners.originalDestination` (Reset-only), `tls.intercept` (use `replaceTLS`), and `protocols.websocket` / `connect` / `absoluteForm` until proxy enforcement. Plan warns `live_next_connection`. |
 
-`:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset.
+`:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset. Plan of `setFeature` / `replaceCompat` warns `live_next_connection` (in-flight sessions keep the snapshot they pinned; SOCKS peek and new ServeHTTP/CONNECT see the swap). The only other Apply warning is `store_evict`.
 
 **D22 carve:** 1.1 **opt-in** flags stay default-off (`http2`, `acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `compat.flowREST`). 1.2 nested flags stay default-off. Gates whose Go zero would **change 1.0 hop behavior** (`protocols.websocket` / `connect` / `absoluteForm`) default **on** at `applyDecodeDefaults`. `ui.enabled` remains the 1.0 D13 true default. Do not tell operators “all new fields default off” and also ship default-true hop gates.
 
 ### 1.1 / 1.2 flags (D51' live hop/accept vs Reset bind)
 
-[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. `setFeature` is the only protocol/accept mutation. Plus `replaceCompat` (enabled **and** `pathPrefix`). No `replaceProtocols` / `replaceProxyAccept`. `setFeature` of `tls.intercept` is `validation_failed` (use `replaceTLS`). `setFeature` of Reset-only IDs is `validation_failed` with remediation “edit bootstrap YAML and Reset”. Those verbs and hop 403 are **not** on `KnownOp` / the proxy in this change.
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. `setFeature` is the only protocol/accept mutation. Plus `replaceCompat` (enabled **and** `pathPrefix`). No `replaceProtocols` / `replaceProxyAccept`. `setFeature` of `tls.intercept` is `validation_failed` (use `replaceTLS`). `setFeature` of Reset-only IDs is `validation_failed` with remediation “edit bootstrap YAML and Reset”. `setFeature` / `replaceCompat` are on `KnownOp`. Hop 403 for websocket/connect/absoluteForm is **not** on the proxy in this change; those IDs stay `validation_failed` until enforcement.
 
 | Field | How to change |
 |---|---|
 | `acceptSOCKS5` / `acceptSOCKS4` | **live** `setFeature` (next peek) |
 | `protocols.http2.enabled` | **live** `setFeature` (next CONNECT) |
-| `protocols.websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` | YAML accepted now (default **on**, D22 carve). Hops are **not** gated until enforcement. `setFeature` is the accepted future verb ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) |
+| `protocols.websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` | YAML accepted now (default **on**, D22 carve). Hops are **not** gated until enforcement. `setFeature` of these IDs is `validation_failed` until that PR |
 | `compat.flowREST.enabled` | **live** `setFeature` (next management request) |
 | `compat.flowREST.pathPrefix` | **live** `replaceCompat` only (not `setFeature`) |
 | `rules.enabled` | **live** `setFeature` (items unchanged) |
@@ -265,7 +267,7 @@ Idempotency LRU default 256; reset clears it.
 1. `config.Normalize` + `config.Validate` (copy-on-write).
 2. Hashes canonical JSON (`sha256:…`). Generated CA material is **not** in the hash.
 3. Builds `rules.Engine` from `spec.rules`.
-4. Generates or loads the lab CA (`tlsmitm.Authority`). Generate-mode mints even when `intercept: false` so `GetCA` works. `replaceRules` / `replaceAdmission` / `replaceTargets` / `replaceStoreCaps` reuse the previous CA handle when the TLS spec is unchanged. `replaceTLS` and `Reset` recompile (generate-mode rotates).
+4. Generates or loads the lab CA (`tlsmitm.Authority`). Generate-mode mints even when `intercept: false` so `GetCA` works. `replaceRules` / `replaceAdmission` / `replaceTargets` / `replaceStoreCaps` / `setFeature` / `replaceCompat` reuse the previous CA handle when the TLS spec is unchanged. `replaceTLS` and `Reset` recompile (generate-mode rotates).
 5. Loads SOCKS user-pass digests into snapshot side table `SOCKSUsers` (not Canonical, not export) only when `Previous == nil` (Start/Reset). Live Compile copies `Previous.SOCKSUsers` and does **not** stat password files (D60). Do not key that copy off TLS equality.
 
 `internal/snapshot.Store` holds active / previous / bootstrap behind atomic pointers. The proxy loads once per request / CONNECT (`Options.Snapshots`) and pins spec, engine, CA, and store epoch for the session. In-flight sessions keep the pointer they loaded; new accepts see the swapped snapshot. An in-flight `Insert` after `ResetTo` uses the accept-time epoch and is discarded (`ErrStaleEpoch`).

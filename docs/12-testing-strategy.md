@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-25 (replay Host-without-port URL port)
+Last reviewed: 2026-08-28 (setFeature / replaceCompat live apply)
 Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -70,5 +70,5 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 - GA-001: committed `testdata/fuzz` corpora for `FuzzInfoString`, `FuzzDecode`, `FuzzReadRequest`; `internal/perf` soak (CI N=8); `scripts/checkchangelog`; `scripts/release-diff`; `.github/workflows/release.yml` `tag-gate`; [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md).
 - STORE-001: `testdata/flows/**` golden captured flows; `internal/store` insert/delete/wait/wipe/epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate, stacked caps, spill, race; proxy store-full still forwards.
 - RULES-001: `internal/rules` first-match, default-off, AND match, no Dial; Resume without HTTP (store only, test-constructed snapshot); proxy delay/drop/status/header/body/breakpoint, stream-vs-mutate `body_skipped`, inner CONNECT drop.
-- STA-001: `internal/compiler` (rules engine + CA handle; reuse CA unless `replaceTLS` / reset); `internal/snapshot` atomic swap; `internal/audit` ring + redact (`BEGIN PRIVATE` never logged); `internal/app` Plan/Apply/Reset/Export, reset-wipes-flows, failed reset leaves snapshot+inbox, generate-mode CA rotates on reset, idempotency LRU, `replaceStoreCaps` / `replaceRules` / `replaceTLS` / `replaceAdmission` / `replaceTargets`; proxy loads snapshot per request / CONNECT (in-flight keeps the pin, including response-phase rules); accept-time epoch so reset cannot refill the inbox from an in-flight hop.
+- STA-001: `internal/compiler` (rules engine + CA handle; reuse CA unless `replaceTLS` / reset); `internal/snapshot` atomic swap; `internal/audit` ring + redact (`BEGIN PRIVATE` never logged); `internal/app` Plan/Apply/Reset/Export, reset-wipes-flows, failed reset leaves snapshot+inbox, generate-mode CA rotates on reset, idempotency LRU, `replaceStoreCaps` / `replaceRules` / `replaceTLS` / `replaceAdmission` / `replaceTargets` / `setFeature` / `replaceCompat`; proxy loads snapshot per request / CONNECT (in-flight keeps the pin, including response-phase rules); accept-time epoch so reset cannot refill the inbox from an in-flight hop.
 - Invalid config fixtures (CFG-001): unknown field, reserved socks/tproxy/publicca/mitmproxy, bare numbers, multi-doc, alias, missing kind, **`upstream.verify` present**.

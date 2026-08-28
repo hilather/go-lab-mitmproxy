@@ -267,12 +267,19 @@ func (s *App) planFrom(c *candidate) *Plan {
 	if c.prev != nil {
 		prevRev = c.prev.Revision
 	}
+	warn := append([]Warning(nil), c.warn...)
+	if anyLiveFeatureOp(c.ops) {
+		warn = append(warn, Warning{
+			Code:    "live_next_connection",
+			Message: "in-flight sessions keep the snapshot they pinned; SOCKS peek and new ServeHTTP/CONNECT see the swap",
+		})
+	}
 	p := &Plan{
 		PreviousRevision:  prevRev,
 		CandidateRevision: c.next.Revision,
 		Drifted:           c.next.Drifted(),
 		Diff:              c.diff,
-		Warnings:          c.warn,
+		Warnings:          warn,
 		Operations:        append([]model.Operation(nil), c.ops...),
 	}
 	return p

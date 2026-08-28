@@ -2,7 +2,7 @@
 
 Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-28 (ADR 0013 D51' / D22 carve)
+Last reviewed: 2026-08-28 (setFeature live apply for http2/SOCKS/compat/rules/ui)
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.2.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.2.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68. ADR [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) records **D51'** (live hop/accept vs Reset bind) and the **D22 carve** (1.0-preserving hop gates default on).
 
@@ -26,7 +26,7 @@ LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge prox
 | Standalone binds | `127.0.0.1:8888` / `127.0.0.1:8088` (D10) | Empty orig-dest address → `127.0.0.1:8890` when enabled |
 | Image | `USER 65532:65532`, `cap_drop: ALL`, no `NET_ADMIN` | **Unchanged.** iptables is sidecar/host only |
 
-**D51' live hop/accept vs Reset bind** ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)). Hop-protocol and accept-mux booleans the process already consults from the session snapshot or `liveSpec()` (`protocols.http2.enabled`, `protocols.websocket` / `connect` / `absoluteForm`, `acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST`) are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree, including `pathPrefix`). Orig-dest **bind**, listener **addresses**, management TLS files, and `metrics.listen` stay Reset-only. 1.2 nested flags stay Reset-only. There is no `replaceProtocols` / `replaceProxyAccept`. `maxConcurrentStreams` rides `replaceAdmission` (new TCP sessions only). `setFeature` / `replaceCompat` / hop 403 / `features.get` are the accepted paths; they are not on this process. CHANGELOG does not claim flags are live.
+**D51' live hop/accept vs Reset bind** ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)). Flags the running proxy already honors (`protocols.http2.enabled`, `acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST`, `rules.enabled`, `ui.enabled`) are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree, including `pathPrefix`) without Reset or wiping flows. Orig-dest **bind**, listener **addresses**, management TLS files, and `metrics.listen` stay Reset-only. 1.2 nested flags stay Reset-only. There is no `replaceProtocols` / `replaceProxyAccept`. `maxConcurrentStreams` rides `replaceAdmission` (new TCP sessions only). `protocols.websocket` / `connect` / `absoluteForm` YAML is accepted (default **on**, D22 carve); `setFeature` of those IDs is `validation_failed` until proxy enforcement. Hop 403 / `features.get` are not on this process. CHANGELOG does not claim websocket is live.
 
 Legal YAML names are camelCase (`acceptSOCKS5`, `acceptBind`, `acceptUDPAssociate`, `acceptUserPass`, `originalDestination`, `protocols.http2`, `protocols.websocket`, `compat.flowREST`). Reserved keys (`socks*`, `tproxy`, `transparent`, `mitmproxy*`, `reverseproxy`, …) stay forbidden. `accept-socks5` / `accept-bind` fail KnownFields.
 
@@ -62,7 +62,7 @@ The 1.2 protocol expansion (ADR 0012 D58–D68) is the claimed product on this t
 - **Forwarding origin `PUSH_PROMISE` to the inner client.** Capture-only; inner `EnablePush` stays 0.
 - **Public CA, SSL-strip, exploit/fuzzer UX, chaos engine, durable flow-directory, multi-replica store.**
 - **Docker `-p 8890:8890` as “transparent mode.”** Publishing `8890` is not transparent (D50).
-- **`labmitm send` / live apply of 1.2 nested flags / HAR export.** 1.1 hop/accept live apply is the accepted D51' path ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)); `setFeature` is not on this process. Orig-dest bind stays Reset-only.
+- **`labmitm send` / live apply of 1.2 nested flags / HAR export.** 1.1 hop/accept live apply is the accepted D51' path ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) for http2/SOCKS/compat/rules/ui. `setFeature` of websocket/connect/absoluteForm is not applyable until proxy enforcement. Orig-dest bind stays Reset-only.
 
 ## Original-destination topologies (D50)
 

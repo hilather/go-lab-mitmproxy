@@ -56,6 +56,20 @@ func applyOne(st *model.State, op model.Operation, i int) error {
 				domainerr.FieldViolation{Path: path + ".targets", Code: "required", Message: "replaceTargets requires targets"})
 		}
 		st.Spec.Proxy.Targets = *op.Targets
+	case model.OpReplaceCompat:
+		if op.Compat == nil {
+			return domainerr.ValidationFailed("missing compat",
+				domainerr.FieldViolation{Path: path + ".compat", Code: "required", Message: "replaceCompat requires compat"})
+		}
+		st.Spec.Compat = *op.Compat
+	case model.OpSetFeature:
+		if op.Feature == nil {
+			return domainerr.ValidationFailed("missing feature",
+				domainerr.FieldViolation{Path: path + ".feature", Code: "required", Message: "setFeature requires feature"})
+		}
+		if err := applySetFeature(&st.Spec, op.Feature, path); err != nil {
+			return err
+		}
 	default:
 		return domainerr.ValidationFailed("unknown operation",
 			domainerr.FieldViolation{Path: path + ".op", Code: "invalid_value", Message: "unknown op"})
@@ -63,9 +77,53 @@ func applyOne(st *model.State, op model.Operation, i int) error {
 	return nil
 }
 
+func applySetFeature(spec *model.Spec, patch *model.FeaturePatch, opPath string) error {
+	idPath := opPath + ".feature.id"
+	switch patch.ID {
+	case FeatureIDHTTP2:
+		spec.Protocols.HTTP2.Enabled = patch.Enabled
+	case FeatureIDAcceptSOCKS5:
+		spec.Listeners.Proxy.AcceptSOCKS5 = patch.Enabled
+	case FeatureIDAcceptSOCKS4:
+		spec.Listeners.Proxy.AcceptSOCKS4 = patch.Enabled
+	case FeatureIDCompatFlowREST:
+		spec.Compat.FlowREST.Enabled = patch.Enabled
+	case FeatureIDRulesEnabled:
+		spec.Rules.Enabled = patch.Enabled
+	case FeatureIDUIEnabled:
+		spec.UI.Enabled = patch.Enabled
+	case FeatureIDOriginalDest:
+		return domainerr.ValidationFailed("originalDestination is Reset-only",
+			domainerr.FieldViolation{Path: idPath, Code: "invalid_value", Message: "listeners.originalDestination is Reset-only"}).
+			WithRemediation("edit bootstrap YAML and Reset")
+	case FeatureIDTLSIntercept:
+		return domainerr.ValidationFailed("tls.intercept is not a setFeature id",
+			domainerr.FieldViolation{Path: idPath, Code: "invalid_value", Message: "use replaceTLS to change tls.intercept"}).
+			WithRemediation("use replaceTLS")
+	case FeatureIDWebSocket, FeatureIDConnect, FeatureIDAbsoluteForm:
+		return domainerr.ValidationFailed("feature is not applyable until proxy enforcement",
+			domainerr.FieldViolation{Path: idPath, Code: "invalid_value", Message: patch.ID + " is not applyable until proxy enforcement"}).
+			WithRemediation("not applyable until proxy enforcement")
+	default:
+		return domainerr.ValidationFailed("unknown feature id",
+			domainerr.FieldViolation{Path: idPath, Code: "invalid_value", Message: "unknown feature id"})
+	}
+	return nil
+}
+
 func anyReplaceStoreCaps(ops []model.Operation) bool {
 	for i := range ops {
 		if ops[i].Op == model.OpReplaceStoreCaps {
+			return true
+		}
+	}
+	return false
+}
+
+func anyLiveFeatureOp(ops []model.Operation) bool {
+	for i := range ops {
+		switch ops[i].Op {
+		case model.OpSetFeature, model.OpReplaceCompat:
 			return true
 		}
 	}

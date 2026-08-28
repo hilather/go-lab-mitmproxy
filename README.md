@@ -317,8 +317,11 @@ Reset rereads the mounted bootstrap, compiles it, and swaps only on success.
 A bad file leaves the live snapshot **and** the flow store untouched.
 
 Live apply verbs (`replaceRules`, `replaceTLS`, `replaceAdmission`,
-`replaceTargets`, `replaceStoreCaps`). Listener addresses, SOCKS, HTTP/2,
-original-destination, and compat flow REST are bootstrap + **Reset** only.
+`replaceTargets`, `replaceStoreCaps`, `setFeature`, `replaceCompat`).
+`protocols.http2`, SOCKS accept, compat flow REST, `rules.enabled`, and
+`ui.enabled` are live without wiping the inbox. Listener addresses and
+original-destination bind stay bootstrap + **Reset** only.
+`protocols.websocket` / `connect` / `absoluteForm` are not live yet.
 
 ### MCP (`POST /mcp`)
 

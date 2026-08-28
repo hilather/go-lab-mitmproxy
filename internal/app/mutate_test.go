@@ -444,6 +444,37 @@ func TestApplyReplaceAdmissionMissingBody(t *testing.T) {
 	requireCode(t, err, domainerr.CodeValidationFailed)
 }
 
+func requireViolation(t *testing.T, err error, path, code, remediation string) {
+	t.Helper()
+	requireCode(t, err, domainerr.CodeValidationFailed)
+	de, ok := domainerr.As(err)
+	if !ok {
+		t.Fatal("not a domain error")
+	}
+	if remediation != "" && de.Remediation != remediation {
+		t.Fatalf("remediation=%q want %q", de.Remediation, remediation)
+	}
+	for _, v := range de.FieldViolations {
+		if v.Path == path && v.Code == code {
+			return
+		}
+	}
+	t.Fatalf("missing violation path=%s code=%s got %+v", path, code, de.FieldViolations)
+}
+
+func requireLiveNextConnection(t *testing.T, warnings []Warning) {
+	t.Helper()
+	for _, w := range warnings {
+		if w.Code == "live_next_connection" {
+			if w.Message == "" {
+				t.Fatal("live_next_connection message empty")
+			}
+			return
+		}
+	}
+	t.Fatalf("missing live_next_connection warning: %+v", warnings)
+}
+
 func TestReplaceRulesDelayValidate(t *testing.T) {
 	svc, boot := mustBoot(t)
 	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
@@ -462,4 +493,289 @@ func TestReplaceRulesDelayValidate(t *testing.T) {
 		}},
 	})
 	requireCode(t, err, domainerr.CodeValidationFailed)
+}
+
+func TestApplySetFeatureHTTP2AndSOCKSWithoutInboxWipe(t *testing.T) {
+	svc, boot := mustBoot(t)
+	ctx := context.Background()
+	id := insertRaw(t, svc, "keep.lab")
+	storeGen := svc.Inbox().Stats().Generation
+	oldSPKI := svc.Active().CA.Status().SPKISHA256
+
+	plan, err := svc.Plan(ctx, actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		IdempotencyKey:   "feat-h2-socks-1",
+		Reason:           "QA: h2 inner + SOCKS5",
+		Operations: []model.Operation{
+			setFeatureOp(FeatureIDHTTP2, true),
+			setFeatureOp(FeatureIDAcceptSOCKS5, true),
+			setFeatureOp(FeatureIDAcceptSOCKS4, true),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireLiveNextConnection(t, plan.Warnings)
+	if svc.Active().Revision != boot.Revision {
+		t.Fatal("plan swapped")
+	}
+
+	res, err := svc.Apply(ctx, actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		IdempotencyKey:   "feat-h2-socks-1",
+		Reason:           "QA: h2 inner + SOCKS5",
+		Operations: []model.Operation{
+			setFeatureOp(FeatureIDHTTP2, true),
+			setFeatureOp(FeatureIDAcceptSOCKS5, true),
+			setFeatureOp(FeatureIDAcceptSOCKS4, true),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Applied || !res.Drifted {
+		t.Fatalf("applied=%v drifted=%v", res.Applied, res.Drifted)
+	}
+	requireLiveNextConnection(t, res.Warnings)
+	got := svc.Active().Canonical.Spec
+	if !got.Protocols.HTTP2.Enabled || !got.Listeners.Proxy.AcceptSOCKS5 || !got.Listeners.Proxy.AcceptSOCKS4 {
+		t.Fatalf("bits %+v", got)
+	}
+	if svc.Active().CA.Status().SPKISHA256 != oldSPKI {
+		t.Fatal("setFeature must reuse CA when TLS is untouched")
+	}
+	if svc.Inbox().Stats().Generation != storeGen {
+		t.Fatalf("storeGeneration=%d want %d", svc.Inbox().Stats().Generation, storeGen)
+	}
+	if svc.Inbox().Stats().FlowCount != 1 {
+		t.Fatal("setFeature wiped inbox")
+	}
+	if _, err := svc.GetFlow(ctx, actor(), id); err != nil {
+		t.Fatalf("kept flow: %v", err)
+	}
+
+	var hooks int
+	svc.OnApply(func() { hooks++ })
+	again, err := svc.Apply(ctx, actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		IdempotencyKey:   "feat-h2-socks-1",
+		Reason:           "QA: h2 inner + SOCKS5",
+		Operations: []model.Operation{
+			setFeatureOp(FeatureIDHTTP2, true),
+			setFeatureOp(FeatureIDAcceptSOCKS5, true),
+			setFeatureOp(FeatureIDAcceptSOCKS4, true),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Generation != res.Generation {
+		t.Fatal("idempotent apply must not swap again")
+	}
+	if hooks != 0 {
+		t.Fatalf("idempotent apply must not fire OnApply, hooks=%d", hooks)
+	}
+}
+
+func TestApplySetFeatureRulesUIAndCompat(t *testing.T) {
+	svc, boot := mustBoot(t)
+	ctx := context.Background()
+	items := []model.RuleSpec{{
+		ID:      "keep-me",
+		Enabled: true,
+		Phase:   model.RulePhaseRequest,
+		Match:   model.RuleMatchSpec{PathPrefix: "/x"},
+		Action:  model.RuleActionSpec{Type: model.ActionDrop, Status: 403},
+	}}
+	first, err := svc.Apply(ctx, actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		IdempotencyKey:   "feat-rules-seed",
+		Operations: []model.Operation{{
+			Op:    model.OpReplaceRules,
+			Rules: &model.RulesSpec{Enabled: true, Items: items},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compat, err := svc.Apply(ctx, actor(), ChangeIn{
+		ExpectedRevision: first.RuntimeRevision,
+		IdempotencyKey:   "feat-compat-prefix",
+		Operations: []model.Operation{{
+			Op: model.OpReplaceCompat,
+			Compat: &model.CompatSpec{FlowREST: model.FlowRESTCompatSpec{
+				Enabled:    true,
+				PathPrefix: "/qa-compat",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireLiveNextConnection(t, compat.Warnings)
+	if !svc.Active().Canonical.Spec.Compat.FlowREST.Enabled || svc.Active().Canonical.Spec.Compat.FlowREST.PathPrefix != "/qa-compat" {
+		t.Fatalf("compat %+v", svc.Active().Canonical.Spec.Compat.FlowREST)
+	}
+
+	res, err := svc.Apply(ctx, actor(), ChangeIn{
+		ExpectedRevision: compat.RuntimeRevision,
+		IdempotencyKey:   "feat-rules-ui-compat",
+		Operations: []model.Operation{
+			setFeatureOp(FeatureIDRulesEnabled, false),
+			setFeatureOp(FeatureIDUIEnabled, false),
+			setFeatureOp(FeatureIDCompatFlowREST, false),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Applied || !res.Drifted {
+		t.Fatalf("applied=%v drifted=%v", res.Applied, res.Drifted)
+	}
+	got := svc.Active().Canonical.Spec
+	if got.Rules.Enabled {
+		t.Fatal("rules.enabled not flipped")
+	}
+	if len(got.Rules.Items) != 1 || got.Rules.Items[0].ID != "keep-me" {
+		t.Fatalf("setFeature rules.enabled must leave items: %+v", got.Rules.Items)
+	}
+	if got.UI.Enabled {
+		t.Fatal("ui.enabled not flipped")
+	}
+	if got.Compat.FlowREST.Enabled {
+		t.Fatal("compat.flowREST.enabled not flipped")
+	}
+	if got.Compat.FlowREST.PathPrefix != "/qa-compat" {
+		t.Fatalf("setFeature must not rewrite pathPrefix=%q", got.Compat.FlowREST.PathPrefix)
+	}
+}
+
+func TestApplySetFeatureRejectedIDs(t *testing.T) {
+	svc, boot := mustBoot(t)
+	ctx := context.Background()
+	cases := []struct {
+		id, remediation string
+	}{
+		{FeatureIDOriginalDest, "edit bootstrap YAML and Reset"},
+		{FeatureIDTLSIntercept, "use replaceTLS"},
+		{FeatureIDWebSocket, "not applyable until proxy enforcement"},
+		{FeatureIDConnect, "not applyable until proxy enforcement"},
+		{FeatureIDAbsoluteForm, "not applyable until proxy enforcement"},
+		{"protocols.http2.clientCleartext", ""},
+		{"not-a-feature", ""},
+	}
+	for _, tc := range cases {
+		_, err := svc.Apply(ctx, actor(), ChangeIn{
+			ExpectedRevision: boot.Revision,
+			Operations:       []model.Operation{setFeatureOp(tc.id, true)},
+		})
+		requireViolation(t, err, "operations[0].feature.id", "invalid_value", tc.remediation)
+		if svc.Active().Revision != boot.Revision {
+			t.Fatalf("%s swapped", tc.id)
+		}
+	}
+}
+
+func TestApplySetFeatureAtomicRejectLeavesHTTP2Off(t *testing.T) {
+	svc, boot := mustBoot(t)
+	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Operations: []model.Operation{
+			setFeatureOp(FeatureIDHTTP2, true),
+			setFeatureOp(FeatureIDWebSocket, false),
+		},
+	})
+	requireViolation(t, err, "operations[1].feature.id", "invalid_value", "not applyable until proxy enforcement")
+	if svc.Active().Canonical.Spec.Protocols.HTTP2.Enabled {
+		t.Fatal("failed changeset must not apply earlier ops")
+	}
+	if svc.Active().Revision != boot.Revision {
+		t.Fatal("failed apply swapped")
+	}
+}
+
+func TestApplySetFeatureExpectedRevisionConflict(t *testing.T) {
+	svc, boot := mustBoot(t)
+	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: "sha256:dead",
+		Operations:       []model.Operation{setFeatureOp(FeatureIDHTTP2, true)},
+	})
+	requireCode(t, err, domainerr.CodeRevisionConflict)
+	if svc.Active().Revision != boot.Revision {
+		t.Fatal("conflict swapped")
+	}
+	if svc.Active().Canonical.Spec.Protocols.HTTP2.Enabled {
+		t.Fatal("conflict applied")
+	}
+}
+
+func TestApplySetFeatureMissingBody(t *testing.T) {
+	svc, boot := mustBoot(t)
+	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Operations:       []model.Operation{{Op: model.OpSetFeature}},
+	})
+	requireViolation(t, err, "operations[0].feature", "required", "")
+	if svc.Active().Revision != boot.Revision {
+		t.Fatal("missing body swapped")
+	}
+}
+
+func TestApplyReplaceCompatMissingBody(t *testing.T) {
+	svc, boot := mustBoot(t)
+	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Operations:       []model.Operation{{Op: model.OpReplaceCompat}},
+	})
+	requireViolation(t, err, "operations[0].compat", "required", "")
+}
+
+func TestApplyReplaceCompatPrefixCollision(t *testing.T) {
+	svc, boot := mustBoot(t)
+	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Operations: []model.Operation{{
+			Op: model.OpReplaceCompat,
+			Compat: &model.CompatSpec{FlowREST: model.FlowRESTCompatSpec{
+				Enabled:    true,
+				PathPrefix: "/v1",
+			}},
+		}},
+	})
+	requireCode(t, err, domainerr.CodeValidationFailed)
+	de, ok := domainerr.As(err)
+	if !ok {
+		t.Fatal("not a domain error")
+	}
+	found := false
+	for _, v := range de.FieldViolations {
+		if v.Path == "spec.compat.flowREST.pathPrefix" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected pathPrefix collision, got %+v", de.FieldViolations)
+	}
+	if svc.Active().Revision != boot.Revision {
+		t.Fatal("collision swapped")
+	}
+	if svc.Active().Canonical.Spec.Compat.FlowREST.Enabled {
+		t.Fatal("collision enabled compat")
+	}
+}
+
+func TestPlanReplaceRulesHasNoLiveNextConnection(t *testing.T) {
+	svc, boot := mustBoot(t)
+	plan, err := svc.Plan(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Operations:       []model.Operation{enableRules()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range plan.Warnings {
+		if w.Code == "live_next_connection" {
+			t.Fatalf("replaceRules must not warn live_next_connection: %+v", plan.Warnings)
+		}
+	}
 }
