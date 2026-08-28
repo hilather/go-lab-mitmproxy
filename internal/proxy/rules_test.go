@@ -761,7 +761,13 @@ func proxyDo(t *testing.T, proxyAddr, method, target, body string) *http.Respons
 }
 
 func TestResponseThrottlePacesBodyNotHeaders(t *testing.T) {
-	payload := bytes.Repeat([]byte("a"), 32<<10)
+	// Live #63: 4KiB at 1KiB/s. 8KiB/s + 32KiB was too loose — net/http's
+	// 4KiB bufio flushed headers mid-body (~500ms) and still passed <2s
+	// without Flush after WriteHeader. A body that fits in that buffer
+	// holds the status line until the handler returns (TTFH≈total≈4s).
+	const bodySize = 4 << 10
+	const bps = 1 << 10
+	payload := bytes.Repeat([]byte("a"), bodySize)
 	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Origin", "yes")
 		w.WriteHeader(http.StatusOK)
@@ -772,17 +778,25 @@ func TestResponseThrottlePacesBodyNotHeaders(t *testing.T) {
 		Enabled: true,
 		Phase:   model.RulePhaseResponse,
 		Match:   model.RuleMatchSpec{PathPrefix: "/big"},
-		Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8 << 10},
+		Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: bps},
 	})
 	px := startProxy(t, Options{Spec: spec})
+	c := writeAbsolute(t, px.Addr().String(), originURL, http.MethodGet, "/big", "")
+	_ = c.Conn.SetDeadline(time.Now().Add(15 * time.Second))
 	start := time.Now()
-	resp := proxyDo(t, px.Addr().String(), http.MethodGet, originURL+"/big", "")
+	resp, err := c.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer func() { _ = resp.Body.Close() }()
+	headerAt := time.Since(start)
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("X-Origin") != "yes" {
 		t.Fatalf("headers/status %d %v", resp.StatusCode, resp.Header)
 	}
-	if time.Since(start) >= 2*time.Second {
-		t.Fatalf("headers waited %s (looks like delay)", time.Since(start))
+	// time_starttransfer: status line + headers on the default HTTP/1.1 hop.
+	// Must be ≪ body time. No-Flush H1 fails here (TTFH≈4s).
+	if headerAt >= time.Second {
+		t.Fatalf("TTFH %s (status line delayed; need Flush after WriteHeader)", headerAt)
 	}
 	bodyStart := time.Now()
 	got, err := io.ReadAll(resp.Body)
@@ -793,9 +807,9 @@ func TestResponseThrottlePacesBodyNotHeaders(t *testing.T) {
 		t.Fatalf("body len %d", len(got))
 	}
 	if time.Since(start) < 3*time.Second {
-		t.Fatalf("client elapsed %s want >= 3s (~4s at 8KiB/s; wall timers run short)", time.Since(start))
+		t.Fatalf("client elapsed %s want >= 3s (~4s at 1KiB/s; wall timers run short)", time.Since(start))
 	}
-	if time.Since(bodyStart) < time.Second {
+	if time.Since(bodyStart) < 2*time.Second {
 		t.Fatalf("body elapsed %s; throttle must pace after headers", time.Since(bodyStart))
 	}
 	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {

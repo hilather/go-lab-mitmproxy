@@ -14,7 +14,8 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- D75 HTTP/1.1 response throttle now Flushes after `WriteHeader` so the status line and headers leave net/http bufio immediately. Time-to-first-header is ≪ body time on the default hop (issue [#63](https://github.com/hilather/go-lab-mitmproxy/issues/63)). A 4 KiB body at 1 KiB/s no longer looks like a 4s `delay`.
+- Request-phase `silent` / `hang` on an intercept hop now stamp the capture like `innerFlow` (`intercepted: true`, absolute https URL, TLS filled). Wire RST / CANCEL was already correct (issue [#64](https://github.com/hilather/go-lab-mitmproxy/issues/64)).
 
 ### Removed or deprecated
 

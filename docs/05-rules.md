@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-28 (D75 action.type throttle; status 407 is not proxy auth)
+Last reviewed: 2026-08-28 (D75 HTTP/1.1 WriteHeader Flush; intercept silent stamp)
 Related ADRs: 0002, 0013, 0014, 0015, 0016, 0017
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
@@ -85,6 +85,10 @@ Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. When `type=thr
 First-match-wins: one item cannot combine `delay` and `throttle`, and `phase: both` stays invalid. Two items are required to pace both directions. `Mutates(throttle)=false` — stay on the capture-only tee path.
 
 Throttle is not a 30s sleep. A 1 MiB body at 256 B/s is about 68 minutes and will hit default `upstreamTimeout` (60s), `idleTimeout` (120s), or `sessionTimeout` (10m). Raise those knobs when a long trickle is the goal: live `replaceAdmission` updates the session gate and pinned deadlines; `http.Server.IdleTimeout` stays Start-time. Concurrent matching requests each get the full configured rate (not a shared connection shaper). WebSocket `101` / Extended CONNECT websocket stay `late_skip` for request/response phase. Raw CONNECT / SOCKS tunnels have no HTTP-body rules. Replay does not evaluate rules.
+
+On the default HTTP/1.1 hop, `writeClientResponse` Flushes after `WriteHeader` when the `ResponseWriter` is an `http.Flusher` so net/http bufio does not hold the status line until the handler returns (D75; issue [#63](https://github.com/hilather/go-lab-mitmproxy/issues/63)). Time-to-first-header is then ≪ body time. Client-facing h2c already sends HEADERS before paced DATA. `writeConnResponse` (intercept HTTP/1.1) writes the status line to the raw conn immediately.
+
+Request-phase `silent` / `hang` on an intercept hop stamp the capture like a completed intercept (`innerFlow`): `intercepted: true`, absolute `https://host[:port]/path` URL, `TLS` filled. Wire RST / RST_STREAM `CANCEL` is unchanged. Cleartext and client-facing h2c stay on `flowFromReq` (`intercepted: false`). Response-phase silent/hang already used `completedFlow`.
 
 ## Breakpoint flow
 

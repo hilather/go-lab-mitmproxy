@@ -512,6 +512,11 @@ func writeClientResponse(w http.ResponseWriter, resp *http.Response) {
 	httputilx.PrepareResponse(resp.Header, false)
 	httputilx.CopyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
+	// D75: net/http bufio holds the status line until the handler returns
+	// unless we Flush. Headers must leave before paced body bytes (#63).
+	if fl, ok := w.(http.Flusher); ok {
+		fl.Flush()
+	}
 	if resp.Body != nil {
 		drainCopy(w, resp.Body)
 	}
@@ -577,12 +582,12 @@ func (s *Server) captureRule(f *model.Flow, req *http.Request, reqCap, respCap *
 // runRequestRules applies the request-phase hit. ruleSynthesize means a
 // synthetic HTTP response was written. ruleSilentClose means no HTTP bytes.
 func (s *Server) runRequestRules(ctx context.Context, w http.ResponseWriter, req *http.Request, host, scheme string, started time.Time, sess *ruleSession) ruleResult {
-	return s.runRequestRulesWrite(ctx, req, host, scheme, started, sess, func(resp *http.Response) {
+	return s.runRequestRulesWrite(ctx, req, host, "", scheme, started, sess, nil, func(resp *http.Response) {
 		writeClientResponse(w, resp)
 	})
 }
 
-func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, host, scheme string, started time.Time, sess *ruleSession, write func(*http.Response)) ruleResult {
+func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, host, port, scheme string, started time.Time, sess *ruleSession, info *model.TLSInfo, write func(*http.Response)) ruleResult {
 	if sess == nil || sess.reqHit == nil {
 		return ruleContinue
 	}
@@ -614,7 +619,7 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 		return ruleSynthesize
 	case model.ActionSilent:
 		sess.setCloseMode(hit)
-		s.captureSilentRequest(req, host, scheme, started, sess, hit, rules.FlowErrorSilent)
+		s.captureSilentRequest(req, host, port, scheme, started, sess, hit, rules.FlowErrorSilent, info)
 		return ruleSilentClose
 	case model.ActionHang:
 		d := rules.ClampHangTimeout(hit.Action.Hang.Timeout, s.specOf(sess).Proxy.Admission.SessionTimeout)
@@ -622,7 +627,7 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 			return ruleAbort
 		}
 		sess.setCloseMode(hit)
-		s.captureSilentRequest(req, host, scheme, started, sess, hit, rules.FlowErrorHang)
+		s.captureSilentRequest(req, host, port, scheme, started, sess, hit, rules.FlowErrorHang, info)
 		return ruleSilentClose
 	case model.ActionBreakpoint:
 		sess.reqCap = s.prepareRequestBody(req, hit, sess)
@@ -645,12 +650,15 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 	}
 }
 
-func (s *Server) captureSilentRequest(req *http.Request, host, scheme string, started time.Time, sess *ruleSession, hit *rules.Hit, ferr string) {
+func (s *Server) captureSilentRequest(req *http.Request, host, port, scheme string, started time.Time, sess *ruleSession, hit *rules.Hit, ferr string, info *model.TLSInfo) {
 	var reqCap *cappedWriter
 	if sess != nil {
 		reqCap = sess.reqCap
 	}
-	f := s.flowFromReq(req, host, scheme, 0, "", started)
+	// Intercept hops stamp like innerFlow (Intercepted, TLS, absolute https URL).
+	// Cleartext / h2c leave info nil and stay on flowFromReq (#64).
+	// Keep Error off completedFlow so State stays completed (D69).
+	f := s.completedFlow(req, host, port, scheme, 0, started, info, reqCap, nil)
 	f.Error = ferr
 	s.captureRule(f, req, reqCap, nil, nil, sess, hit)
 	s.metrics.session("ok")
