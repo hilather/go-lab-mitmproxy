@@ -125,6 +125,37 @@
       ]
     },
     {
+      "id": "features.get",
+      "title": "Feature catalog",
+      "version": "v1",
+      "description": "Derived hop/protocol catalog. Compact status.features booleans stay on status.get.",
+      "outputSchema": {
+        "name": "FeatureList"
+      },
+      "requiredScopes": [
+        "mitm.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/features"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "mitm_features_list"
+        ],
+        "resources": [
+          "labmitm://features"
+        ]
+      },
+      "serviceMethods": [
+        "Features"
+      ]
+    },
+    {
       "id": "schema.get",
       "title": "Config schema",
       "version": "v1",

@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: MCP, Application
-Last reviewed: 2026-08-23 (D66 gRPC decode)
-Related ADRs: 0004, 0006
+Last reviewed: 2026-08-28 (features.get)
+Related ADRs: 0004, 0006, 0013
 
 Native management API is `/v1` + `POST /mcp`. Capability IDs and tool names are frozen in [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md). Protocol pin: [docs/adr/0006-pin-mcp-protocol-versions.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0006-pin-mcp-protocol-versions.md).
 
@@ -33,6 +33,7 @@ MCP-001 implements `internal/control/mcp`: official SDK v1.7.0, protocol `2026-0
 | `mitm_version_get` | `version.get` | `mitm.read` |
 | `mitm_capabilities_get` | `capabilities.get` | `mitm.read` |
 | `mitm_status_get` | `status.get` | `mitm.read` |
+| `mitm_features_list` | `features.get` | `mitm.read` |
 | `mitm_schema_get` | `schema.get` | `mitm.read` |
 | `mitm_state_get` | `state.get` | `mitm.read` |
 | `mitm_state_validate` | `state.validate` | `mitm.admin` |
@@ -62,6 +63,7 @@ Health live/ready, OpenAPI, UI assets, session/CSRF, and `/v1/metrics` are **not
 |---|---|
 | `labmitm://capabilities` | `capabilities.get` |
 | `labmitm://status` | `status.get` |
+| `labmitm://features` | `features.get` |
 | `labmitm://schema/config` | `schema.get` |
 | `labmitm://state` | `state.get` |
 | `labmitm://flows` | `flows.list` |
@@ -71,7 +73,9 @@ Health live/ready, OpenAPI, UI assets, session/CSRF, and `/v1/metrics` are **not
 
 `subscriptions/listen` on `labmitm://flows` notifies **URI only**; clients pull bodies with `mitm_flows_list`.
 
-`mitm_flows_list` omits `websocket.frames` and `grpc.messages`. `mitm_flow_get` includes both when present. No new tools.
+`mitm_features_list` and `labmitm://features` return the same JSON as `GET /v1/features` (11 frozen rows). Compact `status.features` five 1.1 booleans stay on `mitm_status_get` / `labmitm://status`. Mutation stays `mitm_change_plan` / `mitm_change_apply`.
+
+`mitm_flows_list` omits `websocket.frames` and `grpc.messages`. `mitm_flow_get` includes both when present. No new websocket/gRPC tools.
 
 ## Auth
 

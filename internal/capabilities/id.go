@@ -10,6 +10,7 @@ const (
 	VersionGet      ID = "version.get"
 	CapabilitiesGet ID = "capabilities.get"
 	StatusGet       ID = "status.get"
+	FeaturesGet     ID = "features.get"
 	SchemaGet       ID = "schema.get"
 	StateGet        ID = "state.get"
 	StateValidate   ID = "state.validate"

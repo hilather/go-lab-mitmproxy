@@ -122,6 +122,14 @@ func TestContractReads(t *testing.T) {
 	if _, ok := feat["catalog"]; ok {
 		t.Fatalf("status.features must not nest catalog: %v", feat)
 	}
+	flist := structuredMap(t, callTool(t, cs, "mitm_features_list", map[string]any{}))
+	fitems, _ := flist["items"].([]any)
+	if len(fitems) != 11 {
+		t.Fatalf("features items=%v", flist)
+	}
+	if flist["runtimeRevision"] == "" {
+		t.Fatalf("features missing runtimeRevision: %v", flist)
+	}
 	schema := callTool(t, cs, "mitm_schema_get", map[string]any{})
 	raw, _ := json.Marshal(schema.StructuredContent)
 	if !strings.Contains(string(raw), "labmitm.dev/v1alpha1") {
@@ -169,6 +177,14 @@ func TestContractReads(t *testing.T) {
 	}
 	if !strings.Contains(pem, "BEGIN CERTIFICATE") {
 		t.Fatalf("ca=%v", ca)
+	}
+
+	featRes, err := cs.ReadResource(t.Context(), &sdk.ReadResourceParams{URI: "labmitm://features"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(featRes.Contents) == 0 || !strings.Contains(featRes.Contents[0].Text, `"items"`) {
+		t.Fatalf("resource features=%+v", featRes)
 	}
 
 	stateRes, err := cs.ReadResource(t.Context(), &sdk.ReadResourceParams{URI: "labmitm://state"})

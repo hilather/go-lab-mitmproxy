@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP
-Last reviewed: 2026-08-23 (1.2 status features keys)
-Related ADRs: 0004, 0005, 0006, 0007, 0011, 0012
+Last reviewed: 2026-08-28 (features.get catalog)
+Related ADRs: 0004, 0005, 0006, 0007, 0011, 0012, 0013
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
 
@@ -21,13 +21,13 @@ internal/auth             bearer → Principal
 internal/audit            ring
 ```
 
-`capabilities.CompatBindings()` is a **side table** of `REST_ONLY_PROTOCOL` extra spellings of existing `flows.*` IDs under default prefix `/compat`. `catalog()` / `All()` / native `compileRoutes` do **not** include those paths. `TableRowCount` stays 30. Native REST paths stay `/v1` only. `rest.Server` compiles the side table as extra routes and matches them **after** authenticate/authorize (not `dispatchMount`, not native `handleListFlows`). `RenderOpenAPI` emits the extra paths tagged `REST_ONLY`. No new MCP tools. Lab contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md). Headline: **LabMITM compat flow REST (mitmproxy-inspired subset).** Do not claim mitmproxy 11 compatible.
+`capabilities.CompatBindings()` is a **side table** of `REST_ONLY_PROTOCOL` extra spellings of existing `flows.*` IDs under default prefix `/compat`. `catalog()` / `All()` / native `compileRoutes` do **not** include those paths. `TableRowCount` is 31 (`features.get` after `status.get`). Native REST paths stay `/v1` only. `rest.Server` compiles the side table as extra routes and matches them **after** authenticate/authorize (not `dispatchMount`, not native `handleListFlows`). `RenderOpenAPI` emits the extra paths tagged `REST_ONLY`. No new MCP tools. Lab contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compat/flow-rest-contract.md). Headline: **LabMITM compat flow REST (mitmproxy-inspired subset).** Do not claim mitmproxy 11 compatible.
 
 ## Dispositions
 
 | Disposition | Examples |
 |---|---|
-| `PARITY_REQUIRED` | flows list/get/delete/clear/wait/resume/drop/replay, state get/validate/export/reset, status, schema, audit, changes plan/apply, ca get |
+| `PARITY_REQUIRED` | flows list/get/delete/clear/wait/resume/drop/replay, state get/validate/export/reset, status, features, schema, audit, changes plan/apply, ca get |
 | `REST_ONLY_PROTOCOL` | live/ready, OpenAPI, UI assets, session/CSRF, `/v1/metrics`, raw body download `Content-Type` streams; **1.1 extra spellings** of the same `flows.*` IDs under `/compat` (side table + after-auth mappers; not on `catalog()`) |
 | `MCP_ONLY_PROTOCOL` | `tools/list`, `resources/list`, protocol negotiate |
 | `PARITY_DIFFERENT_BINDING` | `events.stream`: REST SSE vs MCP `subscriptions/listen` URI-only notify + `mitm_flows_list` |
@@ -36,7 +36,7 @@ internal/audit            ring
 ## Scopes and roles
 
 ```
-mitm.read          list/get/wait/status/schema/state get/ca get
+mitm.read          list/get/wait/status/features/schema/state get/ca get
 mitm.write         delete, clear, resume, drop, replay
 mitm.admin         reset, plan/apply, export
 mitm.audit.read    audit ring
@@ -58,7 +58,8 @@ mitm.audit.read    audit ring
 | `health.ready` | `GET /v1/health/ready` | — | none | REST_ONLY |
 | `version.get` | `GET /v1/version` | `mitm_version_get` | `mitm.read` | |
 | `capabilities.get` | `GET /v1/capabilities` | `mitm_capabilities_get`, `labmitm://capabilities` | `mitm.read` | |
-| `status.get` | `GET /v1/status` | `mitm_status_get`, `labmitm://status` | `mitm.read` | listeners, store stats, revisions, intercept on/off, `features.{http2,http2ClientCleartext,http2Origin,http2ExtendedConnect,http2CapturePush,http2GRPCDecode,inspectWebSocketFrames,socks5,socks4,acceptBind,acceptUDPAssociate,acceptUserPass,originalDestination,compatFlowREST}` (spec flags; default false), `ca.{mode,spkiSha256,subject,notAfter}` (never key) |
+| `status.get` | `GET /v1/status` | `mitm_status_get`, `labmitm://status` | `mitm.read` | listeners, store stats, revisions, intercept on/off, `features.{http2,http2ClientCleartext,http2Origin,http2ExtendedConnect,http2CapturePush,http2GRPCDecode,inspectWebSocketFrames,socks5,socks4,acceptBind,acceptUDPAssociate,acceptUserPass,originalDestination,compatFlowREST}` (spec flags; default false), `ca.{mode,spkiSha256,subject,notAfter}` (never key). Compact five 1.1 booleans only — **not** the 11-row catalog |
+| `features.get` | `GET /v1/features` | `mitm_features_list`, `labmitm://features` | `mitm.read` | derived 11-row hop/protocol catalog (`id`, `yamlPath`, `enabled`, `applyMode` live\|reset, `verb` setFeature\|replaceTLS\|reset). Mutation stays `changes.plan` / `changes.apply`. Do not nest under `status.features` |
 | `schema.get` | `GET /v1/schema/config` | `mitm_schema_get`, `labmitm://schema/config` | `mitm.read` | |
 | `state.get` | `GET /v1/state` | `mitm_state_get`, `labmitm://state` | `mitm.read` | redacted spec + revisions |
 | `state.validate` | `POST /v1/state:validate` | `mitm_state_validate` | `mitm.admin` | |

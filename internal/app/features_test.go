@@ -210,9 +210,19 @@ func TestAppFeaturesMatchesSnapshotAndLeavesInbox(t *testing.T) {
 	}
 }
 
-func TestFeatureCatalogDoesNotGrowCapabilityTable(t *testing.T) {
-	if capabilities.TableRowCount != 30 {
-		t.Fatalf("TableRowCount=%d; features.get is not in this change", capabilities.TableRowCount)
+func TestFeatureCatalogCapabilityRow(t *testing.T) {
+	if capabilities.TableRowCount != 31 {
+		t.Fatalf("TableRowCount=%d want 31", capabilities.TableRowCount)
+	}
+	c, ok := capabilities.Lookup(capabilities.FeaturesGet)
+	if !ok {
+		t.Fatal("features.get missing from catalog")
+	}
+	if c.OutputSchema == nil || c.OutputSchema.Name != "FeatureList" {
+		t.Fatalf("output schema=%+v", c.OutputSchema)
+	}
+	if len(c.ServiceMethods) != 1 || c.ServiceMethods[0] != "Features" {
+		t.Fatalf("ServiceMethods=%v", c.ServiceMethods)
 	}
 }
 

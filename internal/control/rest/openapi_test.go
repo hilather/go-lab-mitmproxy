@@ -27,6 +27,16 @@ func TestRenderOpenAPI(t *testing.T) {
 	if _, ok := paths["/v1/ca"]; !ok {
 		t.Fatal("missing ca path")
 	}
+	if _, ok := paths["/v1/features"]; !ok {
+		t.Fatal("missing features path")
+	}
+	comps, _ := doc["components"].(map[string]any)
+	schemas, _ := comps["schemas"].(map[string]any)
+	for _, name := range []string{"FeatureList", "Feature", "FeaturePatch"} {
+		if _, ok := schemas[name]; !ok {
+			t.Errorf("openapi missing schema %s", name)
+		}
+	}
 	if _, ok := paths["/v1/flows/{id}:replay"]; !ok {
 		t.Fatal("missing replay path")
 	}

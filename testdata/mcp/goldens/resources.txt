@@ -1,5 +1,6 @@
 labmitm://capabilities
 labmitm://status
+labmitm://features
 labmitm://schema/config
 labmitm://state
 labmitm://flows

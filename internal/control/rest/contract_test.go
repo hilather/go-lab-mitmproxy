@@ -203,6 +203,49 @@ func TestFlowBodyDoesNotReflectCapturedHTMLType(t *testing.T) {
 	}
 }
 
+func TestContractFeaturesGet(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+
+	unauth := doReqAuth(t, h, http.MethodGet, "/v1/features", "", "")
+	requireProblem(t, unauth, http.StatusUnauthorized, "unauthenticated")
+
+	got := doReq(t, h, http.MethodGet, "/v1/features", "")
+	requireStatus(t, got, http.StatusOK)
+	body := decodeJSON(t, got)
+	items, _ := body["items"].([]any)
+	if len(items) != 11 {
+		t.Fatalf("items=%d body=%s", len(items), got.Body.String())
+	}
+	if body["runtimeRevision"] == "" {
+		t.Fatalf("missing runtimeRevision: %s", got.Body.String())
+	}
+	ids := map[string]bool{}
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		id, _ := item["id"].(string)
+		if id == "" {
+			t.Fatalf("item missing id: %v", raw)
+		}
+		ids[id] = true
+		if item["yamlPath"] == nil || item["applyMode"] == nil || item["verb"] == nil {
+			t.Fatalf("item incomplete: %v", raw)
+		}
+	}
+	for _, want := range []string{"protocols.http2", "protocols.websocket", "listeners.originalDestination", "ui.enabled"} {
+		if !ids[want] {
+			t.Fatalf("missing catalog id %s: %s", want, got.Body.String())
+		}
+	}
+
+	st := doReq(t, h, http.MethodGet, "/v1/status", "")
+	requireStatus(t, st, http.StatusOK)
+	feat, _ := decodeJSON(t, st)["features"].(map[string]any)
+	if _, ok := feat["catalog"]; ok {
+		t.Fatalf("status.features must not nest catalog: %s", st.Body.String())
+	}
+}
+
 func TestUnauthenticatedIs401(t *testing.T) {
 	s, _ := newTestServer(t)
 	got := doReqAuth(t, s.Handler(), http.MethodGet, "/v1/flows", "", "")

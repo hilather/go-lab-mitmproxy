@@ -3,7 +3,7 @@ package capabilities
 import "fmt"
 
 // TableRowCount is the number of frozen first-GA capability table rows.
-const TableRowCount = 30
+const TableRowCount = 31
 
 type indexes struct {
 	all    []Capability

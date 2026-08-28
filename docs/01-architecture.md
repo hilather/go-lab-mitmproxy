@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-28 (hop 403 + live setFeature for websocket/connect/absoluteForm)
+Last reviewed: 2026-08-28 (features.get catalog)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013
 
 ## Problem statement
@@ -330,7 +330,7 @@ TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`,
 
 ## Residual limitations
 
-See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). 1.0 defaults remain the process defaults. 1.1 opt-in flags default off (D22); 1.0-preserving hop gates default on (D22 carve). 1.2 flags are default-off, Reset-only (D51'). Overlay YAML stays flags-off. Catalog stays 30 `/v1` rows. **D7 stands.**
+See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). 1.0 defaults remain the process defaults. 1.1 opt-in flags default off (D22); 1.0-preserving hop gates default on (D22 carve). 1.2 flags are default-off, Reset-only (D51'). Overlay YAML stays flags-off. Catalog is 31 `/v1` rows including `features.get`. **D7 stands.**
 
 - HTTP/3 / QUIC still out. No `h3` ALPN, no datagrams. HTTP/2 inner is `protocols.http2.enabled` (default off). Client-facing h2c is `protocols.http2.clientCleartext` (default off, Reset-only); flag-off `PRI` is still a hard close.
 - GSSAPI (SOCKS method `0x01`) is never selected.
@@ -343,7 +343,7 @@ See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blo
 - Orig-dest is Linux-only REDIRECT + `SO_ORIGINAL_DST`, default off. Supported topologies are shared-netns + sidecar iptables or host-network REDIRECT (D50). Publishing `8890` is not transparent.
 - Compat flow REST is a mitmproxy-inspired **subset** (default off, live `setFeature` / `replaceCompat`). Not mitmproxy 11 compatible. Prefix collision stays `validation_failed`. `/compat` is **not** on `catalog()`.
 - SOCKS5/4 CONNECT is opt-in. BIND, UDP ASSOCIATE, and username/password require their own 1.2 flags. GSSAPI is never selected.
-- 1.1 hop/accept flags the running proxy already honors (`acceptSOCKS5`/`acceptSOCKS4`, `protocols.http2.enabled`, `protocols.websocket` / `connect` / `absoluteForm`, `compat.flowREST`, `rules.enabled`, `ui.enabled`) are live-applyable via `setFeature` / `replaceCompat` (D51') without Reset or wiping flows. Disabled hop gates 403 `forbidden` before rules/Dial. Orig-dest **bind** + listener **addresses** + management TLS files + `metrics.listen` stay Reset-only. 1.2 nested flags (`acceptBind`/`acceptUDPAssociate`/`acceptUserPass`, `protocols.http2.clientCleartext`/`origin`/`extendedConnect`/`capturePush`/`grpcDecode`, `protocols.websocket.inspectFrames`) stay Reset-only. `features.get` is not on this process yet ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)).
+- 1.1 hop/accept flags the running proxy already honors (`acceptSOCKS5`/`acceptSOCKS4`, `protocols.http2.enabled`, `protocols.websocket` / `connect` / `absoluteForm`, `compat.flowREST`, `rules.enabled`, `ui.enabled`) are live-applyable via `setFeature` / `replaceCompat` (D51') without Reset or wiping flows. Disabled hop gates 403 `forbidden` before rules/Dial. Orig-dest **bind** + listener **addresses** + management TLS files + `metrics.listen` stay Reset-only. 1.2 nested flags (`acceptBind`/`acceptUDPAssociate`/`acceptUserPass`, `protocols.http2.clientCleartext`/`origin`/`extendedConnect`/`capturePush`/`grpcDecode`, `protocols.websocket.inspectFrames`) stay Reset-only. `features.get` lists the 11-row catalog on `GET /v1/features`, `mitm_features_list`, and `labmitm://features` ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)). Compact `status.features` five 1.1 booleans stay on `status.get`.
 - WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Inner and client-facing RFC 8441 `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); nested inner CONNECT without `:protocol` still RST, **no flow**. Client-facing h2c CONNECT (RFC 9113 §8.5) is on when `clientCleartext` is on (D62).
 - gRPC protobuf decode: flag-off is HTTP/2 headers + DATA only; flag-on `protocols.http2.grpcDecode` (Reset-only, D66) is an in-tree length-prefix + wire tree. **grpc-web stays opaque.**
 - Generate-mode CA rotates on every restart/reset.

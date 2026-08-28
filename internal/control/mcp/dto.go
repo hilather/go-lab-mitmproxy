@@ -228,6 +228,23 @@ type capabilityInfoJSON struct {
 	Idempotent  bool   `json:"idempotent"`
 }
 
+type featureListJSON struct {
+	RuntimeRevision string        `json:"runtimeRevision"`
+	Generation      uint64        `json:"generation"`
+	Drifted         bool          `json:"drifted"`
+	Items           []featureJSON `json:"items"`
+}
+
+type featureJSON struct {
+	ID          string `json:"id"`
+	YAMLPath    string `json:"yamlPath"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+	ApplyMode   string `json:"applyMode"`
+	Verb        string `json:"verb"`
+}
+
 type statusJSON struct {
 	Ready     bool               `json:"ready"`
 	Revisions json.RawMessage    `json:"revisions"`
@@ -487,6 +504,30 @@ func fromCapabilities() capabilityViewJSON {
 		})
 	}
 	return capabilityViewJSON{Capabilities: out}
+}
+
+func fromFeatureList(list *app.FeatureList) featureListJSON {
+	if list == nil {
+		return featureListJSON{Items: []featureJSON{}}
+	}
+	items := make([]featureJSON, 0, len(list.Items))
+	for _, f := range list.Items {
+		items = append(items, featureJSON{
+			ID:          f.ID,
+			YAMLPath:    f.YAMLPath,
+			Title:       f.Title,
+			Description: f.Description,
+			Enabled:     f.Enabled,
+			ApplyMode:   f.ApplyMode,
+			Verb:        f.Verb,
+		})
+	}
+	return featureListJSON{
+		RuntimeRevision: string(list.RuntimeRevision),
+		Generation:      uint64(list.Generation),
+		Drifted:         list.Drifted,
+		Items:           items,
+	}
 }
 
 func fromStatus(st *app.Status, view *app.StateView) (statusJSON, error) {

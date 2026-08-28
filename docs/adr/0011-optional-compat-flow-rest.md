@@ -47,4 +47,4 @@ Review when a named consumer appears, when OpenAPI should emit CompatBindings pa
 
 ## Notes (D51')
 
-[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) **replaces D51** with **D51'** (live hop/accept vs Reset bind). `compat.flowREST.enabled` is live `setFeature`; `pathPrefix` is live `replaceCompat` only. Those verbs **are** on this process for the honor-list. Hop 403 and `features.get` are not. `/compat` is still **not** on `catalog()` / native `compileRoutes` (D33). Remainder of this ADR stands.
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) **replaces D51** with **D51'** (live hop/accept vs Reset bind). `compat.flowREST.enabled` is live `setFeature`; `pathPrefix` is live `replaceCompat` only. Those verbs **are** on this process for the honor-list. Hop 403 and `features.get` **are** on this process. `/compat` is still **not** on `catalog()` / native `compileRoutes` (D33). Remainder of this ADR stands.

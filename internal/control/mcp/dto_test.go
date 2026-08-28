@@ -9,6 +9,29 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
 
+func TestFromFeatureList(t *testing.T) {
+	empty := fromFeatureList(nil)
+	if empty.Items == nil || len(empty.Items) != 0 {
+		t.Fatalf("nil list=%+v", empty)
+	}
+	out := fromFeatureList(&app.FeatureList{
+		RuntimeRevision: "sha256:abc",
+		Generation:      4,
+		Drifted:         true,
+		Items: []app.Feature{{
+			ID: "listeners.originalDestination", YAMLPath: "spec.listeners.originalDestination.enabled",
+			Title: "Original-destination REDIRECT", Description: "d", Enabled: false,
+			ApplyMode: app.FeatureApplyReset, Verb: app.FeatureVerbReset,
+		}},
+	})
+	if out.RuntimeRevision != "sha256:abc" || out.Generation != 4 || !out.Drifted || len(out.Items) != 1 {
+		t.Fatalf("%+v", out)
+	}
+	if out.Items[0].Enabled || out.Items[0].Verb != "reset" || out.Items[0].ApplyMode != "reset" {
+		t.Fatalf("item=%+v", out.Items[0])
+	}
+}
+
 func TestFeaturesFromSpecCompactFromStatus(t *testing.T) {
 	st := &app.Status{Features: app.StatusFeatures{HTTP2: true, SOCKS4: true, OriginalDestination: true}}
 	sp := &model.Spec{}

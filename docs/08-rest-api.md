@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-23 (D66 gRPC decode)
-Related ADRs: 0004, 0005, 0007, 0011, 0012
+Last reviewed: 2026-08-28 (features.get)
+Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
 
@@ -101,6 +101,33 @@ Heartbeat comment every 15s. MCP `subscriptions/listen` on `labmitm://flows` not
 `GET /v1/ca` returns `application/x-pem-file` (cert only, never key). Scope `mitm.read`. Not served on the unauthenticated data plane.
 
 `GET /v1/status` includes `ca.mode`, `ca.spkiSha256`, `ca.subject`, `ca.notAfter`.
+
+## Feature catalog
+
+`GET /v1/features` (`mitm.read`) returns the derived hop/protocol catalog for the active snapshot:
+
+```json
+{
+  "runtimeRevision": "sha256:…",
+  "generation": 4,
+  "drifted": true,
+  "items": [
+    {
+      "id": "protocols.websocket",
+      "yamlPath": "spec.protocols.websocket.enabled",
+      "title": "WebSocket upgrade",
+      "description": "…",
+      "enabled": true,
+      "applyMode": "live",
+      "verb": "setFeature"
+    }
+  ]
+}
+```
+
+Eleven frozen rows. Compact `status.features` five 1.1 booleans stay on `GET /v1/status` and are **not** nested as `features.catalog`. Mutation is `POST /v1/changes:plan` / `:apply` (`setFeature` / `replaceTLS` / Reset), not a dedicated features write verb.
+
+Unauthenticated `GET /v1/features` is 401.
 
 ## Config plan/apply
 

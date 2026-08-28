@@ -344,6 +344,40 @@ func openAPIComponents() map[string]any {
 				"status": map[string]any{"type": "string"},
 			},
 		},
+		"Feature": map[string]any{
+			"type":        "object",
+			"description": "One derived hop/protocol gate.",
+			"required":    []any{"id", "yamlPath", "title", "description", "enabled", "applyMode", "verb"},
+			"properties": map[string]any{
+				"id":          map[string]any{"type": "string"},
+				"yamlPath":    map[string]any{"type": "string"},
+				"title":       map[string]any{"type": "string"},
+				"description": map[string]any{"type": "string"},
+				"enabled":     map[string]any{"type": "boolean"},
+				"applyMode":   map[string]any{"type": "string", "enum": []any{"live", "reset"}},
+				"verb":        map[string]any{"type": "string", "enum": []any{"setFeature", "replaceTLS", "reset"}},
+			},
+		},
+		"FeatureList": map[string]any{
+			"type":        "object",
+			"description": "Derived hop/protocol catalog plus snapshot revision metadata.",
+			"required":    []any{"runtimeRevision", "generation", "drifted", "items"},
+			"properties": map[string]any{
+				"runtimeRevision": map[string]any{"type": "string"},
+				"generation":      map[string]any{"type": "integer"},
+				"drifted":         map[string]any{"type": "boolean"},
+				"items":           map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/Feature"}},
+			},
+		},
+		"FeaturePatch": map[string]any{
+			"type":        "object",
+			"description": "setFeature body: one closed catalog ID and its bool.",
+			"required":    []any{"id", "enabled"},
+			"properties": map[string]any{
+				"id":      map[string]any{"type": "string"},
+				"enabled": map[string]any{"type": "boolean"},
+			},
+		},
 		"CompatFlow": map[string]any{
 			"type":        "object",
 			"description": "LabMITM compat flow REST (mitmproxy-inspired subset). Not a mitmproxy 11 drop-in.",

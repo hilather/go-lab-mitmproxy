@@ -32,6 +32,8 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, instance strin
 		s.writeJSON(w, http.StatusOK, fromCapabilities())
 	case capabilities.StatusGet:
 		s.handleStatus(w, r, instance, ctx, actor)
+	case capabilities.FeaturesGet:
+		s.handleFeatures(w, r, instance, ctx, actor)
 	case capabilities.SchemaGet:
 		s.handleSchema(w, r, instance)
 	case capabilities.StateGet:
@@ -150,6 +152,16 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request, instance s
 		out.Features = featuresFromSpec(st, nil)
 	}
 	s.writeJSON(w, http.StatusOK, out)
+	_ = r
+}
+
+func (s *Server) handleFeatures(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	list, err := s.svc.Features(ctx, actor)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	s.writeJSON(w, http.StatusOK, fromFeatureList(list))
 	_ = r
 }
 

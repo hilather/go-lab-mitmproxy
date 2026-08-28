@@ -115,7 +115,7 @@ Every data-plane entry that can produce a captured hop. Implementers must not ad
 
 Catalog IDs are YAML paths, **not** a parallel `spec.features` map. Frozen ID order: `protocols.http2`, `protocols.websocket`, `protocols.connect`, `protocols.absoluteForm`, `listeners.proxy.acceptSOCKS5`, `listeners.proxy.acceptSOCKS4`, `listeners.originalDestination`, `compat.flowREST`, `tls.intercept`, `rules.enabled`, `ui.enabled`.
 
-Listing is a new `features.get` capability (`GET /v1/features`, `mitm_features_list`, `labmitm://features`), `mitm.read`, insert **after** `status.get` (`TableRowCount` 30 → 31). Mutation stays on `changes.plan` / `changes.apply`. Compact 1.1 booleans on `status.get` remain; the catalog array is **not** nested under `status.features`. Adapters must not reimplement `featuresFromSpec`. **Do not add `features.get` to `catalog()` in this change.**
+Listing is a new `features.get` capability (`GET /v1/features`, `mitm_features_list`, `labmitm://features`), `mitm.read`, insert **after** `status.get` (`TableRowCount` 30 → 31). Mutation stays on `changes.plan` / `changes.apply`. Compact 1.1 booleans on `status.get` remain; the catalog array is **not** nested under `status.features`. Adapters must not reimplement `featuresFromSpec`. `features.get` **is** on `catalog()` (31 rows).
 
 ### Closed product calls
 
@@ -128,8 +128,8 @@ Listing is a new `features.get` capability (`GET /v1/features`, `mitm_features_l
 
 - D51 readers must follow D51' (this ADR) for hop/accept vs bind. 1.2 nested flags remain Reset-only.
 - Operators must not be told “all new fields default off” and also shipped default-true hop gates. Docs/06 and known-limitations state the D22 carve.
-- `setFeature` / `replaceCompat` **are** live on this process for the closed honor-list (`protocols.http2`, `acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST`, `rules.enabled`, `ui.enabled`). `setFeature` of `protocols.websocket` / `connect` / `absoluteForm` is `validation_failed` until hop 403 lands. Hop 403 and `features.get` are **not** on this process. CHANGELOG does not claim websocket is live. Empty `spec: {}` hop behavior stays 1.0 until the proxy PR honors the default-true gates.
-- Catalog stays 30 `/v1` rows until `features.get` lands. No new capability IDs in this change.
+- `setFeature` / `replaceCompat` **are** live on this process for the closed honor-list including `protocols.websocket` / `connect` / `absoluteForm`. Hop 403 is on this process. `features.get` is on this process (`GET /v1/features`, `mitm_features_list`, `labmitm://features`). Empty `spec: {}` hop behavior stays 1.0 at defaults (websocket/connect/absoluteForm on).
+- Catalog is 31 `/v1` rows including `features.get`. `/compat` stays a side table.
 - Dial isolation unchanged: no new Dial sites. `internal/tlsmitm` still does not Dial. Target guards still check every resolved A/AAAA.
 - D7 is **not** superseded.
 
@@ -145,4 +145,4 @@ Listing is a new `features.get` capability (`GET /v1/features`, `mitm_features_l
 
 ## Review triggers
 
-Review when live-apply of 1.2 nested flags is proposed (needs a new ADR), when orig-dest live bind/unbind is proposed, when a `replaceProtocols` verb is requested, when `features.get` is added to `catalog()`, or when Status toggling `ui.enabled` is reconsidered.
+Review when live-apply of 1.2 nested flags is proposed (needs a new ADR), when orig-dest live bind/unbind is proposed, when a `replaceProtocols` verb is requested, or when Status toggling `ui.enabled` is reconsidered.

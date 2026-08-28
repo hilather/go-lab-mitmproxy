@@ -27,6 +27,13 @@ func (s *Server) registerTools() {
 	addTool(s, "mitm_status_get", statusDesc, false, true, func(ctx context.Context, actor app.Actor, _ emptyIn) (any, error) {
 		return s.statusDTO(ctx, actor)
 	})
+	addTool(s, "mitm_features_list", featuresDesc, false, true, func(ctx context.Context, actor app.Actor, _ emptyIn) (any, error) {
+		list, err := s.svc.Features(ctx, actor)
+		if err != nil {
+			return nil, err
+		}
+		return fromFeatureList(list), nil
+	})
 	addTool(s, "mitm_schema_get", schemaDesc, false, true, func(ctx context.Context, actor app.Actor, _ emptyIn) (any, error) {
 		_ = actor
 		b, err := config.SchemaBytes()
@@ -322,6 +329,7 @@ const (
 	versionDesc      = "Read-only. Build and protocol versions (MCP " + ProtocolVersion + ")."
 	capDesc          = "Read-only. Capability list and protocol metadata."
 	statusDesc       = "Read-only. Listeners, store stats, revisions, intercept, and CA metadata (never the key)."
+	featuresDesc     = "Read-only. Derived hop/protocol catalog. Compact status.features booleans stay on status.get."
 	schemaDesc       = "Read-only. Published v1alpha1 config JSON Schema."
 	stateGetDesc     = "Read-only. Redacted spec plus revision metadata."
 	validateDesc     = "Read-only dry-run. Validate a candidate document and/or operations without writing."

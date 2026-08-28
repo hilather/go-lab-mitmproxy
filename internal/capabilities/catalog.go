@@ -44,6 +44,15 @@ func catalog() []Capability {
 			ServiceMethods: []string{"Status"},
 		},
 		{
+			ID: FeaturesGet, Title: "Feature catalog", Version: VersionTag,
+			Description:    "Derived hop/protocol catalog. Compact status.features booleans stay on status.get.",
+			RequiredScopes: []string{ScopeMITMRead}, Idempotent: true,
+			OutputSchema:   &SchemaRef{Name: "FeatureList"},
+			REST:           []RESTBinding{{Method: "GET", Path: "/v1/features"}},
+			MCP:            &MCPBinding{Tools: []string{"mitm_features_list"}, Resources: []string{"labmitm://features"}},
+			ServiceMethods: []string{"Features"},
+		},
+		{
 			ID: SchemaGet, Title: "Config schema", Version: VersionTag,
 			Description:    "Published v1alpha1 config JSON Schema.",
 			RequiredScopes: []string{ScopeMITMRead}, Idempotent: true,

@@ -2,11 +2,11 @@
 
 Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-28 (hop 403 + live setFeature for websocket/connect/absoluteForm)
+Last reviewed: 2026-08-28 (features.get listing)
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.2.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.2.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68. ADR [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) records **D51'** (live hop/accept vs Reset bind) and the **D22 carve** (1.0-preserving hop gates default on).
 
-LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge proxy and not an attack framework. It never wraps, vendors, or execs Python mitmproxy. **D7 stands.** Overlay YAML ([examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml)) keeps every 1.1 and 1.2 flag **off**. Catalog stays 30 `/v1` rows. No new capability IDs.
+LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge proxy and not an attack framework. It never wraps, vendors, or execs Python mitmproxy. **D7 stands.** Overlay YAML ([examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml)) keeps every 1.1 and 1.2 flag **off**. Catalog is 31 `/v1` rows including `features.get`.
 
 ## 1.0 defaults remain the process defaults
 
@@ -26,7 +26,7 @@ LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge prox
 | Standalone binds | `127.0.0.1:8888` / `127.0.0.1:8088` (D10) | Empty orig-dest address → `127.0.0.1:8890` when enabled |
 | Image | `USER 65532:65532`, `cap_drop: ALL`, no `NET_ADMIN` | **Unchanged.** iptables is sidecar/host only |
 
-**D51' live hop/accept vs Reset bind** ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)). Hop/accept flags the running proxy honors (`protocols.http2.enabled`, `protocols.websocket` / `connect` / `absoluteForm`, `acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST`, `rules.enabled`, `ui.enabled`) are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree, including `pathPrefix`) without Reset or wiping flows. Disabled hop gates 403 `forbidden` before rules/Dial. Orig-dest **bind**, listener **addresses**, management TLS files, and `metrics.listen` stay Reset-only. 1.2 nested flags stay Reset-only. There is no `replaceProtocols` / `replaceProxyAccept`. `maxConcurrentStreams` rides `replaceAdmission` (new TCP sessions only). `features.get` is **not** on this process yet (REST/MCP listing is a later PR).
+**D51' live hop/accept vs Reset bind** ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)). Hop/accept flags the running proxy honors (`protocols.http2.enabled`, `protocols.websocket` / `connect` / `absoluteForm`, `acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST`, `rules.enabled`, `ui.enabled`) are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree, including `pathPrefix`) without Reset or wiping flows. Disabled hop gates 403 `forbidden` before rules/Dial. Orig-dest **bind**, listener **addresses**, management TLS files, and `metrics.listen` stay Reset-only. 1.2 nested flags stay Reset-only. There is no `replaceProtocols` / `replaceProxyAccept`. `maxConcurrentStreams` rides `replaceAdmission` (new TCP sessions only). `features.get` lists the 11-row catalog (`GET /v1/features`, `mitm_features_list`, `labmitm://features`); mutation stays `changes.plan` / `changes.apply`. Compact `status.features` five 1.1 booleans stay on `status.get`.
 
 Legal YAML names are camelCase (`acceptSOCKS5`, `acceptBind`, `acceptUDPAssociate`, `acceptUserPass`, `originalDestination`, `protocols.http2`, `protocols.websocket`, `compat.flowREST`). Reserved keys (`socks*`, `tproxy`, `transparent`, `mitmproxy*`, `reverseproxy`, …) stay forbidden. `accept-socks5` / `accept-bind` fail KnownFields.
 
@@ -101,7 +101,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 
 - Management listener only. Same bearer as `/v1`. Cookie mutations still require CSRF.
 - List is a JSON **array** of the newest 200 flows; `X-LabMITM-Truncated: true` when more exist. Native `/v1/flows` is the paginated API.
-- Disabled prefix is `404` (SPA cannot swallow it). No new MCP tools. Catalog stays 30 `/v1` rows. Compat does not grow a frames or gRPC array.
+- Disabled prefix is `404` (SPA cannot swallow it). No new MCP tools. `/compat` is **not** on `catalog()`. Compat does not grow a frames or gRPC array.
 
 ## Not a public edge proxy (unchanged)
 

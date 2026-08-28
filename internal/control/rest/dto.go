@@ -50,6 +50,23 @@ type statusResponse struct {
 	Features  statusFeaturesJSON `json:"features"`
 }
 
+type featureListJSON struct {
+	RuntimeRevision string        `json:"runtimeRevision"`
+	Generation      uint64        `json:"generation"`
+	Drifted         bool          `json:"drifted"`
+	Items           []featureJSON `json:"items"`
+}
+
+type featureJSON struct {
+	ID          string `json:"id"`
+	YAMLPath    string `json:"yamlPath"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+	ApplyMode   string `json:"applyMode"`
+	Verb        string `json:"verb"`
+}
+
 type statusFeaturesJSON struct {
 	HTTP2                  bool `json:"http2"`
 	HTTP2ClientCleartext   bool `json:"http2ClientCleartext"`
@@ -515,6 +532,30 @@ func fromMessage(m model.HTTPMessage, listItem bool) messageJSON {
 		out.Body = string(m.Body)
 	}
 	return out
+}
+
+func fromFeatureList(list *app.FeatureList) featureListJSON {
+	if list == nil {
+		return featureListJSON{Items: []featureJSON{}}
+	}
+	items := make([]featureJSON, 0, len(list.Items))
+	for _, f := range list.Items {
+		items = append(items, featureJSON{
+			ID:          f.ID,
+			YAMLPath:    f.YAMLPath,
+			Title:       f.Title,
+			Description: f.Description,
+			Enabled:     f.Enabled,
+			ApplyMode:   f.ApplyMode,
+			Verb:        f.Verb,
+		})
+	}
+	return featureListJSON{
+		RuntimeRevision: string(list.RuntimeRevision),
+		Generation:      uint64(list.Generation),
+		Drifted:         list.Drifted,
+		Items:           items,
+	}
 }
 
 func featuresFromSpec(st *app.Status, sp *model.Spec) statusFeaturesJSON {

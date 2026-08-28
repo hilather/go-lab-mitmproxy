@@ -36,7 +36,7 @@ func TestCatalogStructure(t *testing.T) {
 
 func TestFrozenIDsStable(t *testing.T) {
 	want := []ID{
-		HealthLive, HealthReady, VersionGet, CapabilitiesGet, StatusGet, SchemaGet,
+		HealthLive, HealthReady, VersionGet, CapabilitiesGet, StatusGet, FeaturesGet, SchemaGet,
 		StateGet, StateValidate, StateExport, StateReset, ChangesPlan, ChangesApply,
 		SessionCreate, SessionDelete, SessionGet, EventsStream,
 		FlowsList, FlowsGet, FlowsRequest, FlowsResponse,
@@ -65,6 +65,17 @@ func TestLookupRESTAndTool(t *testing.T) {
 	}
 	if _, ok := LookupResource("labmitm://status"); !ok {
 		t.Fatal("missing labmitm://status")
+	}
+	feat, ok := LookupREST("GET", "/v1/features")
+	if !ok || feat.ID != FeaturesGet {
+		t.Fatalf("LookupREST GET /v1/features = %+v ok=%v", feat, ok)
+	}
+	featTools := LookupTool("mitm_features_list")
+	if len(featTools) != 1 || featTools[0].ID != FeaturesGet {
+		t.Fatalf("LookupTool features = %+v", featTools)
+	}
+	if _, ok := LookupResource("labmitm://features"); !ok {
+		t.Fatal("missing labmitm://features")
 	}
 	if _, ok := LookupREST("GET", "/v1/nope"); ok {
 		t.Fatal("unexpected REST hit")

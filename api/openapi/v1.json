@@ -55,6 +55,94 @@
         "description": "Application type Export.",
         "type": "object"
       },
+      "Feature": {
+        "description": "One derived hop/protocol gate.",
+        "properties": {
+          "applyMode": {
+            "enum": [
+              "live",
+              "reset"
+            ],
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "verb": {
+            "enum": [
+              "setFeature",
+              "replaceTLS",
+              "reset"
+            ],
+            "type": "string"
+          },
+          "yamlPath": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "yamlPath",
+          "title",
+          "description",
+          "enabled",
+          "applyMode",
+          "verb"
+        ],
+        "type": "object"
+      },
+      "FeatureList": {
+        "description": "Derived hop/protocol catalog plus snapshot revision metadata.",
+        "properties": {
+          "drifted": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Feature"
+            },
+            "type": "array"
+          },
+          "runtimeRevision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtimeRevision",
+          "generation",
+          "drifted",
+          "items"
+        ],
+        "type": "object"
+      },
+      "FeaturePatch": {
+        "description": "setFeature body: one closed catalog ID and its bool.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "enabled"
+        ],
+        "type": "object"
+      },
       "FieldViolation": {
         "properties": {
           "code": {
@@ -847,6 +935,45 @@
           "events"
         ],
         "x-capability-id": "events.stream",
+        "x-idempotent": true,
+        "x-mutating": false,
+        "x-required-scopes": [
+          "mitm.read"
+        ]
+      }
+    },
+    "/v1/features": {
+      "get": {
+        "description": "Derived hop/protocol catalog. Compact status.features booleans stay on status.get.",
+        "operationId": "get_v1_features",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureList"
+                }
+              }
+            },
+            "description": "Feature catalog"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "application/problem+json domain error"
+          }
+        },
+        "summary": "Feature catalog",
+        "tags": [
+          "features"
+        ],
+        "x-capability-id": "features.get",
         "x-idempotent": true,
         "x-mutating": false,
         "x-required-scopes": [
@@ -1936,6 +2063,10 @@
     {
       "description": "Listeners, store stats, revisions, intercept on/off, and CA metadata (never the key).",
       "name": "status"
+    },
+    {
+      "description": "Derived hop/protocol catalog. Compact status.features booleans stay on status.get.",
+      "name": "features"
     },
     {
       "description": "Published v1alpha1 config JSON Schema.",

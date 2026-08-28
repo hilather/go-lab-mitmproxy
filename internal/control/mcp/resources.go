@@ -23,6 +23,11 @@ func (s *Server) registerResources() {
 		MIMEType:    "application/json",
 	}, h)
 	s.sdk.AddResource(&sdk.Resource{
+		URI: "labmitm://features", Name: "features",
+		Description: "Derived hop/protocol catalog (same as GET /v1/features).",
+		MIMEType:    "application/json",
+	}, h)
+	s.sdk.AddResource(&sdk.Resource{
 		URI: "labmitm://schema/config", Name: "schema-config",
 		Description: "Published v1alpha1 config JSON Schema.",
 		MIMEType:    "application/schema+json",
@@ -90,6 +95,13 @@ func (s *Server) resourceBody(ctx context.Context, actor app.Actor, uri string) 
 			return nil, "", err
 		}
 		b, err := marshalAPI(st)
+		return b, "application/json", err
+	case uri == "labmitm://features":
+		list, err := s.svc.Features(ctx, actor)
+		if err != nil {
+			return nil, "", err
+		}
+		b, err := marshalAPI(fromFeatureList(list))
 		return b, "application/json", err
 	case uri == "labmitm://schema/config":
 		b, err := config.SchemaBytes()

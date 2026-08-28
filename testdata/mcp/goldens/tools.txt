@@ -1,6 +1,7 @@
 mitm_version_get
 mitm_capabilities_get
 mitm_status_get
+mitm_features_list
 mitm_schema_get
 mitm_state_get
 mitm_state_validate
