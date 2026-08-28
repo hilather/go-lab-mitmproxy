@@ -96,3 +96,7 @@ Replay uses the **live** snapshot, not capture-time flags. D21 stands: `Transpor
 ## Review triggers
 
 Review when HTTP/3 / QUIC, TPROXY, GSSAPI, HTTP `Proxy-Authorization`, client-facing TLS on `listeners.proxy`, forwarding origin `PUSH_PROMISE` to the inner client, a generic gRPC / protobuf framework, or live-apply of 1.2 flags is proposed (each needs a new ADR). Review if the D48 remainder (nested inner CONNECT without `:protocol`) is reconsidered.
+
+## Notes (D51')
+
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces **D51** with **D51'** for hop/accept vs bind. **1.2 flags in this ADR remain Reset-only** (`acceptBind`, `acceptUDPAssociate`, `acceptUserPass`, `protocols.http2.clientCleartext` / `origin` / `extendedConnect` / `capturePush` / `grpcDecode`, `protocols.websocket.inspectFrames`). Live apply of 1.2 flags still needs a new ADR.

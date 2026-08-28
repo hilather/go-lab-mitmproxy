@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-24 (issue 45 keep-both leftovers)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012
+Last reviewed: 2026-08-28 (ADR 0013 D51' / D22 carve)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013
 
 ## Problem statement
 
@@ -86,9 +86,9 @@ Family container-internal binds that must not collide:
 
 ## 1.1 opt-in (flags default off)
 
-Additive `labmitm.dev/v1alpha1` fields enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **They default off.** 1.0 defaults remain the process defaults until the operator sets the flags and **Reset**s (D51). CONNECT calls the extracted `serveInterceptConn` helper. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); when enabled and the leaf ALPN is `h2`, inner streams are captured via `roundTripInnerH2` and transcoded onto one HTTP/1.1 origin TCP (D44). The proxy accept mux peeks in a per-conn goroutine (D42) and SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. When those flags are on, SOCKS5/4 CONNECT (NO AUTH) is multiplexed on `listeners.proxy` and calls `serveInterceptConn` without an HTTP 200. HTTP CONNECT still writes 200 then intercepts. Orig-dest is a separate Linux REDIRECT listener (D50). Compat flow REST is an after-auth adapter under a configurable prefix (default `/compat`).
+Additive `labmitm.dev/v1alpha1` fields enable HTTP/2 (inner+origin), SOCKS5/4 CONNECT on the proxy listener, a Linux original-destination REDIRECT listener, and optional compat flow REST. **1.1 opt-in flags default off (D22).** Orig-dest **bind** remains Reset-only. Hop-protocol and accept-mux booleans that the process already consults from the session snapshot or `liveSpec()` are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree) ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) **D51'**). 1.0-preserving hop gates (`protocols.websocket` / `connect` / `absoluteForm`) default **on** at decode (D22 carve) so empty `spec: {}` hop behavior stays HTTP/1.1 + SOCKS-close + WebSocket 101. CONNECT calls the extracted `serveInterceptConn` helper. `protocols.http2` feeds Handshake NextProtos from the session snapshot (D46); when enabled and the leaf ALPN is `h2`, inner streams are captured via `roundTripInnerH2` and transcoded onto one HTTP/1.1 origin TCP (D44). The proxy accept mux peeks in a per-conn goroutine (D42) and SOCKS-closes `0x04`/`0x05` while `acceptSOCKS5`/`acceptSOCKS4` are false. When those flags are on, SOCKS5/4 CONNECT (NO AUTH) is multiplexed on `listeners.proxy` and calls `serveInterceptConn` without an HTTP 200. HTTP CONNECT still writes 200 then intercepts. Orig-dest is a separate Linux REDIRECT listener (D50). Compat flow REST is an after-auth adapter under a configurable prefix (default `/compat`).
 
-- [ADR 0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md): additive schema; reserved keys stay; flags are bootstrap + **Reset only** (D51).
+- [ADR 0008](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0008-additive-v1alpha1-11.md): additive schema; reserved keys stay; D22 default-off for 1.1 opt-in. [ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51 with **D51'** (live hop/accept vs Reset bind) and carves D22 for 1.0-preserving gates.
 - [ADR 0009](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0009-http2-via-http2x.md): supersedes ADR 0002 **D8 scope only**. **D7 stands.**
 - [ADR 0010](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0010-socks-and-original-destination.md): supersedes the “TPROXY/SOCKS are 1.1+” **sentence**. TPROXY stays rejected.
 - [ADR 0011](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0011-optional-compat-flow-rest.md): supersedes ADR 0007 D5’s “no compat path in 1.0” **sentence**. Native `/v1` + MCP primacy stands. `/compat` is **not** on `catalog()` / `compileRoutes`.
@@ -97,7 +97,7 @@ Additive `labmitm.dev/v1alpha1` fields enable HTTP/2 (inner+origin), SOCKS5/4 CO
 
 ## 1.2 opt-in (flags default off)
 
-[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records **D58–D68**. Client-facing h2c, SOCKS BIND / UDP ASSOCIATE, SOCKS username/password, Extended CONNECT websocket, origin `h2`, `PUSH_PROMISE` capture, gRPC decode, and WebSocket frame inspect are 1.2-class, default-off, Reset-only (D51). Empty spec remains 1.0. Overlay YAML stays flags-off. Nested inner CONNECT without `:protocol` still RST (**no flow**). No `Proxy-Authorization`. GSSAPI remains a non-goal. **D7 stands.**
+[ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records **D58–D68**. Client-facing h2c, SOCKS BIND / UDP ASSOCIATE, SOCKS username/password, Extended CONNECT websocket, origin `h2`, `PUSH_PROMISE` capture, gRPC decode, and WebSocket frame inspect are 1.2-class, default-off, **Reset-only** (D51' remainder; live apply of 1.2 flags needs a new ADR). Empty spec remains 1.0. Overlay YAML stays flags-off. Nested inner CONNECT without `:protocol` still RST (**no flow**). No `Proxy-Authorization`. GSSAPI remains a non-goal. **D7 stands.**
 
 ## Key decisions
 
@@ -330,7 +330,7 @@ TLS-001 implements `serve` with optional HTTPS intercept (`tls.intercept: true`,
 
 ## Residual limitations
 
-See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). 1.0 defaults remain the process defaults. 1.2 flags are default-off, Reset-only (D51). Overlay YAML stays flags-off. Catalog stays 30 `/v1` rows. **D7 stands.**
+See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md). 1.0 defaults remain the process defaults. 1.1 opt-in flags default off (D22); 1.0-preserving hop gates default on (D22 carve). 1.2 flags are default-off, Reset-only (D51'). Overlay YAML stays flags-off. Catalog stays 30 `/v1` rows. **D7 stands.**
 
 - HTTP/3 / QUIC still out. No `h3` ALPN, no datagrams. HTTP/2 inner is `protocols.http2.enabled` (default off). Client-facing h2c is `protocols.http2.clientCleartext` (default off, Reset-only); flag-off `PRI` is still a hard close.
 - GSSAPI (SOCKS method `0x01`) is never selected.
@@ -341,9 +341,9 @@ See [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blo
 - Empty `spec: {}` is still a 1.0 process. 1.1 `acceptSOCKS5` remains CONNECT-only unless `acceptBind` / `acceptUDPAssociate` / `acceptUserPass`.
 - No Python VM, mitmweb, dumpfile, CLI-flag clone, or wrapping Python mitmproxy.
 - Orig-dest is Linux-only REDIRECT + `SO_ORIGINAL_DST`, default off. Supported topologies are shared-netns + sidecar iptables or host-network REDIRECT (D50). Publishing `8890` is not transparent.
-- Compat flow REST is a mitmproxy-inspired **subset** (default off, Reset-only). Not mitmproxy 11 compatible.
+- Compat flow REST is a mitmproxy-inspired **subset** (default off, live `setFeature` / `replaceCompat`). Not mitmproxy 11 compatible. Prefix collision stays `validation_failed`. `/compat` is **not** on `catalog()`.
 - SOCKS5/4 CONNECT is opt-in. BIND, UDP ASSOCIATE, and username/password require their own 1.2 flags. GSSAPI is never selected.
-- 1.1 and 1.2 flags (`acceptSOCKS5`/`acceptSOCKS4`/`acceptBind`/`acceptUDPAssociate`/`acceptUserPass`, `originalDestination`, `protocols.http2` including `clientCleartext`/`origin`/`extendedConnect`/`capturePush`/`grpcDecode`, `protocols.websocket.inspectFrames`, `compat.flowREST`) are bootstrap + **Reset only** (D51).
+- 1.1 hop/accept flags (`acceptSOCKS5`/`acceptSOCKS4`, `protocols.http2.enabled`, `compat.flowREST`, and 1.0-preserving `websocket`/`connect`/`absoluteForm`) are live-applyable via `setFeature` / `replaceCompat` (D51'). Orig-dest **bind** + listener **addresses** + management TLS files + `metrics.listen` stay Reset-only. 1.2 nested flags (`acceptBind`/`acceptUDPAssociate`/`acceptUserPass`, `protocols.http2.clientCleartext`/`origin`/`extendedConnect`/`capturePush`/`grpcDecode`, `protocols.websocket.inspectFrames`) stay Reset-only. `setFeature` / hop 403 / `features.get` are the accepted apply, enforcement, and listing paths ([ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)); they are not on this process.
 - WebSocket frames: flag-off is 101 + bidirectional copy; flag-on `protocols.websocket.inspectFrames` (Reset-only, D67). Inner and client-facing RFC 8441 `:protocol=websocket` is opt-in `protocols.http2.extendedConnect` (D63); nested inner CONNECT without `:protocol` still RST, **no flow**. Client-facing h2c CONNECT (RFC 9113 §8.5) is on when `clientCleartext` is on (D62).
 - gRPC protobuf decode: flag-off is HTTP/2 headers + DATA only; flag-on `protocols.http2.grpcDecode` (Reset-only, D66) is an in-tree length-prefix + wire tree. **grpc-web stays opaque.**
 - Generate-mode CA rotates on every restart/reset.

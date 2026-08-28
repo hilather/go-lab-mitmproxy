@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-23 (1.2 protocol flags, default off, D51)
-Related ADRs: 0003, 0008, 0012
+Last reviewed: 2026-08-28 (ADR 0013 D51' / D22 carve)
+Related ADRs: 0003, 0008, 0012, 0013
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
 
@@ -29,7 +29,7 @@ payloadgen, attack, sslstrip, hstsstrip
 
 Plus any key that would imply wrapping the Python binary (`mitmproxy`, `mitmdump`, `mitmweb` as config sections). Reserved keys are **not a LabMITM surface** (D41). Legal names are camelCase only (`acceptSOCKS5` / `acceptBind` are legal; `accept-socks5` / `accept-bind` fail KnownFields; `spec.socks` / `socksBind` / `socksUserPass` / `spec.compat.mitmproxyREST` stay reserved).
 
-## Bootstrap schema (v1alpha1; 1.1/1.2 fields default off)
+## Bootstrap schema (v1alpha1; 1.1 opt-in and 1.2 fields default off; D22 carve)
 
 ```yaml
 apiVersion: labmitm.dev/v1alpha1
@@ -40,14 +40,14 @@ spec:
   listeners:
     proxy:
       address: "127.0.0.1:8888"
-      acceptSOCKS5: false          # 1.1; Reset-only
-      acceptSOCKS4: false
+      acceptSOCKS5: false          # 1.1; live setFeature (D51')
+      acceptSOCKS4: false          # 1.1; live setFeature (D51')
       acceptBind: false            # 1.2; Reset-only; requires acceptSOCKS5 or acceptSOCKS4
       acceptUDPAssociate: false    # 1.2; Reset-only; requires acceptSOCKS5
       acceptUserPass: false        # 1.2; Reset-only; requires acceptSOCKS5 and ≥1 user
       userPass:
         users: []
-    originalDestination:           # 1.1; Reset-only bind
+    originalDestination:           # 1.1; Reset-only bind (D51')
       enabled: false
       address: ""                  # empty + enabled → 127.0.0.1:8890
     management:
@@ -131,24 +131,24 @@ spec:
     audit:
       ring: 128
 
-  protocols:                       # 1.1/1.2; Reset-only
+  protocols:                       # 1.1 http2.enabled live setFeature (D51'); 1.2 nested Reset-only
     http2:
-      enabled: false
+      enabled: false               # 1.1; live setFeature (D51'); default off (D22)
       clientCleartext: false
       origin: false
       extendedConnect: false
       capturePush: false
       grpcDecode: false
     websocket:
-      inspectFrames: false
+      inspectFrames: false         # 1.2; Reset-only. websocket/connect/absoluteForm.enabled default on (D22 carve)
 
-  compat:                          # 1.1; Reset-only; no /compat on catalog() / native compileRoutes
+  compat:                          # 1.1; live setFeature / replaceCompat (D51'); no /compat on catalog() / native compileRoutes
     flowREST:
       enabled: false
       pathPrefix: /compat          # validated against configured restPath/mcpPath
 ```
 
-Empty `spec: {}` is valid and materializes the standalone loopback defaults (`127.0.0.1:8888` / `127.0.0.1:8088`). `labmitm validate --config` and `labmitm canonicalize --config [--format yaml|json]` implement this loader. `labmitm serve` (PROXY-001) binds the proxy after a successful load; invalid bootstrap binds nothing.
+Empty `spec: {}` is valid and materializes the standalone loopback defaults (`127.0.0.1:8888` / `127.0.0.1:8088`). 1.1 opt-in and 1.2 fields materialize **false**. When `protocols.websocket` / `connect` / `absoluteForm` exist, omitted `enabled` materializes **true** (D22 carve) so hop behavior stays 1.0 (HTTP/1.1 + SOCKS-close + WebSocket 101). `labmitm validate --config` and `labmitm canonicalize --config [--format yaml|json]` implement this loader. `labmitm serve` (PROXY-001) binds the proxy after a successful load; invalid bootstrap binds nothing.
 
 The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://github.com/hilather/go-lab-mitmproxy/blob/main/api/jsonschema/labmitm.dev.v1alpha1.json). `tls.upstream.verify` is not an input field; the only upstream verify knob is `insecureSkipVerify`. Export / `GET /v1/status` (later) materializes read-only `verify: !insecureSkipVerify`.
 
@@ -228,20 +228,28 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 
 `:plan` is dry-run. `:apply` requires `expectedRevision`. Idempotency: key + identity (`reason` + canonical operations). Failures not cached. `revision_conflict` → 409. Listener **addresses** are not live-applyable; change YAML and reset.
 
-### 1.1 / 1.2 flags (Reset only, D51)
+**D22 carve:** 1.1 **opt-in** flags stay default-off (`http2`, `acceptSOCKS5`/`acceptSOCKS4`, `originalDestination`, `compat.flowREST`). 1.2 nested flags stay default-off. Gates whose Go zero would **change 1.0 hop behavior** (`protocols.websocket` / `connect` / `absoluteForm`) default **on** at `applyDecodeDefaults`. `ui.enabled` remains the 1.0 D13 true default. Do not tell operators “all new fields default off” and also ship default-true hop gates.
+
+### 1.1 / 1.2 flags (D51' live hop/accept vs Reset bind)
+
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. `setFeature` is the only protocol/accept mutation. Plus `replaceCompat` (enabled **and** `pathPrefix`). No `replaceProtocols` / `replaceProxyAccept`. `setFeature` of `tls.intercept` is `validation_failed` (use `replaceTLS`). `setFeature` of Reset-only IDs is `validation_failed` with remediation “edit bootstrap YAML and Reset”. Those verbs and hop 403 are **not** on `KnownOp` / the proxy in this change.
 
 | Field | How to change |
 |---|---|
-| `acceptSOCKS5` / `acceptSOCKS4` | Bootstrap YAML + **Reset** (wipes flows) |
+| `acceptSOCKS5` / `acceptSOCKS4` | **live** `setFeature` (next peek) |
+| `protocols.http2.enabled` | **live** `setFeature` (next CONNECT) |
+| `protocols.websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` | **live** `setFeature` (default **on**, D22 carve). Websocket 403 at start of **both** `serveAbsolute` and `serveOrigDestHTTP`. Inner 403 without `Connection: close`, `stop=false`. Orig-dest CONNECT stays 400. Keep connect/absoluteForm |
+| `compat.flowREST.enabled` | **live** `setFeature` (next management request) |
+| `compat.flowREST.pathPrefix` | **live** `replaceCompat` only (not `setFeature`) |
+| `rules.enabled` | **live** `setFeature` (items unchanged) |
+| `ui.enabled` | **live** `setFeature` from REST/MCP only — **no Status toggle** |
+| `tls.intercept` | **live** `replaceTLS` (generate-mode CA rotates when the TLS spec changes) |
 | `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` | Reset-only (1.2; no `replaceProxyAccept`) |
-| `listeners.originalDestination` | Reset-only (bind) |
-| `protocols.http2` (including `clientCleartext` / `origin` / `extendedConnect` / `capturePush` / `grpcDecode`) | Reset-only |
-| `protocols.websocket.inspectFrames` | Reset-only |
-| `compat.flowREST` | Reset-only |
+| `listeners.originalDestination` enabled+address | Reset-only (bind) |
+| `protocols.http2.clientCleartext` / `origin` / `extendedConnect` / `capturePush` / `grpcDecode` | Reset-only (1.2) |
+| `protocols.websocket.inspectFrames` | Reset-only (1.2) |
 | `proxy.admission.maxConcurrentStreams` | **`replaceAdmission`**. New TCP sessions only |
-| Listener **addresses** | Reset-only (unchanged) |
-
-Last reviewed: 2026-08-23 (1.2 protocol flags, default off, D51)
+| Listener **addresses**, management TLS files, `metrics.listen` | Reset-only (unchanged) |
 
 Idempotency LRU default 256; reset clears it.
 

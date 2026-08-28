@@ -35,3 +35,7 @@ Reserved keys (`socks*`, `tproxy`, `transparent`, `mitmproxy*`, …) stay forbid
 ## Review triggers
 
 Review when a new 1.1 field is proposed, a reserved key is reconsidered, or a live-apply verb is requested for these flags.
+
+## Notes (D51' / D22 carve)
+
+[ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) **replaces D51** with **D51'** (live hop/accept vs Reset bind) and **carves D22**: 1.1 opt-in flags stay default-off; 1.0-preserving hop gates (`websocket`, `connect`, `absoluteForm`) default on at decode. `ui.enabled` remains the 1.0 D13 true default. Remainder of this ADR stands.
