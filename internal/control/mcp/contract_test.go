@@ -288,9 +288,9 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 		"rules": map[string]any{
 			"enabled": true,
 			"items": []map[string]any{
-				{"id": "silent-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("silent", map[string]any{"silent": map[string]any{"close": "rst"}})},
-				{"id": "hang-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("hang", map[string]any{"hang": map[string]any{"timeout": int64(time.Second), "close": ""}})},
-				{"id": "redir-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("redirect", map[string]any{"redirect": map[string]any{"location": "/x", "status": 0}})},
+				{"id": "silent-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": "", "opcode": "", "direction": "", "payloadContains": ""}, "action": action("silent", map[string]any{"silent": map[string]any{"close": "rst"}})},
+				{"id": "hang-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": "", "opcode": "", "direction": "", "payloadContains": ""}, "action": action("hang", map[string]any{"hang": map[string]any{"timeout": int64(time.Second), "close": ""}})},
+				{"id": "redir-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": "", "opcode": "", "direction": "", "payloadContains": ""}, "action": action("redirect", map[string]any{"redirect": map[string]any{"location": "/x", "status": 0}})},
 			},
 		},
 	}}
@@ -313,7 +313,7 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 			"rules": map[string]any{
 				"enabled": true,
 				"items": []map[string]any{
-					{"id": "bad", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("http_status", map[string]any{"status": 403})},
+					{"id": "bad", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": "", "opcode": "", "direction": "", "payloadContains": ""}, "action": action("http_status", map[string]any{"status": 403})},
 				},
 			},
 		}},
@@ -479,6 +479,9 @@ func TestContractWebSocketFrameRules(t *testing.T) {
 						"headers":    map[string]any{"set": map[string]string{}, "remove": []string{}},
 						"body":       map[string]any{"replace": ""},
 						"breakpoint": map[string]any{"timeout": 0},
+						"silent":     map[string]any{"close": ""},
+						"hang":       map[string]any{"timeout": 0, "close": ""},
+						"redirect":   map[string]any{"location": "", "status": 0},
 					},
 				}},
 			},

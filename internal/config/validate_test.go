@@ -320,7 +320,7 @@ func TestValidateWebSocketRulePhase(t *testing.T) {
 	}
 	_, err := Load([]byte("apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: bad\n        phase: request\n        action:\n          type: block\n"))
 	_ = requireValidation(t, err, violationInvalidValue)
-	for _, typ := range []string{"body", "delay", "status", "header", "breakpoint"} {
+	for _, typ := range []string{"body", "delay", "status", "header", "breakpoint", "silent", "hang", "redirect"} {
 		_, err = Load([]byte("apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: bad\n        phase: websocket\n        action:\n          type: " + typ + "\n"))
 		_ = requireValidation(t, err, violationInvalidValue)
 	}
