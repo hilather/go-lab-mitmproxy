@@ -168,10 +168,13 @@ type RuleMatchSpec struct {
 	Protocol       string `json:"protocol"`
 }
 
-// ProtocolsSpec is hop-protocol policy. Fields default off.
+// ProtocolsSpec is hop-protocol policy. HTTP/2 nested flags default off.
+// websocket/connect/absoluteForm.enabled default on at decode (D22 carve).
 type ProtocolsSpec struct {
-	HTTP2     HTTP2Spec     `json:"http2"`
-	WebSocket WebSocketSpec `json:"websocket"`
+	HTTP2        HTTP2Spec        `json:"http2"`
+	WebSocket    WebSocketSpec    `json:"websocket"`
+	Connect      ProtocolGateSpec `json:"connect"`
+	AbsoluteForm ProtocolGateSpec `json:"absoluteForm"`
 }
 
 // HTTP2Spec is hop-protocol HTTP/2 policy. All fields default off.
@@ -184,9 +187,18 @@ type HTTP2Spec struct {
 	GRPCDecode      bool `json:"grpcDecode"`
 }
 
-// WebSocketSpec is WebSocket capture policy. inspectFrames defaults off.
+// WebSocketSpec is WebSocket hop and capture policy.
+// Enabled defaults on at decode so empty spec keeps 1.0 Upgrade: 101.
+// InspectFrames stays default off (Reset-only).
 type WebSocketSpec struct {
+	Enabled       bool `json:"enabled"`
 	InspectFrames bool `json:"inspectFrames"`
+}
+
+// ProtocolGateSpec is one boolean hop gate. Nested object (not a bare bool)
+// so KnownFields stays fail-closed.
+type ProtocolGateSpec struct {
+	Enabled bool `json:"enabled"`
 }
 
 // CompatSpec is optional first-party compat adapters. Default off.

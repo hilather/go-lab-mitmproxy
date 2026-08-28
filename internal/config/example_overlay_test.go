@@ -66,6 +66,9 @@ func TestLabOverlayExample(t *testing.T) {
 	if st.Spec.Protocols.WebSocket.InspectFrames {
 		t.Fatal("websocket.inspectFrames must stay false")
 	}
+	if !st.Spec.Protocols.WebSocket.Enabled || !st.Spec.Protocols.Connect.Enabled || !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("omitted D22-carve hop gates must materialize true")
+	}
 	if st.Spec.Listeners.Proxy.AcceptSOCKS5 || st.Spec.Listeners.Proxy.AcceptSOCKS4 {
 		t.Fatal("acceptSOCKS5/acceptSOCKS4 must stay false")
 	}

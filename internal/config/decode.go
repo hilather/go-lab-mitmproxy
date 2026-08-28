@@ -315,7 +315,12 @@ func applyDecodeDefaults(v any) {
 	setDefault(http2, "capturePush", false)
 	setDefault(http2, "grpcDecode", false)
 	websocket := ensureMap(protocols, "websocket")
+	setDefault(websocket, "enabled", true)
 	setDefault(websocket, "inspectFrames", false)
+	connect := ensureMap(protocols, "connect")
+	setDefault(connect, "enabled", true)
+	absoluteForm := ensureMap(protocols, "absoluteForm")
+	setDefault(absoluteForm, "enabled", true)
 
 	compat := ensureMap(spec, "compat")
 	flowREST := ensureMap(compat, "flowREST")

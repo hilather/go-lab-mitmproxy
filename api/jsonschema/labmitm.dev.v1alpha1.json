@@ -100,14 +100,16 @@
       "additionalProperties": false,
       "properties": {
         "http2": { "$ref": "#/$defs/http2" },
-        "websocket": { "$ref": "#/$defs/websocket" }
+        "websocket": { "$ref": "#/$defs/websocket" },
+        "connect": { "$ref": "#/$defs/protocolGate" },
+        "absoluteForm": { "$ref": "#/$defs/protocolGate" }
       }
     },
     "http2": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "description": "default false; Reset-only; inner leaf ALPN h2" },
+        "enabled": { "type": "boolean", "description": "default false (D22); inner+origin ALPN h2. Already honored by the proxy." },
         "clientCleartext": { "type": "boolean", "description": "default false; Reset-only" },
         "origin": { "type": "boolean", "description": "default false; Reset-only; requires enabled" },
         "extendedConnect": { "type": "boolean", "description": "default false; Reset-only; requires enabled or clientCleartext" },
@@ -119,7 +121,15 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "enabled": { "type": "boolean", "description": "default true (D22 carve, ADR 0013); 1.0-preserving hop gate. YAML is accepted now; the proxy ignores this field until hop enforcement lands." },
         "inspectFrames": { "type": "boolean", "description": "default false; Reset-only" }
+      }
+    },
+    "protocolGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "default true (D22 carve, ADR 0013); 1.0-preserving hop gate. YAML is accepted now; the proxy ignores connect/absoluteForm until hop enforcement lands." }
       }
     },
     "compat": {

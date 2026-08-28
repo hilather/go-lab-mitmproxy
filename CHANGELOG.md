@@ -6,7 +6,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
-- None.
+- Additive nested hop gates `spec.protocols.websocket.enabled`, `spec.protocols.connect.enabled`, and `spec.protocols.absoluteForm.enabled` (objects, not bare bools; [ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) D22 carve). Omitted maps materialize **true** at decode so empty `spec: {}` hop behavior stays 1.0. Canonicalize of empty spec grows those three `enabled: true` objects (plus existing `websocket.inspectFrames: false`). Unknown nested keys (`protocols.http3`, extra gate fields) fail closed. `WebSocketSpec.Enabled` is additive beside `inspectFrames`. The proxy still ignores the new `enabled` fields; `protocols.http2.enabled` remains the only honored protocol flag.
 
 ### Changed
 

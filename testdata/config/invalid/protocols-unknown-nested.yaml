@@ -1,0 +1,9 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: protocols-unknown-nested
+spec:
+  protocols:
+    websocket:
+      inspectFrames: false
+      frames: true

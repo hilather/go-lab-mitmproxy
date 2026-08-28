@@ -70,6 +70,15 @@ func TestNormalizeMaterializesDefaults(t *testing.T) {
 	if st.Spec.Protocols.WebSocket.InspectFrames {
 		t.Fatal("protocols.websocket.inspectFrames default off")
 	}
+	if !st.Spec.Protocols.WebSocket.Enabled {
+		t.Fatal("protocols.websocket.enabled default on (D22 carve)")
+	}
+	if !st.Spec.Protocols.Connect.Enabled {
+		t.Fatal("protocols.connect.enabled default on (D22 carve)")
+	}
+	if !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("protocols.absoluteForm.enabled default on (D22 carve)")
+	}
 	if st.Spec.Compat.FlowREST.Enabled {
 		t.Fatal("compat.flowREST.enabled default off")
 	}
@@ -139,6 +148,28 @@ func TestNormalizeHTTP2Flag(t *testing.T) {
 	if st.Spec.Protocols.HTTP2.Origin || st.Spec.Protocols.HTTP2.ClientCleartext {
 		t.Fatal("http2 extras stayed off")
 	}
+	if !st.Spec.Protocols.WebSocket.Enabled || !st.Spec.Protocols.Connect.Enabled || !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("omitted D22-carve gates must stay on beside explicit http2")
+	}
+}
+
+func TestNormalizeProtocolGatesFixture(t *testing.T) {
+	st, err := LoadFile(testdata(t, "valid", "protocol-gates.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Spec.Protocols.HTTP2.Enabled {
+		t.Fatal("http2.enabled stayed off")
+	}
+	if !st.Spec.Protocols.WebSocket.Enabled || st.Spec.Protocols.WebSocket.InspectFrames {
+		t.Fatalf("websocket=%+v", st.Spec.Protocols.WebSocket)
+	}
+	if !st.Spec.Protocols.Connect.Enabled {
+		t.Fatal("connect.enabled")
+	}
+	if !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("absoluteForm.enabled")
+	}
 }
 
 func TestNormalizeProtocolFlags12(t *testing.T) {
@@ -158,8 +189,14 @@ func TestNormalizeProtocolFlags12(t *testing.T) {
 	if !h.Enabled || !h.ClientCleartext || !h.Origin || !h.ExtendedConnect || !h.CapturePush || !h.GRPCDecode {
 		t.Fatalf("http2=%+v", h)
 	}
-	if !st.Spec.Protocols.WebSocket.InspectFrames {
-		t.Fatal("inspectFrames")
+	if !st.Spec.Protocols.WebSocket.Enabled || !st.Spec.Protocols.WebSocket.InspectFrames {
+		t.Fatalf("websocket=%+v", st.Spec.Protocols.WebSocket)
+	}
+	if !st.Spec.Protocols.Connect.Enabled {
+		t.Fatal("connect.enabled")
+	}
+	if !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("absoluteForm.enabled")
 	}
 }
 

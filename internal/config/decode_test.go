@@ -45,8 +45,17 @@ func TestDecodeDefaultsYAML(t *testing.T) {
 	if st.Spec.Listeners.Proxy.AcceptBind || st.Spec.Listeners.Proxy.AcceptUDPAssociate || st.Spec.Listeners.Proxy.AcceptUserPass {
 		t.Fatal("omitted 1.2 SOCKS flags must stay false")
 	}
-	if st.Spec.Protocols.HTTP2.ClientCleartext || st.Spec.Protocols.HTTP2.Origin || st.Spec.Protocols.WebSocket.InspectFrames {
+	if st.Spec.Protocols.HTTP2.Enabled || st.Spec.Protocols.HTTP2.ClientCleartext || st.Spec.Protocols.HTTP2.Origin || st.Spec.Protocols.WebSocket.InspectFrames {
 		t.Fatal("omitted 1.2 protocol flags must stay false")
+	}
+	if !st.Spec.Protocols.WebSocket.Enabled {
+		t.Fatal("omitted protocols.websocket.enabled must materialize true at decode")
+	}
+	if !st.Spec.Protocols.Connect.Enabled {
+		t.Fatal("omitted protocols.connect.enabled must materialize true at decode")
+	}
+	if !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("omitted protocols.absoluteForm.enabled must materialize true at decode")
 	}
 }
 
@@ -79,6 +88,10 @@ func TestDecodeUnknownFieldEveryLevel(t *testing.T) {
 		{"proxy", `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"proxy":{"zzz":1}}}`, "spec.proxy.zzz"},
 		{"tls-upstream-verify", `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"tls":{"upstream":{"verify":true}}}}`, "spec.tls.upstream.verify"},
 		{"store", `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"store":{"foo":true}}}`, "spec.store.foo"},
+		{"protocols-http3", `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"protocols":{"http3":true}}}`, "spec.protocols.http3"},
+		{"websocket-nested", `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"protocols":{"websocket":{"frames":true}}}}`, "spec.protocols.websocket.frames"},
+		{"connect-nested", `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"protocols":{"connect":{"mode":"always"}}}}`, "spec.protocols.connect.mode"},
+		{"absoluteForm-nested", `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"protocols":{"absoluteForm":{"rewrite":true}}}}`, "spec.protocols.absoluteForm.rewrite"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -232,5 +245,76 @@ func TestDecodeEmptyPortsMaterialize443(t *testing.T) {
 	}
 	if len(st.Spec.TLS.Ports) != 1 || st.Spec.TLS.Ports[0] != 443 {
 		t.Fatalf("ports=%v", st.Spec.TLS.Ports)
+	}
+}
+
+func TestDecodeProtocolGatesExplicitFalsePreserved(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    websocket:\n      enabled: false\n    connect:\n      enabled: false\n    absoluteForm:\n      enabled: false\n"
+	st, err := Load([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Spec.Protocols.WebSocket.Enabled {
+		t.Fatal("explicit websocket.enabled: false was overwritten")
+	}
+	if st.Spec.Protocols.Connect.Enabled {
+		t.Fatal("explicit connect.enabled: false was overwritten")
+	}
+	if st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("explicit absoluteForm.enabled: false was overwritten")
+	}
+	if st.Spec.Protocols.HTTP2.Enabled {
+		t.Fatal("omitted http2.enabled must stay false")
+	}
+}
+
+func TestDecodeNullProtocolsMapsGetD22CarveDefaults(t *testing.T) {
+	yamlDoc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  protocols:\n    websocket:\n    connect:\n    absoluteForm:\n"
+	st, err := Load([]byte(yamlDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Protocols.WebSocket.Enabled || st.Spec.Protocols.WebSocket.InspectFrames {
+		t.Fatalf("YAML null websocket: enabled=%v inspectFrames=%v", st.Spec.Protocols.WebSocket.Enabled, st.Spec.Protocols.WebSocket.InspectFrames)
+	}
+	if !st.Spec.Protocols.Connect.Enabled {
+		t.Fatal("YAML null connect must materialize enabled=true")
+	}
+	if !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatal("YAML null absoluteForm must materialize enabled=true")
+	}
+
+	jsonDoc := `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"protocols":null}}`
+	st, err = Load([]byte(jsonDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Protocols.WebSocket.Enabled || !st.Spec.Protocols.Connect.Enabled || !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatalf("JSON null protocols: websocket=%v connect=%v absoluteForm=%v",
+			st.Spec.Protocols.WebSocket.Enabled, st.Spec.Protocols.Connect.Enabled, st.Spec.Protocols.AbsoluteForm.Enabled)
+	}
+
+	emptyNested := `{"apiVersion":"labmitm.dev/v1alpha1","kind":"LabMITM","metadata":{"name":"x"},"spec":{"protocols":{"websocket":null,"connect":{},"absoluteForm":null}}}`
+	st, err = Load([]byte(emptyNested))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Spec.Protocols.WebSocket.Enabled || !st.Spec.Protocols.Connect.Enabled || !st.Spec.Protocols.AbsoluteForm.Enabled {
+		t.Fatalf("empty nested gates: websocket=%v connect=%v absoluteForm=%v",
+			st.Spec.Protocols.WebSocket.Enabled, st.Spec.Protocols.Connect.Enabled, st.Spec.Protocols.AbsoluteForm.Enabled)
+	}
+}
+
+func TestDecodeProtocolsHTTP3UnknownField(t *testing.T) {
+	_, err := Decode([]byte(mustLoad(t, "invalid", "protocols-http3.yaml")))
+	de := requireValidation(t, err, violationUnknownField)
+	found := false
+	for _, v := range de.FieldViolations {
+		if v.Path == "spec.protocols.http3" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want path spec.protocols.http3 in %+v", de.FieldViolations)
 	}
 }

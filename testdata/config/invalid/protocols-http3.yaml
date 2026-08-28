@@ -1,0 +1,7 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: protocols-http3
+spec:
+  protocols:
+    http3: true

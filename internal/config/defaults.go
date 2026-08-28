@@ -3,7 +3,9 @@ package config
 import "time"
 
 // Materialized v1alpha1 defaults. Zero values on the Go types are not these
-// values until Decode/Normalize run.
+// values until Decode/Normalize run. Bool true defaults (ui.enabled and
+// D22-carve protocols.websocket/connect/absoluteForm.enabled) are injected
+// only in applyDecodeDefaults so explicit false stays visible.
 const (
 	DefaultProxyAddress         = "127.0.0.1:8888"
 	DefaultMgmtAddress          = "127.0.0.1:8088"

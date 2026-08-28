@@ -63,6 +63,31 @@ func TestRevisionChangesOnSemanticEdit(t *testing.T) {
 	}
 }
 
+func TestCanonicalEmptySpecGrowsProtocolGates(t *testing.T) {
+	st, err := Load([]byte(mustLoad(t, "valid", "defaults.yaml")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := CanonicalJSON(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	// Canonicalize of empty spec: {} grows three D22-carve enabled objects.
+	// Map keys are sorted; websocket carries inspectFrames beside enabled.
+	want := []string{
+		`"absoluteForm":{"enabled":true}`,
+		`"connect":{"enabled":true}`,
+		`"websocket":{"enabled":true,"inspectFrames":false}`,
+		`"http2":{"capturePush":false,"clientCleartext":false,"enabled":false,"extendedConnect":false,"grpcDecode":false,"origin":false}`,
+	}
+	for _, frag := range want {
+		if !strings.Contains(s, frag) {
+			t.Fatalf("canonical JSON missing %s\n%s", frag, s)
+		}
+	}
+}
+
 func TestCanonicalJSONUsesIECAndDurationStrings(t *testing.T) {
 	st, err := Load([]byte(mustLoad(t, "valid", "defaults.yaml")))
 	if err != nil {

@@ -131,16 +131,21 @@ spec:
     audit:
       ring: 128
 
-  protocols:                       # 1.1 http2.enabled live setFeature (D51'); 1.2 nested Reset-only
+  protocols:                       # 1.1 http2.enabled already honored; websocket/connect/absoluteForm YAML accepted now, hops not gated yet (ADR 0013)
     http2:
-      enabled: false               # 1.1; live setFeature (D51'); default off (D22)
+      enabled: false               # 1.1; default off (D22)
       clientCleartext: false
       origin: false
       extendedConnect: false
       capturePush: false
       grpcDecode: false
     websocket:
-      inspectFrames: false         # 1.2; Reset-only. websocket/connect/absoluteForm.enabled default on (D22 carve)
+      enabled: true                # D22 carve default on (ADR 0013); proxy ignores until hop enforcement
+      inspectFrames: false         # 1.2; Reset-only
+    connect:
+      enabled: true                # D22 carve default on (ADR 0013); proxy ignores until hop enforcement
+    absoluteForm:
+      enabled: true                # D22 carve default on (ADR 0013); proxy ignores until hop enforcement
 
   compat:                          # 1.1; live setFeature / replaceCompat (D51'); no /compat on catalog() / native compileRoutes
     flowREST:
@@ -148,7 +153,7 @@ spec:
       pathPrefix: /compat          # validated against configured restPath/mcpPath
 ```
 
-Empty `spec: {}` is valid and materializes the standalone loopback defaults (`127.0.0.1:8888` / `127.0.0.1:8088`). 1.1 opt-in and 1.2 fields materialize **false**. When `protocols.websocket` / `connect` / `absoluteForm` exist, omitted `enabled` materializes **true** (D22 carve) so hop behavior stays 1.0 (HTTP/1.1 + SOCKS-close + WebSocket 101). `labmitm validate --config` and `labmitm canonicalize --config [--format yaml|json]` implement this loader. `labmitm serve` (PROXY-001) binds the proxy after a successful load; invalid bootstrap binds nothing.
+Empty `spec: {}` is valid and materializes the standalone loopback defaults (`127.0.0.1:8888` / `127.0.0.1:8088`). 1.1 opt-in and 1.2 fields materialize **false**. Omitted `protocols.websocket` / `connect` / `absoluteForm` (including present-but-null maps) materialize `enabled: true` at decode (D22 carve, [ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md)) so hop behavior stays 1.0 (HTTP/1.1 + SOCKS-close + WebSocket 101). Canonicalize of today’s empty spec **grows** those three enabled objects. The proxy does **not** consult `websocket.enabled` / `connect.enabled` / `absoluteForm.enabled` yet. `labmitm validate --config` and `labmitm canonicalize --config [--format yaml|json]` implement this loader. `labmitm serve` (PROXY-001) binds the proxy after a successful load; invalid bootstrap binds nothing.
 
 The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://github.com/hilather/go-lab-mitmproxy/blob/main/api/jsonschema/labmitm.dev.v1alpha1.json). `tls.upstream.verify` is not an input field; the only upstream verify knob is `insecureSkipVerify`. Export / `GET /v1/status` (later) materializes read-only `verify: !insecureSkipVerify`.
 

@@ -55,6 +55,21 @@ func TestReservedDoesNotApplyToHeaderSetOrLabels(t *testing.T) {
 	}
 }
 
+func TestReservedSOCKSStillReservedBesideProtocols(t *testing.T) {
+	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  socks: true\n  protocols:\n    connect:\n      enabled: true\n"
+	_, err := Decode([]byte(doc))
+	de := requireValidation(t, err, violationReservedName)
+	found := false
+	for _, v := range de.FieldViolations {
+		if v.Path == "spec.socks" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want spec.socks reserved in %+v", de.FieldViolations)
+	}
+}
+
 func TestReservedDoesNotMatchLegitFields(t *testing.T) {
 	if why := reservedReason(normalizeKey("maxFlows")); why != "" {
 		t.Fatalf("maxFlows reserved: %s", why)
@@ -71,7 +86,7 @@ func TestReservedDoesNotMatchLegitFields(t *testing.T) {
 	if why := reservedReason(normalizeKey("acceptSOCKS5")); why != "" {
 		t.Fatalf("acceptSOCKS5 reserved: %s", why)
 	}
-	for _, k := range []string{"acceptBind", "acceptUDPAssociate", "acceptUserPass", "userPass", "inspectFrames", "clientCleartext"} {
+	for _, k := range []string{"acceptBind", "acceptUDPAssociate", "acceptUserPass", "userPass", "inspectFrames", "clientCleartext", "absoluteForm", "connect"} {
 		if why := reservedReason(normalizeKey(k)); why != "" {
 			t.Fatalf("%s reserved: %s", k, why)
 		}

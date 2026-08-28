@@ -35,6 +35,8 @@ var expectedInvalid = map[string]string{
 	"http2-extended-connect-without-enabled.yaml": violationInvalidValue,
 	"http2-grpc-decode-without-enabled.yaml":      violationInvalidValue,
 	"hyphen-accept-bind.yaml":                     violationUnknownField,
+	"protocols-http3.yaml":                        violationUnknownField,
+	"protocols-unknown-nested.yaml":               violationUnknownField,
 	"upstream-verify.yaml":                        violationUnknownField,
 	"multi-doc.yaml":                              violationInvalidValue,
 	"yaml-alias.yaml":                             violationInvalidValue,

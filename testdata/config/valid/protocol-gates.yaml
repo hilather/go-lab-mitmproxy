@@ -1,0 +1,17 @@
+# All hop gates explicit. websocket/connect/absoluteForm stay on (D22 carve);
+# http2 stays off. Proxy does not honor the new enabled fields yet.
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: protocol-gates
+spec:
+  protocols:
+    http2:
+      enabled: false
+    websocket:
+      enabled: true
+      inspectFrames: false
+    connect:
+      enabled: true
+    absoluteForm:
+      enabled: true

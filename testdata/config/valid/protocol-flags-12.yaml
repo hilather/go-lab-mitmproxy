@@ -24,4 +24,9 @@ spec:
       capturePush: true
       grpcDecode: true
     websocket:
+      enabled: true
       inspectFrames: true
+    connect:
+      enabled: true
+    absoluteForm:
+      enabled: true
