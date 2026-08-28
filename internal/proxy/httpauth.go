@@ -100,6 +100,7 @@ func writeProxyAuthChallenge(w http.ResponseWriter, realm string) {
 	h.Set("Content-Type", "text/plain; charset=utf-8")
 	h.Set("Proxy-Authenticate", proxyAuthenticateValue(realm))
 	h.Set("Content-Length", strconv.Itoa(len(body)))
+	h.Set("Date", time.Now().UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusProxyAuthRequired)
 	_, _ = io.WriteString(w, body)
 }
