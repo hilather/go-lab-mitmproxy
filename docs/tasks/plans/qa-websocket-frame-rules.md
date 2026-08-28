@@ -99,14 +99,14 @@ First enabled AND-match wins **per frame**, independently of any request/respons
 
 `inspectUpgrade` / `wsInspect` today do **not** hold `*ruleSession`. Implementation must **add** the pinned sess/engine **and** a request snapshot; do not hunt for `st.sess`.
 
-**Snapshot once before the pumps.** Callers already have the same `host` string they pass into request-phase `matchHit` (`hijackUpgrade`, inner HTTP/1.1, `innerH2Tunnel`, `h2cWebSocketTunnel`). Pass that `host` plus the upgrade `*http.Request` into `inspectUpgrade` (signature change is an implementation detail). Snapshot:
+**Snapshot once before the pumps.** Pass `host` plus the upgrade `*http.Request` into `inspectUpgrade` (signature change is an implementation detail). Snapshot:
 
 | Field | Source |
 |---|---|
-| Host | The same `host` string already passed into request-phase `matchHit` (`splitAuthority` / CONNECT host). **Not** `req.Host` (often `host:port`). `Flow.Host` happens to be that string; still do not read match input from `*Flow`. |
+| Host | The hostname already used for request-phase `matchHit` on hops that call it (`splitAuthority` / CONNECT host). **Not** `req.Host` (often `host:port`). `Flow.Host` happens to be that string; still do not read match input from `*Flow`. Client-facing h2c (`h2cWebSocketTunnel`) **never** calls `matchHit` today — do **not** add one. On that path pass the existing `host` from `splitAuthority(in.Authority, defPort)` (`h2c.go`). Do **not** use raw `in.Authority` (includes port). |
 | Path | `requestPath(req)` |
 | Method | `requestMethod(req)` |
-| Headers | `requestCaptureHeaders(req)` (already merges h2 `:authority` / `:path` / `:method` / other pseudos) |
+| Headers | `requestCaptureHeaders(req)` (already merges h2 `:authority` / `:path` / `:method` / other pseudos). Do **not** strip those pseudos; `matchAND`’s `:authority`/`:path`/`:method` override is the D63/h2c alignment. |
 
 Force `in.Protocol = websocket` at eval. Do **not** reuse `matchHit` (it sets `requestProtocol`). Do **not** use `Flow.URL` as path. Do **not** use `Flow.Request.Headers` on `flowFromReq` paths.
 
@@ -128,7 +128,7 @@ AND, all optional. They live on the shared `RuleMatchSpec` (JSON Schema `additio
 |---|---|---|
 | `opcode` | empty = any; else exact `continuation` \| `text` \| `binary` \| `close` \| `ping` \| `pong` \| `other` | Same tokens as `wsx.OpcodeName` / `labmitm_ws_frames_total`. Unknown YAML value is `validation_failed`. No regex. |
 | `direction` | empty = any; else `client` \| `origin` | Existing `WSDirection*` tokens. Unknown YAML value is `validation_failed`. |
-| `payloadContains` | empty = any; else substring of the **unmasked** payload | YAML string compared as raw bytes (`bytes.Contains`, UTF-8 of the YAML value). No regex. |
+| `payloadContains` | empty = any (short-circuit **before** `Contains`; `Contains(x, "")` is true and must not be used as “any”) | Non-empty: substring of the **unmasked** payload. YAML string compared as raw bytes (`bytes.Contains`, UTF-8 of the YAML value). No regex. **`Payload == nil` (or unset) is always a miss** for a non-empty needle — never “predicate skipped / not applicable.” That skip would let an oversized `payloadContains` item win and swallow a large data frame. |
 
 `store.maxBodyBytes` pinned on the inspect session is reused as the **payloadContains visibility cap**, not as a new knob:
 
@@ -149,14 +149,16 @@ Validate (Go `validateRules`, fail-closed; JSON Schema widens enums only — no 
 
 Canonical JSON: `RuleMatchSpec` has no `omitempty`. Adding the three fields inserts empty keys on **every existing** `rules.items[]` entry. Empty `spec: {}` revision can stay stable (`items: []`). There are **no** revision goldens today (`TestConfigCompat` round-trips). Changelog must note canonical-JSON churn for non-empty `items[]`.
 
-Engine stays pure (no I/O). Extend `rules.Request` with `Opcode`, `Direction`, `Payload []byte`. `Match("websocket", …)` is first-match. A small Engine helper (name is an implementation detail) answers “must the pump load payload before `Match`?” by walking enabled websocket-phase items in order:
+Engine stays pure (no I/O). Extend `rules.Request` with `Opcode`, `Direction`, `Payload []byte`. `Match("websocket", …)` is first-match. `matchAND` for a non-empty `payloadContains` misses unless `Payload != nil` **and** `bytes.Contains(Payload, needle)`.
 
-1. If non-payload AND fields miss → continue.
+A small Engine helper (name is an implementation detail) answers “must the pump load payload before `Match`?” by walking enabled websocket-phase items in **Engine order** using the **same** predicates as `Match`, minus only `payloadContains`: full `matchAND` (host/path/method/headers/protocol, including `:authority` / `:path` / `:method` overrides) **plus** opcode **plus** direction **plus** forced `Protocol=websocket`.
+
+1. If that exact AND misses → continue.
 2. If `payloadContains` is empty → this item would win without a load → **do not load**.
-3. If declared length **exceeds** the visibility cap → this item misses → continue.
+3. If declared length **exceeds** the visibility cap → this item misses → continue (a later ≤cap `payloadContains` item may still require a load).
 4. Otherwise this item needs unmasked bytes → **load**.
 
-The pump then optionally loads and calls `Match` once. Do not put `io.Reader` in `internal/rules`.
+“Would win without load” means that exact AND succeeds and `payloadContains` is empty — not “opcode/direction only.” An earlier `opcode: text` + `pathPrefix: /admin` must **not** suppress load for a later ≤cap `payloadContains` on `/ws`. The pump then optionally loads and calls `Match` once. Do not put `io.Reader` in `internal/rules`.
 
 ### D73 — Frame actions `drop` and `block`
 
@@ -164,7 +166,7 @@ Phase-dependent `drop` (HTTP request/response `drop` unchanged):
 
 | Action | `phase: websocket` | Wire |
 |---|---|---|
-| `drop` | Omit this frame. If `src` is still unread, drain (`io.CopyN` to `Discard`, never `TeePayload` onto `dst`) so the stream stays aligned. Continue the inspect loop (including after a dropped `close`). | Peer never sees the header or payload. |
+| `drop` | Omit this frame. If `src` is still unread, capture-read then discard (see Pump I/O); never `TeePayload` onto `dst`. Continue the inspect loop (including after a dropped `close`). Forwarded `close` still ends that pump. | Peer never sees the header or payload. |
 | `block` | Do not forward the frame. Close both TCP sides. | Session ends. |
 
 `block` is a new `KnownRuleAction` token, legal **only** on `phase: websocket` in this change.
@@ -187,7 +189,7 @@ Capture: still store the inspected frame under existing caps (including dropped/
 
 **`Flow.RuleIDs`:** a websocket-phase hit **appends** the rule id (same slice HTTP request/response hits already use). Inspect capture today calls `capture(f, sess)` not `captureRule`; the implementation change must stamp `RuleIDs` on a websocket-phase hit before insert.
 
-**`RuleIDs` / `Action` writes** go under `wsInspect.mu` (docs/04: do not unsynchronized-mutate a live `*Flow`). Two pumps eval concurrently.
+**`RuleIDs` / `Action` / `State` writes** go under `wsInspect.mu` (docs/04: do not unsynchronized-mutate a live `*Flow`). `block` must set `State=completed` under that lock (today `protocolError` already locks for `Error`/`State`). Two pumps eval concurrently. **Do not hold `wsInspect.mu` across `captureFrame`** — it already locks; that is a `test-race` deadlock.
 
 RSV bits, ping/pong auto-answer policy, control-size `Error=websocket`, and large-data streaming on **non-matching** / opcode-only frames stay as D67.
 
@@ -214,40 +216,40 @@ Hook once in the shared pump so D63 Extended CONNECT inherits automatically. Do 
 
 This is the sweep-3 blocker from [PR #56](https://github.com/hilather/go-lab-mitmproxy/pull/56). After a match-time payload read, `src` is consumed. “Miss → existing `WriteHeader` + `TeePayload(src)`” then writes a header with no payload. Writing the unmasked match buffer would unmask client→origin frames (D67: `TeePayload` copies **wire** bytes; masking unchanged). An oversized miss that drains `src` with no later winner swallows a large data frame instead of streaming it.
 
-Frozen algorithm for `wsInspect.pump` after a successful `ReadHeader`:
+Frozen algorithm for `wsInspect.pump` after a successful `ReadHeader`. Order is mandatory.
 
 ### Fast path (D67 unchanged)
 
-If the pinned Engine is nil, `rules.enabled` is false, or it has **no** enabled `phase: websocket` item: today’s path. `WriteHeader` then `TeePayload(src)`. Do not buffer. Close-length-1 and `captureFrame` stay as they are (this path forwards, so `ws_frames_total` still increments inside `captureFrame`).
+Fast path is decided from the **pinned** Engine on `wsInspect` (`sess.eng` from `beginSession` / `fork`), never from live `spec.Rules.Enabled` after `setFeature`. If `eng == nil` || `!eng.Enabled()` || no enabled `phase: websocket` item: today’s path. `WriteHeader` then `TeePayload(src)`. Do not buffer. Close-length-1 after `TeePayload` and `captureFrame` stay as they are (this path forwards, so `ws_frames_total` still increments inside `captureFrame`). Forwarded `close` still returns (then `closeWrite`).
 
-### Rules path
+### Rules path — order after `ReadHeader`
 
-**Do not `WriteHeader` until the winner is known.** A premature header makes `drop` impossible.
+1. **Close-length-1 is a header fact.** `ReadHeader` does **not** reject `OpcodeClose && Length==1` (today the pump checks `h.Length` after `TeePayload`). On the rules path: if `h.Opcode == OpcodeClose && h.Length == 1` → `protocolError` (`Error=websocket`, `State=error`) and return. **No** `Match`. **No** `WriteHeader`. **No** drop/block. **Do not** continue the loop. Do **not** gate this on `srcConsumed` or `Length==0` (`Length==1` is never 0). Drain the 1-byte payload only if the socket stays open (it must not). Fast path may keep today’s forward-then-error order; the rules path must not.
 
-State on this frame:
+2. **Do not `WriteHeader` until the winner is known.** A premature header makes `drop` impossible.
 
-- `srcConsumed` starts false.
-- `wire` is the exact payload bytes read from `src` (masked if the header said masked).
-- `unmasked` is a copy of `wire` with `MaskKey` applied when `h.Masked` (match + capture only).
+3. **Zero-length frames:** `Length==0` is not a load (`TeePayload` already no-ops at `n==0`). Not close-length-1.
 
-**Load rule:** run the Engine helper above. Load **only** if it says the first still-viable item needs `payloadContains` **and** declared length ≤ visibility cap.
+4. State on this frame: `srcConsumed` starts false. `wire` is the exact payload bytes read from `src` (masked if the header said masked). `unmasked` is a copy of `wire` with `MaskKey` applied when `h.Masked` (match + capture only).
 
-**On load (≤cap):** `io.ReadFull(src, declared)` into `wire`. Set `srcConsumed=true`. Build `unmasked` from a copy. Do **not** write anything yet. Do **not** consume `src` on an oversized `payloadContains` miss — that predicate misses; payload stays on `src` until the winner is known.
+5. **Load:** run the Engine helper (full `matchAND`+opcode+direction; see D72). Load **only** if it says a still-viable item needs `payloadContains` **and** declared length ≤ visibility cap. On load: `io.ReadFull(src, declared)` into `wire`. **On `ReadFull` failure:** end the pump like today’s `TeePayload` error (`return`, not `Error=websocket` unless `ErrProtocol`). Do **not** `WriteHeader`. Do **not** `Match`. Do **not** set `srcConsumed` on failure. On success: `srcConsumed=true`; build `unmasked` from a copy; do not write yet. Do **not** consume `src` on an oversized `payloadContains` miss.
 
-**Then** `Match("websocket", snapshot + Protocol=websocket + opcode + direction + Payload=unmasked-or-nil)`.
+6. **`Match("websocket", snapshot + Protocol=websocket + opcode + direction + Payload=unmasked-or-nil)`.** Non-empty `payloadContains` vs `Payload==nil` is a miss (D72). Empty `payloadContains` remains any.
 
-**Close-length-1** (and any other D67 post-payload framing check): if the payload is available (`srcConsumed` or declared length 0) and `OpcodeClose && Length==1` → `protocolError` and return, **even if** a rule would have dropped or blocked.
+7. **Winner I/O:**
 
-Then:
-
-| Winner | `src` | `dst` | Capture / metrics |
+| Winner | `src` | `dst` | Capture / metrics / loop |
 |---|---|---|---|
-| `drop` | If not consumed, drain to `Discard` (alignment only). | **No** `WriteHeader`. **No** payload write. | Store frame with `Action=drop`; append `RuleIDs` under `mu`; `rule_hits{action="drop"}`; **no** `ws_frames_total`. Continue the loop (including after a dropped `close`). |
-| `block` | Same drain-if-unread. | **No** `WriteHeader`. `Close` both conns. | Store frame with `Action=block`; append `RuleIDs` under `mu`; `rule_hits{action="block"}`; **no** `ws_frames_total`. `State=completed`. Return. |
-| none (miss), `src` still unread | still on `src` | `WriteHeader` + `TeePayload(src)` (streams large data; masking unchanged) | Existing `captureFrame` path (`ws_frames_total` increments). |
-| none (miss), `src` already consumed | n/a | `WriteHeader` + write **`wire`** (original mask). Allowed equivalent: re-mask `unmasked` with the **same** `MaskKey` and write those bytes. **Forbidden:** `TeePayload` of a consumed `src`; writing `unmasked` on a masked client→origin frame; `wsx.WriteFrame` with a truncated prefix (would lie about `Length`). | Capture the unmasked prefix under `storeRemain()` (same cap as `TeePayload`’s `storeMax`). Increment `ws_frames_total`. |
+| `drop` | If unread: capture-read then discard (below). If already loaded: use `unmasked`. | **No** `WriteHeader`. **No** payload write. | Store with `Action=drop` via the **no-`wsFrame` path**. Append `RuleIDs` under `mu` (not across `captureFrame`). `rule_hits{action="drop"}` only. **Continue** the loop, including after a dropped `close`. |
+| `block` | Same capture-then-discard if unread. | **No** `WriteHeader`. `Close` both conns. | Store with `Action=block` via the **no-`wsFrame` path**. Append `RuleIDs` and set `State=completed` under `mu`. `rule_hits{action="block"}` only. Return. |
+| none (miss), `src` unread | still on `src` | `WriteHeader(original h)` + `TeePayload(src)` | Call today’s `captureFrame` **once**. It owns `ws_frames_total`, `FrameCount`, `storeRemain`, `Truncated`. Do not increment again. Do not pre-add `st.stored`. **Forwarded `close` returns** (D67 half-close). |
+| none (miss), `src` consumed | n/a | `WriteHeader(original h)` + write exact **`wire`**. Allowed equivalent: re-mask **full** `unmasked` (`len == h.Length`) with the same `MaskKey`. `WriteFrame` only if `len(Payload)==h.Length` and close-code synthesis does not run. **Forbidden:** `TeePayload` of a consumed `src`; writing `unmasked` on a masked client→origin frame; `WriteFrame` with a truncated prefix. | Call today’s `captureFrame` **once** with the unmasked prefix (it applies `storeRemain()` itself). Do not increment `ws_frames_total` again. **Forwarded `close` returns.** |
 
-`io.ReadFull` / write errors end the pump the same way today’s `TeePayload` errors do (not `Error=websocket` unless `ErrProtocol`).
+**Drop/block unread capture (D67 store contract):** do **not** `io.CopyN(Discard)` first and then store `Payload==nil`. After the winner is known, if drop/block and `src` unread: read min(declared, `storeRemain()`) as unmasked prefix for capture (`TeePayload(io.Discard, src, …)` is allowed — Discard, never `dst`), then `CopyN` any remainder to `Discard`. Then store with `Action`. Peer still sees no header.
+
+**`captureFrame` vs `ws_frames_total`:** `captureFrame` **is** the increment today. Reuse it unchanged for drop/block → omitted frames counted as forwarded. Invent a second capture **and** increment on miss-consumed → double-count. Pre-slice to `storeRemain()` then also bump `st.stored` before `captureFrame` → double budget. Frozen: forward → `captureFrame` once; drop/block → sibling or a flag that **does not** call `wsFrame`.
+
+Write / `TeePayload` errors end the pump the same way today’s `TeePayload` errors do (not `Error=websocket` unless `ErrProtocol`).
 
 Do **not** invent a second HTTP/2 WebSocket pump. Both directions of the shared `wsInspect.pump` share this.
 
@@ -267,15 +269,17 @@ Do **not** invent a second HTTP/2 WebSocket pump. Both directions of the shared 
 | Miss-forward via `TeePayload(src)` after a match read | Consumed `src` → header with no payload (or short write). D67 break. |
 | Miss-forward the unmasked buffer | Unmasks client→origin. D67 break. |
 | Drain oversized miss “for alignment” when no later winner | Swallows a large data frame. D67 break. |
+| Treat `payloadContains` as skipped when `Payload==nil` | Oversized item wins first-match and drains/closes. Same D67 swallow as #56. |
+| Gate close-length-1 on `srcConsumed` | Opcode-only / empty-match rules skip load; illegal close is dropped or forwarded without `Error=websocket`. |
 
 ## Implementation slices (later change; this PR does not land them)
 
 1. **ADR 0015** with D72–D74, frozen names, supersede list (docs/02 and docs/05 sentences only), review triggers. Add to `docs/README.md`, `scripts/checkdocs` `RequiredRootDocs`.
 2. **Model + validate + published schema.** `RulePhaseWebSocket`, `ActionBlock`, match fields on `RuleMatchSpec`. Hand-edit `api/jsonschema/labmitm.dev.v1alpha1.json` (not rewritten by `scripts/generate`). Widen `phase` and `action.type` enums; add the three match properties. Go `validateRules` enforces action-vs-phase and frame-field-vs-phase. `TestSchemaListsModelJSONFields` stays green.
-3. **`internal/rules`.** Extend match input with `Opcode`, `Direction`, `Payload []byte`. `Match("websocket", …)` first-match with `Protocol` forced by the caller to `websocket`. Helper for “must load payload?”. Unit tests: default-off, AND, first-wins, opcode/direction/payloadContains, `match.protocol: websocket` hits / `http/1.1` misses, empty match, request-phase item does not win on `Match("websocket")`, oversized `payloadContains` is a miss and a later opcode-only item can still win, helper does not demand a load on oversized or on an earlier opcode-only winner.
-4. **`internal/proxy` pump.** Grow `inspectUpgrade` to take the matchHit `host` + upgrade `*http.Request`. Store sess + snapshot on `wsInspect` (fields do not exist today). Implement the **Pump I/O** contract. Do not run websocket hits through `runRequestRules` / `Mutates`.
+3. **`internal/rules`.** Extend match input with `Opcode`, `Direction`, `Payload []byte`. `Match("websocket", …)` first-match with `Protocol` forced by the caller to `websocket`. Helper for “must load payload?” uses full `matchAND`+opcode+direction. Unit tests: default-off, AND, first-wins, opcode/direction/payloadContains, `match.protocol: websocket` hits / `http/1.1` misses, empty match, request-phase item does not win on `Match("websocket")`, oversized `payloadContains` is a miss and a later opcode-only item can still win, helper does not demand a load on oversized or on an earlier **true** opcode-only winner, helper **does** demand a load when an earlier opcode item misses on path/host/header, `payloadContains` + `Payload==nil` is a miss (not a skip).
+4. **`internal/proxy` pump.** Grow `inspectUpgrade` to take the hop’s `host` (matchHit argument where it exists; `splitAuthority` host on h2c) + upgrade `*http.Request`. Store sess + snapshot on `wsInspect` (fields do not exist today). Implement the **Pump I/O** contract. Do not run websocket hits through `runRequestRules` / `Mutates`. Do not add h2c `matchHit`.
 5. **Adapters.** No new REST/MCP tools. Map `frames[].action` in REST and MCP GET-by-id DTOs. `schema.get` serves the updated JSON Schema. Parity: apply `replaceRules` with a websocket-phase item on both transports; GET-by-id contract for `action` + `ruleIds`.
-6. **Docs in the same implementation change:** `docs/02-proxy-semantics.md`, `docs/05-rules.md` (phase table + actions + protocol input; h2c stays no response-phase eval), `docs/06-state-and-configuration.md` (validate lines), `docs/04-flow-store.md` (`action` on frames), `docs/08-rest-api.md` (GET-by-id `action`; list still omits `frames`), `docs/09-mcp-api.md` if it describes frame JSON, `docs/11-observability.md` (`action=block` token; `drop` shared; `ws_frames_total` still forwarded-only), `docs/12-testing-strategy.md`, `docs/known-limitations.md` (inspect Reset-only; pin table; payloadContains cap; h2c no response-phase eval), `CHANGELOG.md` Unreleased (include canonical-JSON churn for existing `rules.items`), `docs/README.md` ADR row. `Last reviewed` on touched numbered docs. Overlay stays `inspectFrames` off.
+6. **Docs in the same implementation change:** `docs/02-proxy-semantics.md`, `docs/05-rules.md` (phase table + actions + protocol input; HTTP/1.1 `101` and inner D63 200 stay `late_skip`; **do not** rewrite as “all websocket upgrades are `late_skip`”; h2c stays no response-phase eval), `docs/06-state-and-configuration.md` (validate lines), `docs/04-flow-store.md` (`action` on frames), `docs/08-rest-api.md` (GET-by-id `action`; list still omits `frames`), `docs/09-mcp-api.md` if it describes frame JSON, `docs/11-observability.md` (`action=block` token; `drop` shared; `ws_frames_total` still forwarded-only), `docs/12-testing-strategy.md`, `docs/known-limitations.md` (inspect Reset-only; pin table; payloadContains cap; h2c no response-phase eval), `CHANGELOG.md` Unreleased (include canonical-JSON churn for existing `rules.items`), `docs/README.md` ADR row. `Last reviewed` on touched numbered docs. Overlay stays `inspectFrames` off.
 7. **UI.** Not required. Follow-on: Frames tab badge.
 
 ## Tests (implementation change)
@@ -284,9 +288,9 @@ A bug-fix/feature must fail before the hook exists.
 
 | Layer | What |
 |---|---|
-| Rules unit | First-match websocket phase; opcode; direction; payloadContains; empty match; `rules.enabled` false matches nothing; request-phase item does not win on `Match("websocket")`; `match.protocol: websocket` hits; `http/1.1` / `h2` miss; oversized `payloadContains` is a miss and a later opcode-only item can still win; load-helper: no load on oversized; no load when an earlier opcode-only item would win. |
+| Rules unit | First-match websocket phase; opcode; direction; payloadContains; empty match; `rules.enabled` false matches nothing; request-phase item does not win on `Match("websocket")`; `match.protocol: websocket` hits; `http/1.1` / `h2` miss; oversized `payloadContains` is a miss and a later opcode-only item can still win; `payloadContains` + `Payload==nil` is a miss (not a skip); load-helper: no load on oversized; no load when an earlier opcode-only item **would actually win**; helper still loads when an earlier opcode item misses on path/host/header and a later ≤cap `payloadContains` remains. |
 | Config | Valid: websocket-phase drop/block with inspectFrames on and off. Invalid: unknown phase, `block` on request, `body` on websocket, unknown opcode, unknown direction, non-empty `opcode` on `phase: request`. Reserved keys unchanged. Empty-spec revision can stay stable. No revision goldens today (`TestConfigCompat` round-trips); changelog notes canonical-JSON churn for non-empty `items[]`. |
-| Proxy (`ws_test.go` + existing 101 transcript) | Keep `upgrade-websocket-frames.txt`. Drivers: (1) inspect on + drop text client frame → origin never sees it, later ping still forwarded; (2) inspect on + block binary → both sides closed, later frames not delivered, `Error` empty, `State=completed`; (3) inspect **off** + websocket-phase drop → copy path, origin sees the frame, no `drop` hit; (4) `TestWebSocketLateSkip` still `body` → `late_skip`; (5) response-phase `drop` (and `delay`) + inspect on + websocket-phase items present → 101 still `late_skip`, response item does not omit frames; (6) `match.protocol: websocket` on HTTP/1.1 inspect drop fires; `http/1.1` misses; (7) dropped `close` → loop continues, later ping still evaluated; (8) `payloadContains` on **masked** client frames compares unmasked bytes; (9) `continuation` + `payloadContains` is fragment-only; (10) declared length > pinned `maxBodyBytes` + `payloadContains` miss + **later opcode-only drop** → payload discarded, origin never sees it, no `Error=websocket`; (11) close length 1 (and control >125 via `ReadHeader`) still `Error=websocket` when websocket-phase rules exist; (12) HTTP/1.1 inspect + `pathPrefix: /ws` + `headerName` drop (operator sequence; proves snapshot extraction, not `Flow.URL` / `req.Host`); (13) second-frame `payloadContains` after prior frames consumed part of the capture budget — declared length ≤ **full** `maxBodyBytes` still content-matches (not `storeRemain`); (14) `replaceStoreCaps` after pin does not change `payloadContains` visibility; **(15) `payloadContains` miss + frame forwarded with original mask** (client→origin stays masked; origin sees the same wire key / masked payload); **(16) oversized + `payloadContains` miss + no later winner + frame still streamed in full, no `Error=websocket`**. |
+| Proxy (`ws_test.go` + existing 101 transcript) | Keep `upgrade-websocket-frames.txt`. Drivers: (1) inspect on + drop text client frame → origin never sees it, later ping still forwarded; GET-by-id still has a captured unmasked prefix (`Action=drop`); `ws_frames_total` does **not** increment for that frame; (2) inspect on + block binary → both sides closed, later frames not delivered, `Error` empty, `State=completed`; (3) inspect **off** + websocket-phase drop → copy path, origin sees the frame, no `drop` hit; (4) `TestWebSocketLateSkip` still `body` → `late_skip`; (5) response-phase `drop` (and `delay`) + inspect on + websocket-phase items present → 101 still `late_skip`, response item does not omit frames; (6) `match.protocol: websocket` on HTTP/1.1 inspect drop fires; `http/1.1` misses; (7) dropped `close` → loop continues, later ping still evaluated; forwarded `close` still ends that pump; (8) `payloadContains` on **masked** client frames compares unmasked bytes; (9) `continuation` + `payloadContains` is fragment-only; (10) declared length > pinned `maxBodyBytes` + `payloadContains` miss + **later opcode-only drop** → capture prefix then discard remainder, origin never sees it, no `Error=websocket`; (11) close length 1 still `Error=websocket` **before** Match / drop-continue when websocket-phase rules exist (empty-match drop must not swallow it); control >125 still `ErrProtocol` at `ReadHeader`; (12) HTTP/1.1 inspect + `pathPrefix: /ws` + `headerName` drop (operator sequence; proves snapshot extraction, not `Flow.URL` / `req.Host`); (13) second-frame `payloadContains` after prior frames consumed part of the capture budget — declared length ≤ **full** `maxBodyBytes` still content-matches (not `storeRemain`); (14) `replaceStoreCaps` after pin does not change `payloadContains` visibility; **(15) `payloadContains` miss + frame forwarded with original mask** (client→origin stays masked; origin sees the same wire key / masked payload); **(16) oversized + `payloadContains` miss + no later winner + frame still streamed in full, no `Error=websocket`**; (17) earlier websocket item `opcode: text` + `pathPrefix: /admin` (would “win without load” if the helper ignores path) + later ≤cap `payloadContains` on `/ws` still content-matches. |
 | Snapshot pin | Cleartext: in-flight inspect socket keeps the old Engine; a **new cleartext Upgrade** sees the new drop. Inner: `replaceRules` after CONNECT is established, then inner Upgrade — still the **old** Engine. `setFeature rules.enabled=false` on an already-open inspect socket: frames **still** match. |
 | Inherit only | Thin **new** sibling of D63 Extended CONNECT with `inspectFrames` + websocket-phase drop on the shared pump (existing D63 tests are handshake-only). Method remains `CONNECT`; do not assume `pathPrefix: /ws`. Inner D63 `:status=200` + response-phase `drop`/`delay` still `late_skip` and does not omit frames. **Do not** add a client-facing h2c response-phase `matchHit` or an h2c `late_skip` inherit assertion. Flag-off illegal h2 Upgrade stays RST, no flow. h2c later-stream pin is residual (same PRI rule as D74). |
 | Parity / contract | REST + MCP `replaceRules` apply; `schema.get` enums include `websocket` / `block`. GET-by-id `frames[].action` (`drop`/`block` present; forwarded omitted) and `ruleIds` contains the websocket-phase id. List omits `frames`. No new catalog row. |
@@ -323,7 +327,7 @@ Cleartext `pathPrefix: /ws` matches an HTTP/1.1 Upgrade to `/ws`. D63 / h2c requ
 - Pin table (D74): open sockets, later inner upgrades on a pinned CONNECT, and later h2c streams on a pinned PRI do not see `replaceRules` / `setFeature rules.enabled`.
 - `payloadContains` cannot see frames whose declared size exceeds the pinned visibility cap (fail-open miss; first-match continues). Oversized miss with no later winner is streamed (D67), not swallowed.
 - No per-message reassembly; continuation frames match as `continuation`.
-- Dropped `close` does not end the inspect loop; idle/session timeouts still apply.
+- Dropped `close` does not end the inspect loop; forwarded `close` still ends that pump. Idle/session timeouts still apply.
 - Client-facing h2c Extended CONNECT has no response-phase eval (unchanged). Inner D63 200 is `late_skip`.
 - HTTP block modes and frame `delay` are not this change.
 - Inspector Frames tab may not badge `action` until a UI follow-on.
@@ -340,9 +344,17 @@ Process: never skip sweep 1; each sweep is a fresh skeptic; cap 3 then **BLOCKED
 
 Prior cycle ([PR #56](https://github.com/hilather/go-lab-mitmproxy/pull/56)) reached BLOCKED on the miss-forward I/O. This file is a new cycle. Settled items from that cycle are kept (phase split, D51', STA-001 pin table, catalog 31, forced `in.Protocol=websocket`, no new h2 websocket surface, D12). This revision applies the three remaining unblocks: wire-byte miss forward, `wsInspect`/host snapshot facts, no h2c response-phase `matchHit`.
 
-### Sweep 1
+### Sweep 1 — REVISE (applied)
 
-Pending.
+Fresh skeptic. Verdict REVISE. Blockers folded in this revision:
+
+1. **B1 close-length-1:** header fact after `ReadHeader`. Rules path `protocolError` before Match / WriteHeader / drop-continue. Not gated on `srcConsumed`.
+2. **B2 `payloadContains` vs nil:** non-empty needle + `Payload==nil` is always a miss (never skip). Prevents oversized items from winning.
+3. **B3 load helper:** full `matchAND`+opcode+direction. “Would win without load” is not opcode-only. Earlier path-miss still loads a later ≤cap `payloadContains`.
+4. **B4 drop/block capture:** unread winner capture-reads then discards; does not store `Payload==nil` after `CopyN(Discard)`.
+5. **B5 `captureFrame` / `ws_frames_total`:** forward calls `captureFrame` once; drop/block uses a no-`wsFrame` path; do not hold `mu` across `captureFrame`.
+
+Must-fix applied: forwarded `close` returns; h2c host is `splitAuthority` (no new `matchHit`); fast path is the pinned Engine; `ReadFull` fail does not WriteHeader/Match/`srcConsumed`; `block` `State` under `mu`; `Length==0` is not a load; remask/`WriteFrame` only when `len==h.Length`.
 
 ### Sweep 2
 
