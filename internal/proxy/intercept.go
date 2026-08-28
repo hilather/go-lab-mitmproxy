@@ -578,10 +578,27 @@ func requestCaptureHeaders(req *http.Request) []model.Header {
 	if req == nil {
 		return nil
 	}
+	var hs []model.Header
 	if meta, ok := h2MetaFrom(req); ok && len(meta.pseudos) > 0 {
-		return mergePseudoHeaders(meta.pseudos, req.Header)
+		hs = mergePseudoHeaders(meta.pseudos, req.Header)
+	} else {
+		hs = headersFrom(req.Header)
 	}
-	return headersFrom(req.Header)
+	return stripCapturedProxyAuthorization(hs)
+}
+
+func stripCapturedProxyAuthorization(hs []model.Header) []model.Header {
+	if len(hs) == 0 {
+		return hs
+	}
+	out := make([]model.Header, 0, len(hs))
+	for _, h := range hs {
+		if strings.EqualFold(h.Name, "Proxy-Authorization") {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
 }
 
 func mergePseudoHeaders(pseudos []model.Header, hdr http.Header) []model.Header {

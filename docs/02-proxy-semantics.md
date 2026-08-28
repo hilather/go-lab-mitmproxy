@@ -3,7 +3,7 @@
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
 Last reviewed: 2026-08-28 (D69 silent/hang/redirect; D72–D74 websocket frame rules; HTTP proxy 407 D76)
-Related ADRs: 0002, 0009, 0010, 0012, 0013, 0014, 0015, 0016
+Related ADRs: 0002, 0009, 0010, 0012, 0013, 0014, 0015, 0016, 0017
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 

@@ -101,7 +101,8 @@ func TestHTTPAuthAbsoluteOKTranscript(t *testing.T) {
 		sawAuth = r.Header.Get("Proxy-Authorization")
 		_, _ = io.WriteString(w, "ok")
 	}))
-	px := startHTTPAuthProxy(t, Options{})
+	sink := NewNull()
+	px := startHTTPAuthProxy(t, Options{Sink: sink})
 	proxytest.PlayTranscript(t, px.Addr().String(), testdataProxy(t, "http-auth-absolute-ok.txt"), map[string]string{
 		"HOST":  origin,
 		"BASIC": httpAuthBasic(),
@@ -109,6 +110,7 @@ func TestHTTPAuthAbsoluteOKTranscript(t *testing.T) {
 	if sawAuth != "" {
 		t.Fatalf("origin saw Proxy-Authorization %q", sawAuth)
 	}
+	assertFlowsHideProxyAuth(t, sink)
 }
 
 func TestHTTPAuthCONNECT407Transcript(t *testing.T) {
@@ -364,7 +366,8 @@ func TestH2CGETAuthRetry(t *testing.T) {
 	}))
 	spec := httpAuthSpec(t, true)
 	spec.Protocols.HTTP2.ClientCleartext = true
-	px := startHTTPAuthProxy(t, Options{Spec: spec})
+	sink := NewNull()
+	px := startHTTPAuthProxy(t, Options{Spec: spec, Sink: sink})
 	cc := dialH2C(t, px.Addr().String())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -399,6 +402,7 @@ func TestH2CGETAuthRetry(t *testing.T) {
 	if hits.Load() != 1 {
 		t.Fatal("origin GET after retry")
 	}
+	assertFlowsHideProxyAuth(t, sink)
 }
 
 func TestH2CConnectAuthRetry(t *testing.T) {
@@ -531,6 +535,127 @@ func TestHTTPAuthLiveFlipNextRequest(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusProxyAuthRequired {
 		t.Fatalf("after live flip status %d", resp.StatusCode)
+	}
+}
+
+func TestHTTPAuthLiveFlipInFlightCONNECT(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	got := make(chan []byte, 2)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			got <- nil
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+		buf := make([]byte, 16)
+		n, _ := c.Read(buf)
+		got <- append([]byte(nil), buf[:n]...)
+		_, _ = c.Write([]byte("pong"))
+		n, _ = c.Read(buf)
+		got <- append([]byte(nil), buf[:n]...)
+	}()
+
+	off := httpAuthSpec(t, false)
+	st := &model.State{APIVersion: model.APIVersionV1Alpha1, Kind: model.KindLabMITM, Metadata: model.Metadata{Name: "t"}, Spec: off}
+	first, err := compiler.Compile(t.Context(), st, compiler.CompileOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snaps := snapshot.NewStore()
+	snaps.InstallBootstrap(first)
+	px := startProxy(t, Options{Spec: first.Canonical.Spec, Snapshots: snaps, Authority: first.CA})
+
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	host := ln.Addr().String()
+	if err := c.WriteRequest("CONNECT "+host+" HTTP/1.1", "Host: "+host); err != nil {
+		t.Fatal(err)
+	}
+	stLine, err := c.ReadLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stLine != "HTTP/1.1 200 Connection Established" {
+		t.Fatalf("status %q", stLine)
+	}
+	if blank, err := c.ReadLine(); err != nil || blank != "" {
+		t.Fatalf("blank %q err=%v", blank, err)
+	}
+	if err := c.WriteRaw([]byte("ping1")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case b := <-got:
+		if string(b) != "ping1" {
+			t.Fatalf("origin %q", b)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("origin did not see first splice")
+	}
+
+	on := httpAuthSpec(t, true)
+	nextState := &model.State{APIVersion: model.APIVersionV1Alpha1, Kind: model.KindLabMITM, Metadata: model.Metadata{Name: "t"}, Spec: on}
+	next, err := compiler.Compile(t.Context(), nextState, compiler.CompileOpts{Previous: first, ReloadHTTPAuth: true, Generation: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snaps.Swap(next)
+
+	if err := c.WriteRaw([]byte("ping2")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case b := <-got:
+		if string(b) != "ping2" {
+			t.Fatalf("in-flight CONNECT torn down after live flip: origin %q", b)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("in-flight CONNECT torn down after live flip")
+	}
+
+	c2, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c2.Close() }()
+	if err := c2.WriteRequest("GET http://127.0.0.1:9/y HTTP/1.1", "Host: 127.0.0.1:9"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c2.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusProxyAuthRequired {
+		t.Fatalf("next absolute-form status %d want 407", resp.StatusCode)
+	}
+}
+
+func assertFlowsHideProxyAuth(t *testing.T, sink *Null) {
+	t.Helper()
+	basic := httpAuthBasic()
+	for _, f := range sink.Last() {
+		for _, h := range f.Request.Headers {
+			if strings.EqualFold(h.Name, "Proxy-Authorization") {
+				t.Fatalf("flow %s attached Proxy-Authorization", f.ID)
+			}
+			if strings.Contains(h.Value, "labuser") || strings.Contains(h.Value, "labpass12") || strings.Contains(h.Value, basic) {
+				t.Fatalf("flow %s leaked secret in %s", f.ID, h.Name)
+			}
+		}
+		blob := string(f.Request.Body) + f.Error + f.URL
+		if strings.Contains(blob, "labpass12") || strings.Contains(blob, basic) {
+			t.Fatalf("flow %s leaked secret in body/error/url", f.ID)
+		}
 	}
 }
 

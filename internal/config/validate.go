@@ -356,6 +356,13 @@ func validateHTTPAuth(h *model.HTTPAuthSpec, vs *[]domainerr.FieldViolation, ski
 			Message: "httpAuth.enabled requires at least one user",
 		})
 	}
+	if strings.ContainsAny(h.Realm, "\r\n") {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.proxy.httpAuth.realm",
+			Code:    violationInvalidValue,
+			Message: "realm must not contain CR or LF",
+		})
+	}
 	validateFileRefUsers(h.Users, "spec.proxy.httpAuth.users", vs, skipFiles)
 }
 
