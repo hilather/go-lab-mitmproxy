@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"testing"
@@ -235,14 +236,19 @@ func TestWebSocketFrameBlockClosesBoth(t *testing.T) {
 	px := startProxy(t, Options{Spec: inspectRulesSpec(t, wsItem("kill-bin", model.RuleOpcodeBinary, model.ActionBlock)), Sink: sink})
 	c := upgradeWS(t, px.Addr().String(), origin, "/ws")
 	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeBinary, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: []byte("xx")})
+	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodePing, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: []byte("later")})
 	_, _ = io.Copy(io.Discard, c.Reader())
 	_ = c.Close()
 	f := waitWSFlow(t, sink)
 	if rec.saw(wsx.OpcodeBinary, "xx") {
 		t.Fatal("origin must not see blocked binary")
 	}
-	if rec.saw(wsx.OpcodePing, "later") {
-		t.Fatal("later frames must not be delivered")
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if rec.saw(wsx.OpcodePing, "later") {
+			t.Fatal("later frames must not be delivered")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if f.Error != "" {
 		t.Fatalf("block must not set Error: %q", f.Error)
@@ -429,7 +435,7 @@ func TestWebSocketOversizedPayloadContainsThenOpcodeDrop(t *testing.T) {
 	sink := NewNull()
 	px := startProxy(t, Options{Spec: spec, Sink: sink})
 	c := upgradeWS(t, px.Addr().String(), origin, "/ws")
-	payload := bytes.Repeat([]byte("n"), 64)
+	payload := append([]byte("secret"), bytes.Repeat([]byte("n"), 58)...)
 	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeBinary, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: payload})
 	writeWS(t, c, wsx.Frame{Fin: true, Opcode: wsx.OpcodeClose, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, CloseCode: 1000})
 	_, _ = io.Copy(io.Discard, c.Reader())
@@ -441,8 +447,15 @@ func TestWebSocketOversizedPayloadContainsThenOpcodeDrop(t *testing.T) {
 	if f.Error == model.WSErrorProtocol {
 		t.Fatal("oversized miss must not be Error=websocket")
 	}
-	if f.WebSocket == nil || len(f.WebSocket.Frames) == 0 || f.WebSocket.Frames[0].Action != model.ActionDrop {
+	if len(f.RuleIDs) == 0 || f.RuleIDs[0] != "drop-bin" {
+		t.Fatalf("oversized payloadContains must miss so opcode-only wins, ruleIds=%v", f.RuleIDs)
+	}
+	if f.WebSocket == nil || len(f.WebSocket.Frames) == 0 {
 		t.Fatalf("want captured drop prefix, got %+v", f.WebSocket)
+	}
+	got := f.WebSocket.Frames[0]
+	if got.Action != model.ActionDrop || !got.Truncated || len(got.Payload) != 4 {
+		t.Fatalf("want clipped drop prefix, got %+v", got)
 	}
 }
 
@@ -484,9 +497,13 @@ func TestWebSocketControlTooLargeWithRules(t *testing.T) {
 func TestWebSocketSnapshotPathAndHeader(t *testing.T) {
 	rec := &recordedWS{}
 	origin := recordingWSOrigin(t, rec, true)
+	host, _, err := net.SplitHostPort(origin)
+	if err != nil {
+		t.Fatal(err)
+	}
 	spec := inspectRulesSpec(t, model.RuleSpec{
 		ID: "snap", Enabled: true, Phase: model.RulePhaseWebSocket,
-		Match:  model.RuleMatchSpec{PathPrefix: "/ws", HeaderName: "X-Lab"},
+		Match:  model.RuleMatchSpec{Host: host, PathPrefix: "/ws", HeaderName: "X-Lab"},
 		Action: model.RuleActionSpec{Type: model.ActionDrop},
 	})
 	px := startProxy(t, Options{Spec: spec, Sink: NewNull()})
@@ -496,7 +513,7 @@ func TestWebSocketSnapshotPathAndHeader(t *testing.T) {
 	_, _ = io.Copy(io.Discard, c.Reader())
 	_ = c.Close()
 	if rec.saw(wsx.OpcodeText, "hello") {
-		t.Fatal("pathPrefix /ws + headerName must drop using the upgrade snapshot")
+		t.Fatal("host (not req.Host), pathPrefix /ws, and headerName must drop using the upgrade snapshot")
 	}
 }
 
