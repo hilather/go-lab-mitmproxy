@@ -10,6 +10,7 @@ import (
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 )
 
 func TestPlanApplyReplaceRules(t *testing.T) {
@@ -862,5 +863,67 @@ func TestReplaceRulesBlockModes(t *testing.T) {
 				t.Fatalf("want path %s in %+v", tc.path, de.FieldViolations)
 			}
 		})
+	}
+}
+
+func TestReplaceRulesThrottleValidate(t *testing.T) {
+	svc, boot := mustBoot(t)
+	for _, bps := range []int64{0, 255, 65 << 20} {
+		_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+			ExpectedRevision: boot.Revision,
+			Operations: []model.Operation{{
+				Op: model.OpReplaceRules,
+				Rules: &model.RulesSpec{
+					Enabled: true,
+					Items: []model.RuleSpec{{
+						ID:      "bad-bps",
+						Enabled: true,
+						Phase:   model.RulePhaseResponse,
+						Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: bps},
+					}},
+				},
+			}},
+		})
+		requireCode(t, err, domainerr.CodeValidationFailed)
+		de, _ := domainerr.As(err)
+		found := false
+		for _, v := range de.FieldViolations {
+			if strings.Contains(v.Path, "action.bytesPerSecond") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("bps=%d missing bytesPerSecond path in %+v", bps, de.FieldViolations)
+		}
+	}
+}
+
+func TestReplaceRulesThrottleApply(t *testing.T) {
+	svc, boot := mustBoot(t)
+	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Reason:           "enable throttle",
+		Operations: []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      "slow-download",
+					Enabled: true,
+					Phase:   model.RulePhaseResponse,
+					Match:   model.RuleMatchSpec{PathPrefix: "/big"},
+					Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8 << 10},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := svc.Active().Rules
+	hit := eng.Match(model.RulePhaseResponse, rules.Request{Path: "/big/file"})
+	if hit == nil || hit.Action.Type != model.ActionThrottle || hit.Action.BytesPerSecond != 8<<10 {
+		t.Fatalf("hit=%+v", hit)
 	}
 }

@@ -20,6 +20,7 @@ var sizeFields = map[string]bool{
 	"maxBodyBytes":     true,
 	"spillThreshold":   true,
 	"bodyLimit":        true,
+	"bytesPerSecond":   true,
 }
 
 // ParseByteSize accepts an integer plus an IEC unit (B, KiB, MiB, GiB, TiB).

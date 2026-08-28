@@ -546,6 +546,110 @@ func TestInterceptHTTP2PausedRequestDoesNotBlockSecondStream(t *testing.T) {
 	}
 }
 
+func TestInterceptHTTP2ResponseThrottleDoesNotHoldOriginMu(t *testing.T) {
+	payload := bytes.Repeat([]byte("h"), 32<<10)
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/big" {
+			_, _ = w.Write(payload)
+			return
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	_, port := hostPort(t, origin)
+	spec := interceptH2Spec(t, port)
+	spec.Rules = model.RulesSpec{
+		Enabled: true,
+		Items: []model.RuleSpec{{
+			ID:      "slow-h2",
+			Enabled: true,
+			Phase:   model.RulePhaseResponse,
+			Match:   model.RuleMatchSpec{PathPrefix: "/big"},
+			Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8 << 10},
+		}},
+	}
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	cc := h2ClientConnViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+
+	headersSeen := make(chan *http.Response, 1)
+	bodyDone := make(chan struct {
+		d   time.Duration
+		n   int
+		err error
+	}, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/big", nil)
+		if err != nil {
+			t.Error(err)
+			headersSeen <- nil
+			return
+		}
+		resp, err := cc.RoundTrip(req)
+		if err != nil {
+			t.Error(err)
+			headersSeen <- nil
+			return
+		}
+		headersSeen <- resp
+		start := time.Now()
+		got, rerr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		bodyDone <- struct {
+			d   time.Duration
+			n   int
+			err error
+		}{time.Since(start), len(got), rerr}
+	}()
+
+	var first *http.Response
+	select {
+	case first = <-headersSeen:
+		if first == nil {
+			t.Fatal("throttled stream failed")
+		}
+		if first.StatusCode != http.StatusOK {
+			t.Fatalf("throttled status %d", first.StatusCode)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("throttled stream headers never arrived")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/other", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cc.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("second stream blocked by response throttle: %v", err)
+	}
+	defer func() { _ = second.Body.Close() }()
+	b, _ := io.ReadAll(second.Body)
+	if second.StatusCode != http.StatusOK || string(b) != "ok" {
+		t.Fatalf("second stream %d %q", second.StatusCode, b)
+	}
+
+	select {
+	case body := <-bodyDone:
+		if body.err != nil {
+			t.Fatalf("throttled body: %v", body.err)
+		}
+		if body.n != len(payload) {
+			t.Fatalf("throttled body len %d", body.n)
+		}
+		if body.d < 3*time.Second {
+			t.Fatalf("client body elapsed %s want >= 3s (~4s at 8KiB/s)", body.d)
+		}
+	case <-time.After(12 * time.Second):
+		t.Fatal("throttled body never finished")
+	}
+	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {
+		t.Fatal("expected throttle hit")
+	}
+}
+
 func TestInterceptHTTP2ConcurrentStreamsSerializeOnH1Origin(t *testing.T) {
 	var inflight atomic.Int32
 	var maxInflight atomic.Int32

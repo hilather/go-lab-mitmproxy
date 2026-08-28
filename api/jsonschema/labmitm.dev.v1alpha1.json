@@ -270,8 +270,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "type": { "enum": ["breakpoint", "drop", "delay", "status", "header", "body", "silent", "hang", "redirect", "block"] },
+        "type": { "enum": ["breakpoint", "drop", "delay", "status", "header", "body", "silent", "hang", "redirect", "block", "throttle"] },
         "delay": { "$ref": "#/$defs/duration", "description": "0–30s" },
+        "bytesPerSecond": { "$ref": "#/$defs/byteSize", "description": "throttle: 256B–64MiB inclusive" },
         "status": { "type": "integer", "description": "empty/0 or 400–599; not the redirect 3xx" },
         "headers": { "$ref": "#/$defs/ruleHeaders" },
         "body": { "$ref": "#/$defs/ruleBody" },

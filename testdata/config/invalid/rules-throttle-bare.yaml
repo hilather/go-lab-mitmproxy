@@ -1,0 +1,12 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: throttle-bare
+spec:
+  rules:
+    items:
+      - id: bare
+        phase: response
+        action:
+          type: throttle
+          bytesPerSecond: 8192

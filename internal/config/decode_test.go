@@ -154,6 +154,49 @@ func TestDecodeRejectsUnitlessDurationAndSize(t *testing.T) {
 	_ = requireValidation(t, err, violationInvalidValue)
 	_, err = Decode([]byte(mustLoad(t, "invalid", "bare-bytes.yaml")))
 	_ = requireValidation(t, err, violationInvalidValue)
+	_, err = Decode([]byte(mustLoad(t, "invalid", "rules-throttle-bare.yaml")))
+	_ = requireValidation(t, err, violationInvalidValue)
+}
+
+func TestDecodeThrottleIECBytesPerSecond(t *testing.T) {
+	st, err := Decode([]byte(mustLoad(t, "valid", "rules-throttle.yaml")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Spec.Rules.Items) != 2 {
+		t.Fatalf("items=%d", len(st.Spec.Rules.Items))
+	}
+	if st.Spec.Rules.Items[0].Action.Type != model.ActionThrottle || st.Spec.Rules.Items[0].Action.BytesPerSecond != 8<<10 {
+		t.Fatalf("item0=%+v", st.Spec.Rules.Items[0].Action)
+	}
+	if st.Spec.Rules.Items[1].Action.BytesPerSecond != 4<<10 {
+		t.Fatalf("item1=%d", st.Spec.Rules.Items[1].Action.BytesPerSecond)
+	}
+	raw, err := CanonicalJSON(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"bytesPerSecond":"8KiB"`) {
+		t.Fatalf("canonical missing 8KiB: %s", raw)
+	}
+	rev, err := Revision(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := Load(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev2, err := Revision(again)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rev != rev2 {
+		t.Fatalf("revision %s != %s", rev, rev2)
+	}
 }
 
 func TestDecodeRejectsEmptyAndTooLarge(t *testing.T) {

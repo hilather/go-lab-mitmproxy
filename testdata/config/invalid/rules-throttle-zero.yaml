@@ -1,0 +1,12 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: throttle-zero
+spec:
+  rules:
+    items:
+      - id: hang
+        phase: response
+        action:
+          type: throttle
+          bytesPerSecond: 0B

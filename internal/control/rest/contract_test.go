@@ -11,6 +11,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/auth"
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 )
 
@@ -343,6 +344,72 @@ func TestContractMutations(t *testing.T) {
 
 	reset := doReq(t, h, http.MethodPost, "/v1/state:reset", `{"reason":"test"}`)
 	requireStatus(t, reset, http.StatusOK)
+}
+
+func TestContractThrottleReplaceRules(t *testing.T) {
+	s, svc := newTestServer(t)
+	h := s.Handler()
+	st := doReq(t, h, http.MethodGet, "/v1/state", "")
+	rev := decodeJSON(t, st)["runtimeRevision"].(string)
+
+	// REST CoerceWireTree requires IEC strings for sizeFields (bytesPerSecond)
+	// and omits zero duration fields so delay/timeout are not bare numbers.
+	badBody, err := json.Marshal(map[string]any{
+		"expectedRevision": rev,
+		"reason":           "invalid throttle",
+		"operations": []map[string]any{{
+			"op": model.OpReplaceRules,
+			"rules": map[string]any{
+				"enabled": true,
+				"items": []map[string]any{{
+					"id":      "bad-bps",
+					"enabled": true,
+					"phase":   model.RulePhaseResponse,
+					"action":  map[string]any{"type": model.ActionThrottle, "bytesPerSecond": "0B"},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(badBody))
+	prob := requireProblem(t, bad, http.StatusBadRequest, "validation_failed")
+	if !strings.Contains(bad.Body.String(), "bytesPerSecond") {
+		t.Fatalf("missing bytesPerSecond path: %v", prob)
+	}
+
+	goodBody, err := json.Marshal(map[string]any{
+		"expectedRevision": rev,
+		"reason":           "enable throttle",
+		"operations": []map[string]any{{
+			"op": model.OpReplaceRules,
+			"rules": map[string]any{
+				"enabled": true,
+				"items": []map[string]any{{
+					"id":      "slow-download",
+					"enabled": true,
+					"phase":   model.RulePhaseResponse,
+					"match":   map[string]any{"pathPrefix": "/big"},
+					"action":  map[string]any{"type": model.ActionThrottle, "bytesPerSecond": "8KiB"},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(goodBody))
+	requireStatus(t, apply, http.StatusOK)
+	hit := svc.Active().Rules.Match(model.RulePhaseResponse, rules.Request{Path: "/big/x"})
+	if hit == nil || hit.Action.Type != model.ActionThrottle || hit.Action.BytesPerSecond != 8192 {
+		t.Fatalf("compiled hit=%+v", hit)
+	}
+	st2 := doReq(t, h, http.MethodGet, "/v1/state", "")
+	requireStatus(t, st2, http.StatusOK)
+	if !strings.Contains(st2.Body.String(), "throttle") || !strings.Contains(st2.Body.String(), "slow-download") {
+		t.Fatalf("state missing throttle item: %s", st2.Body.String())
+	}
 }
 
 func TestStoreOverNewCapCode(t *testing.T) {

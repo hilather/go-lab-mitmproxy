@@ -13,7 +13,7 @@ func TestMutates(t *testing.T) {
 			t.Fatalf("%s should mutate", typ)
 		}
 	}
-	for _, typ := range []string{model.ActionDelay, model.ActionHeader, model.ActionSilent, model.ActionHang, ""} {
+	for _, typ := range []string{model.ActionDelay, model.ActionHeader, model.ActionSilent, model.ActionHang, model.ActionThrottle, ""} {
 		if Mutates(&Hit{Action: model.RuleActionSpec{Type: typ}}) {
 			t.Fatalf("%s should capture-only", typ)
 		}
@@ -32,6 +32,24 @@ func TestClampDelay(t *testing.T) {
 	}
 	if ClampDelay(2*time.Second) != 2*time.Second {
 		t.Fatal("passthrough")
+	}
+}
+
+func TestClampBytesPerSecond(t *testing.T) {
+	if ClampBytesPerSecond(0) != 0 || ClampBytesPerSecond(255) != 0 || ClampBytesPerSecond(-1) != 0 {
+		t.Fatal("below min must be 0")
+	}
+	if ClampBytesPerSecond(1<<40) != MaxBytesPerSecond {
+		t.Fatal("above max must clamp to 64MiB")
+	}
+	if ClampBytesPerSecond(8192) != 8192 {
+		t.Fatal("passthrough")
+	}
+	if ClampBytesPerSecond(MinBytesPerSecond) != MinBytesPerSecond {
+		t.Fatal("min inclusive")
+	}
+	if ClampBytesPerSecond(MaxBytesPerSecond) != MaxBytesPerSecond {
+		t.Fatal("max inclusive")
 	}
 }
 

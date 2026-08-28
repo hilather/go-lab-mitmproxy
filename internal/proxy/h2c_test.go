@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
+	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxytest"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 	"github.com/hilather/go-lab-mitmproxy/internal/wsx"
@@ -599,6 +600,62 @@ func TestH2COrigDestTaggedCONNECT400(t *testing.T) {
 	}
 	if len(rec.Addrs()) != 0 {
 		t.Fatalf("CONNECT dialed %v", rec.Addrs())
+	}
+}
+
+func TestH2CResponseThrottleHeadersBeforeBody(t *testing.T) {
+	payload := bytes.Repeat([]byte("c"), 32<<10)
+	_, originURL := startOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Origin", "yes")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	spec := loadSpec(t)
+	spec.Protocols.HTTP2.ClientCleartext = true
+	spec.Rules = model.RulesSpec{
+		Enabled: true,
+		Items: []model.RuleSpec{{
+			ID:      "slow-h2c",
+			Enabled: true,
+			Phase:   model.RulePhaseResponse,
+			Match:   model.RuleMatchSpec{PathPrefix: "/big"},
+			Action:  model.RuleActionSpec{Type: model.ActionThrottle, BytesPerSecond: 8 << 10},
+		}},
+	}
+	px := startProxy(t, Options{Spec: spec})
+	cc := dialH2C(t, px.Addr().String())
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req := mustRequest(t, http.MethodGet, originURL+"/big")
+	req = req.WithContext(ctx)
+	start := time.Now()
+	resp, err := cc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("X-Origin") != "yes" {
+		t.Fatalf("headers/status %d %v", resp.StatusCode, resp.Header)
+	}
+	if time.Since(start) >= 2*time.Second {
+		t.Fatalf("headers waited %s (looks like delay)", time.Since(start))
+	}
+	bodyStart := time.Now()
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("body len %d", len(got))
+	}
+	if time.Since(start) < 3*time.Second {
+		t.Fatalf("client elapsed %s want >= 3s (~4s at 8KiB/s; wall timers run short)", time.Since(start))
+	}
+	if time.Since(bodyStart) < time.Second {
+		t.Fatalf("body elapsed %s; throttle must pace after headers", time.Since(bodyStart))
+	}
+	if px.Metrics().RuleHits(model.ActionThrottle) < 1 {
+		t.Fatal("expected throttle hit")
 	}
 }
 

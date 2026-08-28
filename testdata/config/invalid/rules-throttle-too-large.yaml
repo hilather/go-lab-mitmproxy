@@ -1,0 +1,12 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: throttle-large
+spec:
+  rules:
+    items:
+      - id: huge
+        phase: response
+        action:
+          type: throttle
+          bytesPerSecond: 65MiB

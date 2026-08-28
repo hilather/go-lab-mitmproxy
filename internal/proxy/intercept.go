@@ -835,7 +835,7 @@ func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, ori
 		rewindResponseBody(r)
 		outResp = r
 		return nil
-	})
+	}, false)
 	if result == ruleSilentClose {
 		return nil, nil, http2x.ErrSilentClose
 	}
@@ -846,7 +846,7 @@ func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, ori
 		rewindResponseBody(resp)
 		outResp = resp
 	}
-	return outResp, trailers, nil
+	return s.paceReturnedResponse(ctx, sess, outResp), trailers, nil
 }
 
 func randomWebSocketKey() string {

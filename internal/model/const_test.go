@@ -27,7 +27,7 @@ func TestKnownEnums(t *testing.T) {
 	if !KnownRulePhase(RulePhaseRequest) || !KnownRulePhase(RulePhaseWebSocket) || KnownRulePhase("both") {
 		t.Fatal("phase set")
 	}
-	if !KnownRuleAction(ActionBreakpoint) || !KnownRuleAction(ActionSilent) || !KnownRuleAction(ActionHang) || !KnownRuleAction(ActionRedirect) || !KnownRuleAction(ActionBlock) || KnownRuleAction("fuzz") || KnownRuleAction("http_status") {
+	if !KnownRuleAction(ActionBreakpoint) || !KnownRuleAction(ActionSilent) || !KnownRuleAction(ActionHang) || !KnownRuleAction(ActionRedirect) || !KnownRuleAction(ActionBlock) || !KnownRuleAction(ActionThrottle) || KnownRuleAction("fuzz") || KnownRuleAction("http_status") {
 		t.Fatal("action set")
 	}
 	if !KnownRuleOpcode(RuleOpcodeText) || KnownRuleOpcode("TEXT") {

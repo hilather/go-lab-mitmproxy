@@ -28,6 +28,7 @@ type ruleSession struct {
 	auth         *tlsmitm.Authority
 	epoch        uint64
 	reqHit       *rules.Hit
+	respHit      *rules.Hit
 	reqCap       *cappedWriter
 	skipInsert   bool
 	reqTrailers  []model.Header
@@ -79,6 +80,7 @@ func (sess *ruleSession) fork() *ruleSession {
 	}
 	out := *sess
 	out.reqHit = nil
+	out.respHit = nil
 	out.reqCap = nil
 	out.skipInsert = false
 	out.reqTrailers = nil
@@ -145,6 +147,42 @@ func requestPath(req *http.Request) string {
 		return "/"
 	}
 	return req.URL.Path
+}
+
+func wrapLimitBody(ctx context.Context, body io.ReadCloser, bps int64, sleep func(context.Context, time.Duration) bool) io.ReadCloser {
+	if body == nil || body == http.NoBody {
+		return body
+	}
+	r := rules.LimitReader(ctx, body, bps, sleep)
+	if rc, ok := r.(io.ReadCloser); ok {
+		return rc
+	}
+	return io.NopCloser(r)
+}
+
+func (s *Server) wrapRequestThrottle(ctx context.Context, req *http.Request, hit *rules.Hit) {
+	if req == nil || hit == nil {
+		return
+	}
+	if req.Context() != nil {
+		ctx = req.Context()
+	}
+	req.Body = wrapLimitBody(ctx, req.Body, hit.Action.BytesPerSecond, s.sleepDelay)
+}
+
+func (s *Server) paceReturnedResponse(ctx context.Context, sess *ruleSession, resp *http.Response) *http.Response {
+	if sess == nil || sess.respHit == nil || sess.respHit.Action.Type != model.ActionThrottle {
+		return resp
+	}
+	s.wrapResponseThrottle(ctx, resp, sess.respHit)
+	return resp
+}
+
+func (s *Server) wrapResponseThrottle(ctx context.Context, resp *http.Response, hit *rules.Hit) {
+	if resp == nil || hit == nil {
+		return
+	}
+	resp.Body = wrapLimitBody(ctx, resp.Body, hit.Action.BytesPerSecond, s.sleepDelay)
 }
 
 func (s *Server) sleepDelay(ctx context.Context, d time.Duration) bool {
@@ -555,6 +593,9 @@ func (s *Server) runRequestRulesWrite(ctx context.Context, req *http.Request, ho
 			return ruleAbort
 		}
 		return ruleContinue
+	case model.ActionThrottle:
+		s.wrapRequestThrottle(ctx, req, hit)
+		return ruleContinue
 	case model.ActionHeader:
 		applyHTTPHeaders(req.Header, hit.Action.Headers)
 		return ruleContinue
@@ -619,16 +660,16 @@ func (s *Server) finishHTTPResponse(ctx context.Context, w http.ResponseWriter, 
 	return s.finishResponseWrite(ctx, req, resp, host, "", scheme, started, sess, info, func(out *http.Response) error {
 		writeClientResponse(w, out)
 		return nil
-	})
+	}, responseWriterIsClient(w))
 }
 
 func (s *Server) finishConnResponse(ctx context.Context, c net.Conn, req *http.Request, resp *http.Response, host, port, scheme string, started time.Time, sess *ruleSession, info *model.TLSInfo) ruleResult {
 	return s.finishResponseWrite(ctx, req, resp, host, port, scheme, started, sess, info, func(out *http.Response) error {
 		return writeConnResponse(c, out)
-	})
+	}, true)
 }
 
-func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, resp *http.Response, host, port, scheme string, started time.Time, sess *ruleSession, info *model.TLSInfo, write func(*http.Response) error) ruleResult {
+func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, resp *http.Response, host, port, scheme string, started time.Time, sess *ruleSession, info *model.TLSInfo, write func(*http.Response) error, streamClient bool) ruleResult {
 	var reqHit *rules.Hit
 	var reqCap *cappedWriter
 	skipCapture := sess != nil && sess.skipInsert
@@ -637,11 +678,16 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 		reqCap = sess.reqCap
 	}
 	respHit := s.matchHit(sess, model.RulePhaseResponse, host, req, resp.Header, true)
+	if sess != nil {
+		sess.respHit = respHit
+	}
 	var respCap *cappedWriter
 	if respHit != nil {
 		switch respHit.Action.Type {
 		case model.ActionDelay:
 			_ = s.sleepDelay(ctx, respHit.Action.Delay)
+		case model.ActionThrottle:
+			// Headers and status stay full-speed; wrap the body after tee.
 		case model.ActionHeader:
 			applyHTTPHeaders(resp.Header, respHit.Action.Headers)
 		case model.ActionBody:
@@ -712,6 +758,9 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 	}
 	if respCap == nil {
 		respCap = s.teeResponse(resp, sess)
+	}
+	if streamClient && respHit != nil && respHit.Action.Type == model.ActionThrottle {
+		s.wrapResponseThrottle(ctx, resp, respHit)
 	}
 	_ = write(resp)
 	if skipCapture {

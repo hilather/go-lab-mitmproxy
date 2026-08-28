@@ -40,6 +40,7 @@ const (
 	ActionHang       = "hang"
 	ActionRedirect   = "redirect"
 	ActionBlock      = "block"
+	ActionThrottle   = "throttle"
 
 	SilentCloseRST = "rst"
 	SilentCloseFIN = "fin"
@@ -236,15 +237,16 @@ type FlowRESTCompatSpec struct {
 
 // RuleActionSpec is one deterministic action.
 type RuleActionSpec struct {
-	Type       string             `json:"type"`
-	Delay      time.Duration      `json:"delay"`
-	Status     int                `json:"status"`
-	Headers    RuleHeadersSpec    `json:"headers"`
-	Body       RuleBodySpec       `json:"body"`
-	Breakpoint RuleBreakpointSpec `json:"breakpoint"`
-	Silent     RuleSilentSpec     `json:"silent"`
-	Hang       RuleHangSpec       `json:"hang"`
-	Redirect   RuleRedirectSpec   `json:"redirect"`
+	Type           string             `json:"type"`
+	Delay          time.Duration      `json:"delay"`
+	BytesPerSecond int64              `json:"bytesPerSecond"`
+	Status         int                `json:"status"`
+	Headers        RuleHeadersSpec    `json:"headers"`
+	Body           RuleBodySpec       `json:"body"`
+	Breakpoint     RuleBreakpointSpec `json:"breakpoint"`
+	Silent         RuleSilentSpec     `json:"silent"`
+	Hang           RuleHangSpec       `json:"hang"`
+	Redirect       RuleRedirectSpec   `json:"redirect"`
 }
 
 // RuleSilentSpec is type=silent close mode. Empty Close materializes rst.
@@ -378,7 +380,7 @@ func KnownRulePhase(p string) bool {
 // KnownRuleAction reports whether t is a v1alpha1 rule action.
 func KnownRuleAction(t string) bool {
 	switch t {
-	case ActionBreakpoint, ActionDrop, ActionDelay, ActionStatus, ActionHeader, ActionBody, ActionSilent, ActionHang, ActionRedirect, ActionBlock:
+	case ActionBreakpoint, ActionDrop, ActionDelay, ActionStatus, ActionHeader, ActionBody, ActionSilent, ActionHang, ActionRedirect, ActionBlock, ActionThrottle:
 		return true
 	default:
 		return false

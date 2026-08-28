@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -265,9 +267,10 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 	rev, _ := state["runtimeRevision"].(string)
 	action := func(typ string, extra map[string]any) map[string]any {
 		a := map[string]any{
-			"type":   typ,
-			"delay":  int64(0),
-			"status": 0,
+			"type":           typ,
+			"delay":          int64(0),
+			"bytesPerSecond": int64(0),
+			"status":         0,
 			"headers": map[string]any{
 				"set":    map[string]string{},
 				"remove": []string{},
@@ -320,6 +323,68 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 	})
 	if domainCode(t, bad) != "validation_failed" {
 		t.Fatalf("http_status=%v", bad)
+	}
+}
+
+func TestContractThrottleReplaceRules(t *testing.T) {
+	s, svc := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+
+	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rev, _ := state["runtimeRevision"].(string)
+	// MCP schema is inferred from Rule*Spec (no omitempty). Initialize maps
+	// so json.Marshal emits {} / [] instead of null (schema type object/array).
+	throttleRule := func(id string, bps int64, pathPrefix string) model.Operation {
+		return model.Operation{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      id,
+					Enabled: true,
+					Phase:   model.RulePhaseResponse,
+					Match:   model.RuleMatchSpec{PathPrefix: pathPrefix},
+					Action: model.RuleActionSpec{
+						Type:           model.ActionThrottle,
+						BytesPerSecond: bps,
+						Headers: model.RuleHeadersSpec{
+							Set:    map[string]string{},
+							Remove: []string{},
+						},
+					},
+				}},
+			},
+		}
+	}
+	bad := callToolExpectError(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"reason":           "invalid throttle",
+		"operations":       []model.Operation{throttleRule("bad-bps", 0, "")},
+	})
+	if domainCode(t, bad) != "validation_failed" {
+		t.Fatalf("apply invalid=%v", bad)
+	}
+	if !strings.Contains(fmt.Sprintf("%v %s", bad, mcpErrorRaw(bad)), "bytesPerSecond") {
+		t.Fatalf("missing bytesPerSecond path: %v raw=%s", bad, mcpErrorRaw(bad))
+	}
+
+	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"reason":           "enable throttle",
+		"operations":       []model.Operation{throttleRule("slow-download", 8192, "/big")},
+	}))
+	if apply["applied"] != true {
+		t.Fatalf("apply=%v", apply)
+	}
+	hit := svc.Active().Rules.Match(model.RulePhaseResponse, rules.Request{Path: "/big/x"})
+	if hit == nil || hit.Action.Type != model.ActionThrottle || hit.Action.BytesPerSecond != 8192 {
+		t.Fatalf("compiled hit=%+v", hit)
+	}
+	state2 := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rawState, _ := json.Marshal(state2)
+	if !strings.Contains(string(rawState), "throttle") || !strings.Contains(string(rawState), "slow-download") {
+		t.Fatalf("state missing throttle item: %s", rawState)
 	}
 }
 
@@ -475,7 +540,7 @@ func TestContractWebSocketFrameRules(t *testing.T) {
 						"opcode": model.RuleOpcodeText, "direction": "", "payloadContains": "secret",
 					},
 					"action": map[string]any{
-						"type": model.ActionDrop, "delay": 0, "status": 0,
+						"type": model.ActionDrop, "delay": 0, "bytesPerSecond": 0, "status": 0,
 						"headers":    map[string]any{"set": map[string]string{}, "remove": []string{}},
 						"body":       map[string]any{"replace": ""},
 						"breakpoint": map[string]any{"timeout": 0},
@@ -599,6 +664,18 @@ func firstText(res *sdk.CallToolResult) string {
 		}
 	}
 	return "tool error"
+}
+
+func mcpErrorRaw(err error) string {
+	var te *toolDomainError
+	if errors.As(err, &te) {
+		return string(te.raw)
+	}
+	var werr *jsonrpc.Error
+	if errors.As(err, &werr) {
+		return string(werr.Data)
+	}
+	return ""
 }
 
 func domainCode(t *testing.T, err error) string {

@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-28 (D69 block-mode fixtures; D72–D74 websocket frame rules)
-Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015
+Last reviewed: 2026-08-28 (D75 throttle action)
+Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
 
@@ -70,6 +70,6 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 - SWAP-001: `examples/labmitm.yaml` (published binds, `allowLegacyClients: true`, recommended `allowHosts`; **1.2 protocol flags stay off**); `examples/qa-websocket-off.yaml` (`protocols.websocket.enabled: false`; `labmitm validate`); `examples/mcpjungle/servers/labmitm.json` + `groups/integration.json` (append `labmitm`); `examples/labinfo/services-labmitm.yaml` (catalog id `labmitm`); `TestLabOverlayExample` / `TestQAWebSocketOffExample`.
 - GA-001: committed `testdata/fuzz` corpora for `FuzzInfoString`, `FuzzDecode`, `FuzzReadRequest`; `internal/perf` soak (CI N=8); `scripts/checkchangelog`; `scripts/release-diff`; `.github/workflows/release.yml` `tag-gate`; [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md).
 - STORE-001: `testdata/flows/**` golden captured flows; `internal/store` insert/delete/wait/wipe/epoch, Pause/Resume/Drop/WaitPaused without HTTP, truncate, stacked caps, spill, race; proxy store-full still forwards.
-- RULES-001: `internal/rules` first-match, default-off, AND match, no Dial; Resume without HTTP (store only, test-constructed snapshot); proxy delay/drop/status/header/body/breakpoint/silent/hang/redirect, stream-vs-mutate `body_skipped`, inner CONNECT drop; config fixtures `testdata/config/valid/rules-{silent-rst,silent-fin,hang,redirect,redirect-307}.yaml` and invalid hang/redirect/`http_status`; transcripts `testdata/proxy/rule-{silent-rst,silent-fin,hang,redirect}.txt`.
+- RULES-001: `internal/rules` first-match, default-off, AND match, no Dial; Resume without HTTP (store only, test-constructed snapshot); proxy delay/drop/status/header/body/breakpoint/silent/hang/redirect/block/throttle, stream-vs-mutate `body_skipped`, inner CONNECT drop; config fixtures `testdata/config/valid/rules-{silent-rst,silent-fin,hang,redirect,redirect-307,throttle}.yaml` and invalid hang/redirect/`http_status`/throttle; transcripts `testdata/proxy/rule-{silent-rst,silent-fin,hang,redirect}.txt`. LimitReader unit (fake sleep) + proxytest session lower-bound timing.
 - STA-001: `internal/compiler` (rules engine + CA handle; reuse CA unless `replaceTLS` / reset); `internal/snapshot` atomic swap; `internal/audit` ring + redact (`BEGIN PRIVATE` never logged); `internal/app` Plan/Apply/Reset/Export, reset-wipes-flows, failed reset leaves snapshot+inbox, generate-mode CA rotates on reset, idempotency LRU, `replaceStoreCaps` / `replaceRules` / `replaceTLS` / `replaceAdmission` / `replaceTargets` / `setFeature` / `replaceCompat` (live hop/accept without `ResetTo`; orig-dest/`tls.intercept` `validation_failed`; `live_next_connection`); proxy loads snapshot per request / CONNECT (in-flight keeps the pin, including response-phase rules); accept-time epoch so reset cannot refill the inbox from an in-flight hop.
 - Invalid config fixtures (CFG-001): unknown field, reserved socks/tproxy/publicca/mitmproxy, bare numbers, multi-doc, alias, missing kind, **`upstream.verify` present**.

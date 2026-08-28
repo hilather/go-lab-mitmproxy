@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-28 (D69 block modes; D72–D74 websocket frame rules)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015
+Last reviewed: 2026-08-28 (D75 rules throttle)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016
 
 ## Problem statement
 
@@ -130,6 +130,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D72** | **`phase: websocket` matches inspected frames after HTTP/1.1 `101` or inner D63 `:status=200`.** Response-phase hits on those statuses stay `late_skip`. h2c has no request/response `matchHit`. | [ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) |
 | **D73** | **Websocket-phase `drop` omits one frame; `block` closes both TCP sides.** `labmitm_ws_frames_total` counts forwarded frames only. | ADR 0015 |
 | **D74** | **`inspectFrames` stays Reset-only (D51').** Live path is `replaceRules` / `setFeature rules.enabled` on the STA-001 pin (next request / next CONNECT / next h2c PRI; open inspect sockets never reload). Catalog stays 31. | ADR 0015 |
+| **D75** | **Rules may include `action.type: throttle`.** The winning item paces that phase’s **body** at `bytesPerSecond` (256 B/s–64 MiB/s). Live `replaceRules`. No daemon, no jitter, no new capability. See [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md). | Issue #52 QA bandwidth without collapsing into `delay`. ADR 0015 is websocket frame rules (D72–D74); D70 is claimed by the 407-auth workstream. |
 
 ## Process architecture
 
