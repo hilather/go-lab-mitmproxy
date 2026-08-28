@@ -1,6 +1,6 @@
 # Plan: QA 407 proxy auth on the data plane
 
-Status: Proposed (skeptic round 2)
+Status: ACCEPT
 Owners: Proxy, Configuration, Control Plane, Security
 Last reviewed: 2026-08-28
 Issue: [#52](https://github.com/hilather/go-lab-mitmproxy/issues/52) item “407 proxy auth on data plane (corp-proxy auth simulation)”; live via MCP/REST
@@ -11,7 +11,7 @@ This document is an implementation contract. It does not implement. Stop at ACCE
 
 ## Verdict
 
-**REVISE after skeptic round 1 (F1–F7 folded in).** Fresh skeptic round 2 required. Cap 3, then BLOCKED.
+**ACCEPT.** Sweep 1 (never skipped) + fresh skeptic round 1 REVISE (F1–F7 folded) + fresh skeptic round 2 PASS (zero blocker/major). Two round-2 minors folded below. Do not implement in this PR.
 
 ## Problem
 
@@ -169,6 +169,8 @@ if missing / non-Basic / bad base64 / no digest match:
     do not Dial / LookupIP
     capture metadata flow Status=407 Error=proxy_auth (no username/password)
     metric labmitm_proxy_rejected_total{reason="proxy_auth"}
+    (must add "proxy_auth" to observability.ProxyRejectReason — unknown
+    tokens collapse to "admission"; docs/11 alone is not enough)
     return
 else:
     continue existing hop
@@ -230,7 +232,8 @@ Compiler (today’s wiring cannot implement the flag — change it):
 
 - Snapshot field `HTTPAuthUsers []SOCKSUserDigest` (or a renamed shared `UserDigest` type). Never Canonical, never `GET /v1/state` / export.
 - [`compileCandidate`](https://github.com/hilather/go-lab-mitmproxy/blob/main/internal/app/svc.go) currently passes `CompileOpts{Now, Previous: prev}` with **no ops**. It must take the op list (or a bool) and set `ReloadHTTPAuth` iff `Previous == nil` **or** any op is `replaceHTTPAuth`.
-- `validateForCompile` today is only `Previous != nil → ValidateLiveApply(st)`. `ValidateLiveApply` takes **no options** and hardcodes `skipUserPassFiles: true`. Split: live compile always `skipUserPassFiles: true` (D60); `skipHTTPAuthFiles: !ReloadHTTPAuth`.
+- `validateForCompile` today is only `Previous != nil → ValidateLiveApply(st)`. `ValidateLiveApply` takes **no options** and hardcodes `skipUserPassFiles: true`. Split: live compile always `skipUserPassFiles: true` (D60); `skipHTTPAuthFiles: !ReloadHTTPAuth`. Thread `skipHTTPAuthFiles` into `validateProxy` (it currently takes no `validateOpts`); file checks may live only in the compiler if that matches the SOCKS split.
+- Start/Reset call `compiler.Compile` with `Previous == nil` and **never** go through `compileCandidate`. File reload must treat `Previous == nil` inside Compile, not only a flag `compileCandidate` sets.
 - If HTTP auth is implemented like SOCKS (`Previous != nil` ⇒ copy digests always), `replaceHTTPAuth` updates Canonical paths and **keeps old digests** — live credential apply is a no-op. Forbidden.
 - `replaceRules` / `setFeature` / `replaceTLS` + vanished HTTP auth files must not fail (copy Previous).
 
@@ -271,7 +274,7 @@ Overlay [`examples/labmitm.yaml`](https://github.com/hilather/go-lab-mitmproxy/b
 5. Proxy helper + CONNECT / absolute-form / h2c hooks + `writeProxyAuthChallenge`.
 6. proxytest transcripts + unit tests listed below.
 7. REST/MCP DTO lockstep + contract + `make test-parity`.
-8. Observability reason + docs/11 + generate metrics if the catalog enumerates reasons.
+8. Observability: add `proxy_auth` to `internal/observability/labels.go` `ProxyRejectReason` (closed switch; unknown → `admission`) and docs/11. Generate metrics JSON only if that catalog enumerates reasons.
 9. CHANGELOG unreleased + docs/02, 06, 07, 10, 12, 14 note, examples comments.
 
 ## Tests (implementation must add)
@@ -298,7 +301,8 @@ Go tests (`internal/proxy`, not necessarily PlayTranscript):
 - h2c GET 407 then retry with Basic → origin GET, no `proxy-authorization` upstream (`clientCleartext` on).
 - h2c RFC 9113 CONNECT 407 HEADERS (no Dial), then a **second CONNECT stream** (or same-session retry) with `proxy-authorization` copied from `in.Headers` → tunnel/intercept. Must fail if `h2cConnectRequest` empty-header bug is left in place.
 - h2c Extended CONNECT (`:protocol=websocket`) is **not** 407’d by this feature (RST/existing path).
-- HTTP/1.1 `protocols.connect.enabled: false` still 403; h2c CONNECT may still 407 (document; do not silently apply the 403 gate).
+- HTTP/1.1 `protocols.connect.enabled: false` still 403; h2c CONNECT may still 407 (document; do not silently apply the 403 gate). Put the h2c auth check in `h2cConnectTunnel` **after** the `:protocol` branch, not at `h2cTunnel` entry (Extended CONNECT stays out).
+- `anyLiveFeatureOp` including `replaceHTTPAuth` is a product choice: rewrite the docs/06 sentence that only `setFeature` / `replaceCompat` warn `live_next_connection`, and add a positive warning test (`TestPlanReplaceRulesHasNoLiveNextConnection` treats subtree replaces as silent today).
 - Live `replaceHTTPAuth` enabled flip: next absolute-form 407; in-flight CONNECT (already 200) not torn down.
 - SOCKS `acceptUserPass` unchanged when HTTP auth is on.
 - Management `/v1/flows` without bearer still 401 (existing); never 407.
@@ -381,8 +385,8 @@ Skeptic round 1 (fresh) verdict **REVISE**: F1 h2c CONNECT empty-header accept h
 | 1 | Author sweep 1 | continue | See table above |
 | 1 | Fresh skeptic | REVISE | F1 blocker (h2c CONNECT headers); F2–F5 major; F6–F7 minor |
 | 2 | Author revision | folded | Contract (A); Content-Length; compileCandidate+ops; K10; h2c accept test |
-| 2 | Fresh skeptic | *pending* | |
-| 3 | … | | |
+| 2 | Fresh skeptic | **PASS** | F1–F7 FIXED; two minors (ProxyRejectReason switch; docs/06 warning sentence) |
+| 2 | Author fold minors | ACCEPT | labels.go + docs/06 warning test + Start/Reset Previous==nil + h2c hook placement |
 
 **Cap 3.** Unresolved blocker after round 3 → **BLOCKED** (do not implement).
 
