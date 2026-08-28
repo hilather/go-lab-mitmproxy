@@ -75,7 +75,7 @@ The numbered pack is the source of truth.
 
 | Path | Topic |
 |---|---|
-| [qa-websocket-frame-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-websocket-frame-rules.md) | #52 post-101 WebSocket frame rules (plan only; in review) |
+| [qa-websocket-frame-rules.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-websocket-frame-rules.md) | #52 post-101 WebSocket frame rules (plan only; skeptic **ACCEPT**) |
 
 ## Task lists
 

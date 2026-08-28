@@ -1,6 +1,6 @@
 # Plan: Post-101 WebSocket frame rules (block/drop)
 
-Status: In review (plan only — not implemented)
+Status: ACCEPT (plan only — not implemented)
 Owners: Rules, Proxy, Application
 Last reviewed: 2026-08-28
 Issue: [#52](https://github.com/hilather/go-lab-mitmproxy/issues/52) item “Post-101 WebSocket frame rules (block/drop mid-stream). Live configurable via MCP/REST.”
@@ -183,13 +183,13 @@ Metrics:
 - `labmitm_ws_frames_total` stays “frames **forwarded**.” Increment it only on the miss/forward path. `drop` / `block` increment `rule_hits` only. Do not count omitted frames as forwarded.
 - Response-phase `late_skip` on 101 / inner 200 is unchanged. Do not count the skipped HTTP action as a frame hit.
 
-Capture: still store the inspected frame under existing caps (including dropped/blocked frames, with `Action` set). Additive `WebSocketFrame.Action` (`""` forwarded, `"drop"`, `"block"`).
+Capture: still store the inspected frame under existing caps (including dropped/blocked frames, with `Action` set). Drop/block uses the **no-`wsFrame` sibling** (`captureFrame` minus `wsFrame` only — same `FrameCount` / no-append / clip / `st.stored`). Additive `WebSocketFrame.Action` (`""` forwarded, `"drop"`, `"block"`).
 
 **GET-by-id JSON (frozen):** field name `action` on each frame object (`""` omitempty = forwarded; `drop` / `block` present). List still omits `frames` (docs/04). Compat does not grow a frames array. Both REST and MCP DTOs (`fromWebSocket` and the MCP equivalent) **must** map `Action`; add/extend `TestContractWebSocketFrames` in both adapters.
 
 **`Flow.RuleIDs`:** a websocket-phase hit **appends** the rule id (same slice HTTP request/response hits already use). Inspect capture today calls `capture(f, sess)` not `captureRule`; the implementation change must stamp `RuleIDs` on a websocket-phase hit before insert.
 
-**`RuleIDs` / `Action` / `State` writes** go under `wsInspect.mu` (docs/04: do not unsynchronized-mutate a live `*Flow`). `block` must set `State=completed` under that lock (today `protocolError` already locks for `Error`/`State`). Two pumps eval concurrently. **Do not hold `wsInspect.mu` across `captureFrame`** — it already locks; that is a `test-race` deadlock.
+**`RuleIDs` / `Action` / `State` writes** go under `wsInspect.mu` (docs/04: do not unsynchronized-mutate a live `*Flow`). `block` must set `State=completed` under that lock (today `protocolError` already locks for `Error`/`State`). Two pumps eval concurrently. **Do not hold `wsInspect.mu` across `captureFrame` or the no-`wsFrame` sibling** — they already lock; that is a `test-race` deadlock.
 
 RSV bits, ping/pong auto-answer policy, control-size `Error=websocket`, and large-data streaming on **non-matching** / opcode-only frames stay as D67.
 
@@ -220,7 +220,7 @@ Frozen algorithm for `wsInspect.pump` after a successful `ReadHeader`. Order is 
 
 ### Fast path (D67 unchanged)
 
-Fast path is decided from the **pinned** Engine on `wsInspect` (`sess.eng` from `beginSession` / `fork`), never from live `spec.Rules.Enabled` after `setFeature`. If `eng == nil` || `!eng.Enabled()` || no enabled `phase: websocket` item: today’s path. `WriteHeader` then `TeePayload(src)`. Do not buffer. Close-length-1 after `TeePayload` and `captureFrame` stay as they are (this path forwards, so `ws_frames_total` still increments inside `captureFrame`). Forwarded `close` still returns (then `closeWrite`).
+Fast path is decided from the **pinned** Engine on `wsInspect` (`sess.eng` from `beginSession` / `fork`), never from live `spec.Rules.Enabled` after `setFeature`. If `eng == nil` || `!eng.Enabled()` || no enabled `phase: websocket` item (Engine **item walk** of unexported `items`, same package as the load helper — **never** `Match("websocket", Request{})`, which misses host/path-constrained items and would pin the socket to the copy path; **never** live `spec.Rules.Enabled`): today’s path. `WriteHeader` then `TeePayload(src)`. Do not buffer. Close-length-1 after `TeePayload` and `captureFrame` stay as they are (this path forwards, so `ws_frames_total` still increments inside `captureFrame`). Forwarded `close` still returns (then `closeWrite`).
 
 ### Rules path — order after `ReadHeader`
 
@@ -232,7 +232,7 @@ Fast path is decided from the **pinned** Engine on `wsInspect` (`sess.eng` from 
 
 4. State on this frame: `srcConsumed` starts false. `wire` is the exact payload bytes read from `src` (masked if the header said masked). `unmasked` is a copy of `wire` with `MaskKey` applied when `h.Masked` (match + capture only).
 
-5. **Load:** run the Engine helper (full `matchAND`+opcode+direction; see D72). Load **only** if it says a still-viable item needs `payloadContains` **and** declared length ≤ visibility cap. On load: `io.ReadFull(src, declared)` into `wire`. **On `ReadFull` failure:** end the pump like today’s `TeePayload` error (`return`, not `Error=websocket` unless `ErrProtocol`). Do **not** `WriteHeader`. Do **not** `Match`. Do **not** set `srcConsumed` on failure. On success: `srcConsumed=true`; build `unmasked` from a copy; do not write yet. Do **not** consume `src` on an oversized `payloadContains` miss.
+5. **Load:** run the Engine helper (full `matchAND`+opcode+direction; see D72). Load **only** if it says a still-viable item needs `payloadContains` **and** declared length ≤ visibility cap. On load: after `h.Length <= uint64(visibilityCap)`, `wire = make([]byte, int(h.Length))` then `io.ReadFull(src, wire)`. **On `ReadFull` failure:** end the pump like today’s `TeePayload` error (`return`, not `Error=websocket` unless `ErrProtocol`). Do **not** `WriteHeader`. Do **not** `Match`. Do **not** set `srcConsumed` on failure. On success: `srcConsumed=true`; build `unmasked` from a copy; do not write yet. Do **not** consume `src` on an oversized `payloadContains` miss.
 
 6. **`Match("websocket", snapshot + Protocol=websocket + opcode + direction + Payload=unmasked-or-nil)`.** Non-empty `payloadContains` vs `Payload==nil` is a miss (D72). Empty `payloadContains` remains any.
 
@@ -242,8 +242,8 @@ Fast path is decided from the **pinned** Engine on `wsInspect` (`sess.eng` from 
 |---|---|---|---|
 | `drop` | If unread: the one `TeePayload(Discard, n=h.Length, storeMax=storeRemain())` call below. If already loaded: use `unmasked` (do not remask that slice). | **No** `WriteHeader`. **No** payload write. | Store with `Action=drop` via the **no-`wsFrame` sibling**. Append `RuleIDs` under `mu` (not across the sibling). `rule_hits{action="drop"}` only. **Continue** the loop, including after a dropped `close`. |
 | `block` | Same one `TeePayload(Discard, …)` if unread. | **No** `WriteHeader`. `Close` both conns. | Store with `Action=block` via the **no-`wsFrame` sibling**. Append `RuleIDs` and set `State=completed` under `mu`. `rule_hits{action="block"}` only. Return. |
-| none (miss), `src` unread | still on `src` | `WriteHeader(original h)` + `TeePayload(src)` | Call today’s `captureFrame` **once**. It owns `ws_frames_total`, `FrameCount`, `storeRemain`, `Truncated`. Do not increment again. Do not pre-add `st.stored`. **Forwarded `close` returns** (D67 half-close). |
-| none (miss), `src` consumed | n/a | `WriteHeader(original h)` + write exact **`wire`**. Allowed equivalent: remask a **copy** of full `unmasked` (`len == h.Length`) with the same `MaskKey`. Never remask the slice passed into `captureFrame` (stored payload is unmasked). `WriteFrame` only if `len(Payload)==h.Length` so close-code synthesis does not run (`WriteFrame` synthesizes a close payload when `OpcodeClose && len==0 && (CloseCode!=0 || CloseReason)` and then sets `Length` from that). **Forbidden:** `TeePayload` of a consumed `src`; writing `unmasked` on a masked client→origin frame; `WriteFrame` with a truncated prefix. | Call today’s `captureFrame` **once** with the unmasked prefix (it applies `storeRemain()` itself). If `OpcodeClose && len(prefix)>=2`, fill `CloseCode` the way today’s pump does before `captureFrame`. Do not increment `ws_frames_total` again. **Forwarded `close` returns.** |
+| none (miss), `src` unread | still on `src` | `WriteHeader(original h)` + `TeePayload(src)` | Call today’s `captureFrame` **once**. It owns `ws_frames_total`, `FrameCount`, `storeRemain`, `Truncated`. Do not increment again. Do not pre-add `st.stored`. If `OpcodeClose && len(stored)>=2`, fill `CloseCode` the way today’s pump does (`ws.go` before `captureFrame`) — `captureFrame` does not compute it. **Forwarded `close` returns** (D67 half-close). |
+| none (miss), `src` consumed | n/a | `WriteHeader(original h)` + write exact **`wire`**. Allowed equivalent: remask a **copy** of full `unmasked` (`len == h.Length`) with the same `MaskKey`. Never remask the slice passed into `captureFrame` (stored payload is unmasked). `WriteFrame` only if `len(Payload)==h.Length` **and not** (`OpcodeClose && h.Length==0`) — synthesis still runs when both lengths are 0 and `CloseCode`/`CloseReason` are set. Prefer `WriteHeader` + `wire`. **Forbidden:** `TeePayload` of a consumed `src`; writing `unmasked` on a masked client→origin frame; `WriteFrame` with a truncated prefix. | Call today’s `captureFrame` **once** with the unmasked prefix (it applies `storeRemain()` itself). If `OpcodeClose && len(prefix)>=2`, fill `CloseCode` the way today’s pump does before `captureFrame`. Do not increment `ws_frames_total` again. **Forwarded `close` returns.** |
 
 **Drop/block unread drain (one algorithm, not two):** after the winner is known, if drop/block and `src` unread: **one** call `TeePayload(io.Discard, src, h.Length, h.Masked, h.MaskKey, storeRemain())` and **no** `CopyN`. `n` is always `h.Length` (full declared wire). `storeMax` is `storeRemain()`, never visibility `st.max`. Today `storeMax<=0` still copies all `n` bytes to `dst` and stores nothing — so `storeRemain()==0` still drains the frame and returns a nil prefix. Do **not** pass `n=min(declared, storeRemain())` and then `CopyN` a “remainder” (that second read eats the next frame off leftover/`MultiReader`). Then store the returned prefix with `Action` via the no-`wsFrame` sibling. Peer still sees no header.
 
@@ -332,7 +332,9 @@ Cleartext `pathPrefix: /ws` matches an HTTP/1.1 Upgrade to `/ws`. D63 / h2c requ
 - `payloadContains` cannot see frames whose declared size exceeds the pinned visibility cap (fail-open miss; first-match continues). Oversized miss with no later winner is streamed (D67), not swallowed.
 - No per-message reassembly; continuation frames match as `continuation`.
 - Dropped `close` does not end the inspect loop; forwarded `close` still ends that pump. Idle/session timeouts still apply.
-- Client-facing h2c Extended CONNECT has no response-phase eval (unchanged). Inner D63 200 is `late_skip`.
+- Client-facing h2c Extended CONNECT has **no request-phase and no response-phase** `matchHit` (unchanged). Do not add either. Inner D63 200 is `late_skip`.
+- Rules-path close-length-1 does not forward the illegal byte; fast path still does. Both set `Error=websocket`. Do not “fix” the fast path in this change.
+- D63 / h2c snapshot headers are `requestCaptureHeaders(inner)` **after** the existing synthetic `Upgrade` / `Connection` / `Sec-WebSocket-*` sets. Do not strip them.
 - HTTP block modes and frame `delay` are not this change.
 - Inspector Frames tab may not badge `action` until a UI follow-on.
 - Extended CONNECT inherits the pump; this is not a new h2 WebSocket product. Bootstrap method/path differ from HTTP/1.1 Upgrade.
@@ -370,6 +372,8 @@ Fresh skeptic. Verdict REVISE. Blockers folded in this revision:
 
 Must-fix applied: remask a copy, not the capture slice; `WriteFrame` synthesis constraint; close-length-1 does not drain leftover; miss-consumed CloseCode fill; D72 request-phase still runs; `in.Opcode = OpcodeName`; orig-dest host is `origDestCaptureHost`; no `beginSession` inside `inspectUpgrade`.
 
-### Sweep 3
+### Sweep 3 — ACCEPT
 
-Pending.
+Fresh skeptic. Verdict **ACCEPT**. No blockers. Nits folded as one-liners (unread-miss CloseCode; Engine walk not `Match`; never `WriteFrame` on close length 0; h2c no request-phase `matchHit`; snapshot after synthetic Upgrade headers; `make([]byte, int(h.Length))` after the cap check). No fourth sweep.
+
+This file is an implementation contract. Implement from this revision, not from [PR #56](https://github.com/hilather/go-lab-mitmproxy/pull/56).
