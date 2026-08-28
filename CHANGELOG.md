@@ -7,10 +7,12 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 ### Added
 
 - QA block modes as additive `spec.rules` actions ([ADR 0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) D69): `silent` (TCP RST/FIN or HTTP/2 RST_STREAM `CANCEL`), `hang` (required `hang.timeout` 1s–30s, then silent close), and `redirect` (301/302/303/307/308 + required `Location`). Issue #52 `http_status` is the existing `status` type (no alias). Catalog does not grow. Live apply stays `replaceRules`.
+- WebSocket frame rules (`phase: websocket`, actions `drop` / `block`) after inspect `101` / inner D63 `:status=200` ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) D72–D74). Live path is existing `replaceRules` (and `setFeature rules.enabled` for the master switch). `inspectFrames` stays Reset-only. Catalog stays 31 `/v1` rows. GET-by-id `frames[].action` (`drop` / `block`; omitted when forwarded). `labmitm_rule_hits_total{action="block"}` is a new token; websocket `drop` reuses `{action="drop"}`. `labmitm_ws_frames_total` still counts forwarded frames only.
 
 ### Changed
 
-- None.
+- Canonical JSON of any non-empty `rules.items` list grows three empty match keys (`opcode`, `direction`, `payloadContains`). Empty `spec: {}` revision stays stable.
+- Response-phase hits on HTTP/1.1 `101` and inner D63 `:status=200` remain `late_skip`. That is no longer the only post-101 rule story: `phase: websocket` may match inspected frames when `inspectFrames` is on.
 
 ### Fixed
 

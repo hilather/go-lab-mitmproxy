@@ -21,6 +21,7 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/http2x"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxytest"
+	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 	"github.com/hilather/go-lab-mitmproxy/internal/store"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 	"github.com/hilather/go-lab-mitmproxy/internal/wsx"
@@ -1383,6 +1384,90 @@ func TestInterceptHTTP2ExtendedCONNECTWebsocket(t *testing.T) {
 	}
 	if f.WebSocket == nil || f.WebSocket.FrameCount < 1 {
 		t.Fatalf("want frames, got %+v", f.WebSocket)
+	}
+}
+
+func TestInterceptHTTP2ExtendedCONNECTWebsocketFrameDrop(t *testing.T) {
+	port, saw := echoTLSWebSocketOrigin(t)
+	spec := interceptH2ExtendedSpec(t, port)
+	spec.Protocols.WebSocket.InspectFrames = true
+	spec.Rules = model.RulesSpec{
+		Enabled: true,
+		Items: []model.RuleSpec{{
+			ID:      "drop-text",
+			Enabled: true,
+			Phase:   model.RulePhaseWebSocket,
+			Match:   model.RuleMatchSpec{Opcode: model.RuleOpcodeText},
+			Action:  model.RuleActionSpec{Type: model.ActionDrop},
+		}},
+	}
+	sink := NewNull()
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeExtendedCONNECT(t, fr)
+	fields := readH2HeaderFields(t, fr, 1)
+	if h2Field(fields, ":status") != "200" {
+		t.Fatalf("status fields %+v", fields)
+	}
+	var payload bytes.Buffer
+	if err := wsx.WriteFrame(&payload, wsx.Frame{
+		Fin: true, Opcode: wsx.OpcodeText, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: []byte("h2ws"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fr.WriteData(1, false, payload.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	payload.Reset()
+	if err := wsx.WriteFrame(&payload, wsx.Frame{
+		Fin: true, Opcode: wsx.OpcodeClose, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, CloseCode: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fr.WriteData(1, false, payload.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	_ = tlsConn
+	f := waitWSFlow(t, sink)
+	if f.Method != http.MethodConnect {
+		t.Fatalf("method %q want CONNECT", f.Method)
+	}
+	if saw.upgrades.Load() != 1 {
+		t.Fatalf("origin upgrades %d", saw.upgrades.Load())
+	}
+	if px.Metrics().RuleHits(model.ActionDrop) < 1 {
+		t.Fatal("D63 inspect must inherit websocket-phase drop")
+	}
+	if px.Metrics().WSFrames("text") != 0 {
+		t.Fatal("dropped D63 text must not increment ws_frames_total")
+	}
+}
+
+func TestInterceptHTTP2ExtendedCONNECTResponseLateSkip(t *testing.T) {
+	port, _ := echoTLSWebSocketOrigin(t)
+	spec := interceptH2ExtendedSpec(t, port)
+	spec.Protocols.WebSocket.InspectFrames = true
+	spec.Rules = model.RulesSpec{
+		Enabled: true,
+		Items: []model.RuleSpec{
+			{ID: "resp-drop", Enabled: true, Phase: model.RulePhaseResponse, Action: model.RuleActionSpec{Type: model.ActionDrop}},
+			{ID: "resp-delay", Enabled: true, Phase: model.RulePhaseResponse, Action: model.RuleActionSpec{Type: model.ActionDelay, Delay: time.Millisecond}},
+		},
+	}
+	sink := NewNull()
+	px := startProxy(t, Options{Spec: spec, Sink: sink, Resolver: appLabResolver()})
+	fr, tlsConn := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeExtendedCONNECT(t, fr)
+	if h2Field(readH2HeaderFields(t, fr, 1), ":status") != "200" {
+		t.Fatal("want 200")
+	}
+	echoWSClient(t, fr, tlsConn)
+	if px.Metrics().RuleHits(rules.ActionLateSkip) < 1 {
+		t.Fatal("inner D63 200 + response drop/delay must late_skip")
+	}
+	f := waitWSFlow(t, sink)
+	if f.WebSocket == nil || f.WebSocket.FrameCount < 1 {
+		t.Fatalf("response-phase drop must not omit frames: %+v", f.WebSocket)
 	}
 }
 

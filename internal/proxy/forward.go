@@ -372,7 +372,7 @@ func (s *Server) hijackUpgrade(w http.ResponseWriter, req *http.Request, resp *h
 		leftover = takeBuffered(bufrw.Reader)
 	}
 	if inspect {
-		s.inspectUpgrade(client, leftover, upstream, resp.Body, sess, f)
+		s.inspectUpgrade(client, leftover, upstream, resp.Body, host, req, sess, f)
 		s.capture(f, sess)
 		return
 	}

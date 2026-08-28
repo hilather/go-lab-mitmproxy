@@ -288,9 +288,9 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 		"rules": map[string]any{
 			"enabled": true,
 			"items": []map[string]any{
-				{"id": "silent-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("silent", map[string]any{"silent": map[string]any{"close": "rst"}})},
-				{"id": "hang-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("hang", map[string]any{"hang": map[string]any{"timeout": int64(time.Second), "close": ""}})},
-				{"id": "redir-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("redirect", map[string]any{"redirect": map[string]any{"location": "/x", "status": 0}})},
+				{"id": "silent-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": "", "opcode": "", "direction": "", "payloadContains": ""}, "action": action("silent", map[string]any{"silent": map[string]any{"close": "rst"}})},
+				{"id": "hang-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": "", "opcode": "", "direction": "", "payloadContains": ""}, "action": action("hang", map[string]any{"hang": map[string]any{"timeout": int64(time.Second), "close": ""}})},
+				{"id": "redir-login", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": "", "opcode": "", "direction": "", "payloadContains": ""}, "action": action("redirect", map[string]any{"redirect": map[string]any{"location": "/x", "status": 0}})},
 			},
 		},
 	}}
@@ -313,7 +313,7 @@ func TestContractReplaceRulesBlockModes(t *testing.T) {
 			"rules": map[string]any{
 				"enabled": true,
 				"items": []map[string]any{
-					{"id": "bad", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": ""}, "action": action("http_status", map[string]any{"status": 403})},
+					{"id": "bad", "enabled": true, "phase": "request", "match": map[string]any{"host": "", "pathPrefix": "", "pathExact": "", "method": "", "headerName": "", "headerContains": "", "protocol": "", "opcode": "", "direction": "", "payloadContains": ""}, "action": action("http_status", map[string]any{"status": 403})},
 				},
 			},
 		}},
@@ -357,17 +357,40 @@ func TestContractWebSocketFrames(t *testing.T) {
 		Protocol: model.FlowProtocolWebSocket,
 		State:    model.FlowStateCompleted,
 		Status:   101,
+		RuleIDs:  []string{"drop-secret", "kill-bin"},
 		WebSocket: &model.WebSocketInfo{
-			FrameCount: 1,
-			Frames: []model.WebSocketFrame{{
-				Direction: model.WSDirectionClient,
-				Opcode:    "text",
-				OpcodeNum: 1,
-				Fin:       true,
-				Masked:    true,
-				Payload:   []byte("hello"),
-				Size:      5,
-			}},
+			FrameCount: 3,
+			Frames: []model.WebSocketFrame{
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "text",
+					OpcodeNum: 1,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("hello"),
+					Size:      5,
+				},
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "text",
+					OpcodeNum: 1,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("secret"),
+					Size:      6,
+					Action:    model.ActionDrop,
+				},
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "binary",
+					OpcodeNum: 2,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("xx"),
+					Size:      2,
+					Action:    model.ActionBlock,
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -387,27 +410,94 @@ func TestContractWebSocketFrames(t *testing.T) {
 	if _, ok := ws["frames"]; ok {
 		t.Fatal("list item must omit frames")
 	}
-	if ws["frameCount"] != float64(1) {
+	if ws["frameCount"] != float64(3) {
 		t.Fatalf("frameCount=%v", ws["frameCount"])
 	}
 
 	got := structuredMap(t, callTool(t, cs, "mitm_flow_get", map[string]any{"id": id}))
+	ids, _ := got["ruleIds"].([]any)
+	if len(ids) != 2 || ids[0] != "drop-secret" || ids[1] != "kill-bin" {
+		t.Fatalf("ruleIds=%v", got["ruleIds"])
+	}
 	gws, _ := got["websocket"].(map[string]any)
 	frames, _ := gws["frames"].([]any)
-	if len(frames) != 1 {
+	if len(frames) != 3 {
 		t.Fatalf("get frames=%v", got)
 	}
 	fr := frames[0].(map[string]any)
 	if fr["payload"] != "hello" {
 		t.Fatalf("payload=%v (must be string, not base64)", fr["payload"])
 	}
+	if _, ok := fr["action"]; ok {
+		t.Fatal("forwarded frame must omit action")
+	}
 	if _, ok := fr["maskKey"]; ok {
 		t.Fatal("maskKey must not be exported")
+	}
+	dropped := frames[1].(map[string]any)
+	if dropped["action"] != model.ActionDrop || dropped["payload"] != "secret" {
+		t.Fatalf("dropped frame %+v", dropped)
+	}
+	blocked := frames[2].(map[string]any)
+	if blocked["action"] != model.ActionBlock || blocked["payload"] != "xx" {
+		t.Fatalf("blocked frame %+v", blocked)
 	}
 
 	err = callToolExpectError(t, cs, "mitm_flow_replay", map[string]any{"id": id})
 	if domainCode(t, err) != "validation_failed" {
 		t.Fatalf("replay=%v", err)
+	}
+}
+
+func TestContractWebSocketFrameRules(t *testing.T) {
+	s, _ := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	schema := callTool(t, cs, "mitm_schema_get", map[string]any{})
+	raw, _ := json.Marshal(schema.StructuredContent)
+	if !strings.Contains(string(raw), `"websocket"`) || !strings.Contains(string(raw), `"block"`) || !strings.Contains(string(raw), `"payloadContains"`) {
+		t.Fatalf("schema.get must list websocket/block/payloadContains: %s", raw)
+	}
+	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rev, _ := state["runtimeRevision"].(string)
+	res := callTool(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"reason":           "websocket frame rules",
+		"operations": []map[string]any{{
+			"op": model.OpReplaceRules,
+			"rules": map[string]any{
+				"enabled": true,
+				"items": []map[string]any{{
+					"id": "drop-secret", "enabled": true, "phase": model.RulePhaseWebSocket,
+					"match": map[string]any{
+						"host": "", "pathPrefix": "", "pathExact": "", "method": "",
+						"headerName": "", "headerContains": "", "protocol": "",
+						"opcode": model.RuleOpcodeText, "direction": "", "payloadContains": "secret",
+					},
+					"action": map[string]any{
+						"type": model.ActionDrop, "delay": 0, "status": 0,
+						"headers":    map[string]any{"set": map[string]string{}, "remove": []string{}},
+						"body":       map[string]any{"replace": ""},
+						"breakpoint": map[string]any{"timeout": 0},
+						"silent":     map[string]any{"close": ""},
+						"hang":       map[string]any{"timeout": 0, "close": ""},
+						"redirect":   map[string]any{"location": "", "status": 0},
+					},
+				}},
+			},
+		}},
+	})
+	if res.IsError {
+		t.Fatalf("apply error: %s structured=%v", firstText(res), res.StructuredContent)
+	}
+	apply := structuredMap(t, res)
+	if apply["applied"] != true {
+		t.Fatalf("apply=%v", apply)
+	}
+	exp := structuredMap(t, callTool(t, cs, "mitm_state_export", map[string]any{"format": "json"}))
+	body, _ := exp["body"].(string)
+	if !strings.Contains(body, `"phase":"websocket"`) {
+		t.Fatalf("export missing websocket rule: %v", exp)
 	}
 }
 

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-28 (compat flowREST live apply)
+Last reviewed: 2026-08-28 (D73 frames[].action)
 Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
@@ -60,7 +60,7 @@ Default `limit=50`, max `200`. Sort: `StartedAt` descending, then id desc.
 
 Cursor: opaque `base64url(id || uint64 storeGeneration || HMAC-SHA256)`. MAC key is 32 random bytes at process start, never persisted. Reset/restart kills cursors. Generation mismatch → `400` `cursor_stale`.
 
-List items omit bodies (`requestBytes`, `responseBytes`, `truncated` flags only). List items omit the WebSocket `frames` array (`frameCount` + `truncated` only). GET-by-id frame `payload` is `string(payload)` like HTTP bodies (not base64). List items omit `grpc.messages` (`contentType` / `truncated` / `decodeError` remain). GET-by-id field `text` is a JSON string; there is no stored hex copy.
+List items omit bodies (`requestBytes`, `responseBytes`, `truncated` flags only). List items omit the WebSocket `frames` array (`frameCount` + `truncated` only). GET-by-id frame `payload` is `string(payload)` like HTTP bodies (not base64). GET-by-id frame `action` is `drop` / `block` when a websocket-phase rule omitted or closed the frame; forwarded frames omit `action`. List items omit `grpc.messages` (`contentType` / `truncated` / `decodeError` remain). GET-by-id field `text` is a JSON string; there is no stored hex copy.
 
 `GET /v1/flows/{id}/request` and `GET /v1/flows/{id}/response` return the captured bytes as `application/octet-stream` with `Content-Disposition: attachment` and `Content-Security-Policy: default-src 'none'`. They never reflect the captured `Content-Type` (a browser GET of `text/html` would execute scripts on the management origin).
 

@@ -17,9 +17,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hilather/go-lab-mitmproxy/internal/compiler"
+	"github.com/hilather/go-lab-mitmproxy/internal/config"
 	"github.com/hilather/go-lab-mitmproxy/internal/http2x"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 	"github.com/hilather/go-lab-mitmproxy/internal/proxytest"
+	"github.com/hilather/go-lab-mitmproxy/internal/snapshot"
 	"github.com/hilather/go-lab-mitmproxy/internal/tlsmitm"
 	"github.com/hilather/go-lab-mitmproxy/internal/wsx"
 )
@@ -918,6 +921,103 @@ func TestInterceptWebSocketInspectFrames(t *testing.T) {
 	f := waitWSFlow(t, sink)
 	if !f.Intercepted || f.WebSocket == nil || f.WebSocket.FrameCount < 1 {
 		t.Fatalf("want intercepted frames, got %+v", f)
+	}
+}
+
+func TestInterceptWebSocketReplaceRulesAfterCONNECTKeepsOldEngine(t *testing.T) {
+	var sawText atomic.Bool
+	origin := startTLSOrigin(t, originCert(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			return
+		}
+		c, bufrw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_, _ = io.WriteString(bufrw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		_ = bufrw.Flush()
+		fr, err := wsx.ReadFrame(bufrw, 0)
+		if err != nil {
+			return
+		}
+		if fr.Opcode == wsx.OpcodeText && string(fr.Payload) == "inner" {
+			sawText.Store(true)
+		}
+		fr.Masked = false
+		fr.MaskKey = [4]byte{}
+		_ = wsx.WriteFrame(bufrw, fr)
+		_ = bufrw.Flush()
+	}))
+	_, port := hostPort(t, origin)
+	st, err := config.Load([]byte("apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: t\nspec: {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Spec.TLS.Intercept = true
+	st.Spec.TLS.Ports = []int{port}
+	st.Spec.TLS.Upstream.ExtraCAFiles = []string{testdataTLS(t, "origin-ca.pem")}
+	st.Spec.TLS.Upstream.InsecureSkipVerify = true
+	st.Spec.Protocols.WebSocket.InspectFrames = true
+	snap, err := compiler.Compile(t.Context(), st, compiler.CompileOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snaps := snapshot.NewStore()
+	snaps.InstallBootstrap(snap)
+	px := startProxy(t, Options{Spec: snap.Canonical.Spec, Snapshots: snaps, Authority: snap.CA, Sink: NewNull(), Resolver: appLabResolver()})
+	c, err := proxytest.Dial(px.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := net.JoinHostPort("app.lab", strconv.Itoa(port))
+	if err := c.WriteRequest("CONNECT "+target+" HTTP/1.1", "Host: "+target); err != nil {
+		t.Fatal(err)
+	}
+	if stLine, err := c.ReadLine(); err != nil || stLine != "HTTP/1.1 200 Connection Established" {
+		t.Fatalf("status %v %v", stLine, err)
+	}
+	if blank, err := c.ReadLine(); err != nil || blank != "" {
+		t.Fatalf("blank %q", blank)
+	}
+	swapRules(t, snaps, snap, 1, true, wsItem("drop-text", model.RuleOpcodeText, model.ActionDrop))
+	tlsConn := tls.Client(c.Conn, &tls.Config{
+		ServerName: "app.lab",
+		RootCAs:    px.Authority().CertPool(),
+		NextProtos: []string{tlsmitm.ALPN},
+		MinVersion: tls.VersionTLS12,
+	})
+	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://app.lab/ws", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	if err := req.Write(tlsConn); err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(tlsConn)
+	resp, err := http.ReadResponse(br, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if err := wsx.WriteFrame(tlsConn, wsx.Frame{Fin: true, Opcode: wsx.OpcodeText, Masked: true, MaskKey: [4]byte{1, 2, 3, 4}, Payload: []byte("inner")}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := wsx.ReadFrame(br, 0)
+	if err != nil || string(got.Payload) != "inner" {
+		t.Fatalf("inner upgrade after replaceRules must keep CONNECT pin: %v %+v", err, got)
+	}
+	_ = tlsConn.Close()
+	if !sawText.Load() {
+		t.Fatal("origin must still see the text frame under the old Engine")
 	}
 }
 

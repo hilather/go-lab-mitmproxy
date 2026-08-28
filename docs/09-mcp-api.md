@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: MCP, Application
-Last reviewed: 2026-08-28 (features.get)
+Last reviewed: 2026-08-28 (D73 frames[].action)
 Related ADRs: 0004, 0006, 0013
 
 Native management API is `/v1` + `POST /mcp`. Capability IDs and tool names are frozen in [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md). Protocol pin: [docs/adr/0006-pin-mcp-protocol-versions.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0006-pin-mcp-protocol-versions.md).
@@ -75,7 +75,7 @@ Health live/ready, OpenAPI, UI assets, session/CSRF, and `/v1/metrics` are **not
 
 `mitm_features_list` and `labmitm://features` return the same JSON as `GET /v1/features` (11 frozen rows). Compact `status.features` five 1.1 booleans stay on `mitm_status_get` / `labmitm://status`. Mutation stays `mitm_change_plan` / `mitm_change_apply`.
 
-`mitm_flows_list` omits `websocket.frames` and `grpc.messages`. `mitm_flow_get` includes both when present. No new websocket/gRPC tools.
+`mitm_flows_list` omits `websocket.frames` and `grpc.messages`. `mitm_flow_get` includes both when present. GET-by-id frame `action` is `drop` / `block` when a websocket-phase rule omitted or closed the frame; forwarded frames omit `action`. No new websocket/gRPC tools.
 
 ## Auth
 

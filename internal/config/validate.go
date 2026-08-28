@@ -434,7 +434,7 @@ func validateRules(r *model.RulesSpec, vs *[]domainerr.FieldViolation) {
 			*vs = append(*vs, domainerr.FieldViolation{
 				Path:    path + ".phase",
 				Code:    violationInvalidValue,
-				Message: "phase must be request or response",
+				Message: "phase must be request, response, or websocket",
 			})
 		}
 		if strings.TrimSpace(item.Action.Type) == "" {
@@ -447,9 +447,10 @@ func validateRules(r *model.RulesSpec, vs *[]domainerr.FieldViolation) {
 			*vs = append(*vs, domainerr.FieldViolation{
 				Path:    path + ".action.type",
 				Code:    violationInvalidValue,
-				Message: "action.type must be breakpoint, drop, delay, status, header, body, silent, hang, or redirect",
+				Message: "action.type must be breakpoint, drop, delay, status, header, body, silent, hang, redirect, or block",
 			})
 		}
+		validateRulePhaseAction(path, item, vs)
 		if item.Action.Delay < 0 || item.Action.Delay > MaxRuleDelay {
 			*vs = append(*vs, domainerr.FieldViolation{
 				Path:    path + ".action.delay",
@@ -548,6 +549,62 @@ func knownRedirectStatus(st int) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func validateRulePhaseAction(path string, item model.RuleSpec, vs *[]domainerr.FieldViolation) {
+	phase := strings.TrimSpace(item.Phase)
+	action := strings.TrimSpace(item.Action.Type)
+	if phase == model.RulePhaseWebSocket && action != "" && action != model.ActionDrop && action != model.ActionBlock {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    path + ".action.type",
+			Code:    violationInvalidValue,
+			Message: "phase websocket allows only action.type drop or block",
+		})
+	}
+	if (phase == model.RulePhaseRequest || phase == model.RulePhaseResponse) && action == model.ActionBlock {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    path + ".action.type",
+			Code:    violationInvalidValue,
+			Message: "action.type block is only valid on phase websocket",
+		})
+	}
+	if phase == model.RulePhaseRequest || phase == model.RulePhaseResponse {
+		if item.Match.Opcode != "" {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".match.opcode",
+				Code:    violationInvalidValue,
+				Message: "match.opcode is only valid on phase websocket",
+			})
+		}
+		if item.Match.Direction != "" {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".match.direction",
+				Code:    violationInvalidValue,
+				Message: "match.direction is only valid on phase websocket",
+			})
+		}
+		if item.Match.PayloadContains != "" {
+			*vs = append(*vs, domainerr.FieldViolation{
+				Path:    path + ".match.payloadContains",
+				Code:    violationInvalidValue,
+				Message: "match.payloadContains is only valid on phase websocket",
+			})
+		}
+	}
+	if item.Match.Opcode != "" && !model.KnownRuleOpcode(item.Match.Opcode) {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    path + ".match.opcode",
+			Code:    violationInvalidValue,
+			Message: "match.opcode must be continuation, text, binary, close, ping, pong, or other",
+		})
+	}
+	if item.Match.Direction != "" && !model.KnownRuleDirection(item.Match.Direction) {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    path + ".match.direction",
+			Code:    violationInvalidValue,
+			Message: "match.direction must be client or origin",
+		})
 	}
 }
 

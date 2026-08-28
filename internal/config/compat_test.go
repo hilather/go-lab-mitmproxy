@@ -52,6 +52,12 @@ var expectedInvalid = map[string]string{
 	"rules-redirect-status-403.yaml":              violationInvalidValue,
 	"rules-silent-close-reset.yaml":               violationInvalidValue,
 	"rules-status-302.yaml":                       violationInvalidValue,
+	"rules-unknown-phase.yaml":                    violationInvalidValue,
+	"rules-block-on-request.yaml":                 violationInvalidValue,
+	"rules-body-on-websocket.yaml":                violationInvalidValue,
+	"rules-unknown-opcode.yaml":                   violationInvalidValue,
+	"rules-unknown-direction.yaml":                violationInvalidValue,
+	"rules-opcode-on-request.yaml":                violationInvalidValue,
 }
 
 // TestConfigCompat is the positive+negative fixture matrix for make test-config-compat.

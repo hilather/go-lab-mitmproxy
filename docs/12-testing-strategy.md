@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-28 (D69 block-mode fixtures/transcripts)
-Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014
+Last reviewed: 2026-08-28 (D69 block-mode fixtures; D72–D74 websocket frame rules)
+Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
 
@@ -11,8 +11,8 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 
 | Layer | What | Where |
 |---|---|---|
-| Unit | config decode/unknown/reserved/byte sizes; store caps/wipe/wait/race; rules first-match; auth scopes; domainerr; OpenMetrics | `internal/*` |
-| Proxy protocol | absolute-form GET/POST, hop-by-hop strip, CONNECT Hijack + two GETs, HTTP/2 preface close **before acquire** (`testdata/proxy/pri-close.txt`), SOCKS peek-close (flags off), SOCKS5/4 CONNECT when flags on (IMDS deny, IPv6 BND `::`, intercept without HTTP 200), SOCKS BIND when `acceptBind` (two-reply success, IMDS/unspecified no Listen, hairpin BND, SOCKS4 BIND, flag-off `05 07`; not PlayTranscript), SOCKS5 UDP ASSOCIATE when `acceptUDPAssociate` (echo, domain pin, IMDS/FRAG/hairpin drop, inbound flood cap, control-close teardown, flag-off `05 07`; two sockets, not PlayTranscript), SOCKS user-pass when `acceptUserPass` (`socks_test.go`, not PlayTranscript), silent-peer stall (second HTTP before HeaderTimeout), resolve-then-guard (name→IMDS, name→link-local), `https://` 400, CONNECT without port, WebSocket 101 (flag-off copy; flag-on `wsx` frames), hop-gate 403 (`upgrade-websocket-disabled.txt`; orig-dest HTTP Upgrade; inner CONNECT pin still 101; CONNECT/absolute-form 403 before Hijack/DNS), h2c PRI leftover, RFC 9113 CONNECT, Expect strip, HTTP_PROXY ignored | `internal/proxy` + `internal/proxytest`; transcripts in `testdata/proxy` |
+| Unit | config decode/unknown/reserved/byte sizes; store caps/wipe/wait/race; rules first-match (including `phase: websocket` opcode/direction/`payloadContains`); auth scopes; domainerr; OpenMetrics | `internal/*` |
+| Proxy protocol | absolute-form GET/POST, hop-by-hop strip, CONNECT Hijack + two GETs, HTTP/2 preface close **before acquire** (`testdata/proxy/pri-close.txt`), SOCKS peek-close (flags off), SOCKS5/4 CONNECT when flags on (IMDS deny, IPv6 BND `::`, intercept without HTTP 200), SOCKS BIND when `acceptBind` (two-reply success, IMDS/unspecified no Listen, hairpin BND, SOCKS4 BIND, flag-off `05 07`; not PlayTranscript), SOCKS5 UDP ASSOCIATE when `acceptUDPAssociate` (echo, domain pin, IMDS/FRAG/hairpin drop, inbound flood cap, control-close teardown, flag-off `05 07`; two sockets, not PlayTranscript), SOCKS user-pass when `acceptUserPass` (`socks_test.go`, not PlayTranscript), silent-peer stall (second HTTP before HeaderTimeout), resolve-then-guard (name→IMDS, name→link-local), `https://` 400, CONNECT without port, WebSocket 101 (flag-off copy; flag-on `wsx` frames; `upgrade-websocket-frames.txt`; websocket-phase drop/block mid-stream), hop-gate 403 (`upgrade-websocket-disabled.txt`; orig-dest HTTP Upgrade; inner CONNECT pin still 101; CONNECT/absolute-form 403 before Hijack/DNS), h2c PRI leftover, RFC 9113 CONNECT, Expect strip, HTTP_PROXY ignored | `internal/proxy` + `internal/proxytest`; transcripts in `testdata/proxy` |
 | TLS intercept | generate CA, files CA, leaf SAN=SNI, client trusting lab CA succeeds, untrusted client fails, upstream verify on/off, ALPN http/1.1 only (flag off), snapshot NextProtos, non-443 CONNECT tunnels, handshake fail → `tls_handshake` (no blind fallback), inner `PRI` → `http2_inner` | `internal/tlsmitm` + fixture origin in `proxytest` |
 | HTTP/2 codec | `http2x` StreamID + pseudos, no Dial idents, `DialTLS == nil`, pool refuses redial, origin `PUSH_PROMISE` capture/RST (D65) | `internal/http2x` |
 | HTTP/2 transcode | two concurrent h2 streams + h1 origin (no `refuses redial`); response `WaitPaused` with a non-empty body does not block a second stream; origin h2 multiplex; `PUSH_PROMISE` stored not forwarded; `validateReplay` rejects `Pushed`; live and replay strip `:` headers; `h2_trailer_dropped`; HTTPS replay releases origin conn (h1 and live-origin h2) | `internal/proxy` |
