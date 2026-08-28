@@ -8,12 +8,12 @@ import (
 )
 
 func TestMutates(t *testing.T) {
-	for _, typ := range []string{model.ActionBody, model.ActionStatus, model.ActionDrop, model.ActionBreakpoint} {
+	for _, typ := range []string{model.ActionBody, model.ActionStatus, model.ActionDrop, model.ActionBreakpoint, model.ActionRedirect} {
 		if !Mutates(&Hit{Action: model.RuleActionSpec{Type: typ}}) {
 			t.Fatalf("%s should mutate", typ)
 		}
 	}
-	for _, typ := range []string{model.ActionDelay, model.ActionHeader, ""} {
+	for _, typ := range []string{model.ActionDelay, model.ActionHeader, model.ActionSilent, model.ActionHang, ""} {
 		if Mutates(&Hit{Action: model.RuleActionSpec{Type: typ}}) {
 			t.Fatalf("%s should capture-only", typ)
 		}
@@ -59,6 +59,54 @@ func TestStatusFor(t *testing.T) {
 	}
 }
 
+func TestSilentCloseDefaultsRST(t *testing.T) {
+	if SilentClose(nil) != model.SilentCloseRST {
+		t.Fatal("nil")
+	}
+	if SilentClose(&Hit{Action: model.RuleActionSpec{Type: model.ActionSilent}}) != model.SilentCloseRST {
+		t.Fatal("empty silent.close")
+	}
+	if SilentClose(&Hit{Action: model.RuleActionSpec{Type: model.ActionSilent, Silent: model.RuleSilentSpec{Close: model.SilentCloseFIN}}}) != model.SilentCloseFIN {
+		t.Fatal("fin")
+	}
+	if SilentClose(&Hit{Action: model.RuleActionSpec{Type: model.ActionHang, Hang: model.RuleHangSpec{Close: "nope"}}}) != model.SilentCloseRST {
+		t.Fatal("unknown hang.close")
+	}
+}
+
+func TestClampHangTimeout(t *testing.T) {
+	if got := ClampHangTimeout(0, 0); got != MinHangTimeout {
+		t.Fatalf("min %s", got)
+	}
+	if got := ClampHangTimeout(time.Hour, 0); got != MaxHangTimeout {
+		t.Fatalf("max %s", got)
+	}
+	if got := ClampHangTimeout(10*time.Second, 2*time.Second); got != 2*time.Second {
+		t.Fatalf("sessionTimeout %s", got)
+	}
+	if HangTimeout(&Hit{Action: model.RuleActionSpec{Hang: model.RuleHangSpec{Timeout: 5 * time.Second}}}) != 5*time.Second {
+		t.Fatal("HangTimeout")
+	}
+}
+
+func TestRedirectStatusAndLocation(t *testing.T) {
+	if RedirectStatus(nil) != model.RedirectDefaultStatus {
+		t.Fatal("nil default 302")
+	}
+	if RedirectStatus(&Hit{Action: model.RuleActionSpec{Redirect: model.RuleRedirectSpec{Status: 0}}}) != 302 {
+		t.Fatal("empty → 302")
+	}
+	if RedirectStatus(&Hit{Action: model.RuleActionSpec{Redirect: model.RuleRedirectSpec{Status: 307}}}) != 307 {
+		t.Fatal("307")
+	}
+	if RedirectStatus(&Hit{Action: model.RuleActionSpec{Redirect: model.RuleRedirectSpec{Status: 300}}}) != 302 {
+		t.Fatal("illegal status")
+	}
+	if RedirectLocation(&Hit{Action: model.RuleActionSpec{Redirect: model.RuleRedirectSpec{Location: "  /x  "}}}) != "/x" {
+		t.Fatal("trim")
+	}
+}
+
 func TestApplyHeadersDeterministic(t *testing.T) {
 	in := []model.Header{{Name: "X-A", Value: "1"}, {Name: "X-B", Value: "2"}, {Name: "X-C", Value: "3"}}
 	out := ApplyHeaders(in, model.RuleHeadersSpec{
@@ -87,5 +135,12 @@ func TestBodyReplace(t *testing.T) {
 	got, ok := BodyReplace(&Hit{Action: model.RuleActionSpec{Type: model.ActionStatus, Body: model.RuleBodySpec{Replace: "x"}}})
 	if !ok || string(got) != "x" {
 		t.Fatal("status with body")
+	}
+	got, ok = BodyReplace(&Hit{Action: model.RuleActionSpec{Type: model.ActionRedirect, Body: model.RuleBodySpec{Replace: "go"}}})
+	if !ok || string(got) != "go" {
+		t.Fatal("redirect with body")
+	}
+	if _, ok := BodyReplace(&Hit{Action: model.RuleActionSpec{Type: model.ActionSilent}}); ok {
+		t.Fatal("silent is capture-only")
 	}
 }

@@ -1,0 +1,18 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  rules:
+    enabled: true
+    items:
+      - id: redirect-login
+        enabled: true
+        phase: request
+        match:
+          pathPrefix: /login
+        action:
+          type: redirect
+          redirect:
+            location: "https://app.lab.test/login"
+            status: 302

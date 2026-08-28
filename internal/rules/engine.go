@@ -19,6 +19,10 @@ const (
 	ActionBreakpointTO     = "breakpoint_timeout"
 	DefaultDropStatus      = 403
 	DefaultSyntheticStatus = 502
+	MinHangTimeout         = time.Second
+	MaxHangTimeout         = 30 * time.Second
+	FlowErrorSilent        = "rule_silent"
+	FlowErrorHang          = "rule_hang"
 )
 
 // Engine is a first-match evaluator. Tests construct it from model.RulesSpec

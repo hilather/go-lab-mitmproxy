@@ -19,24 +19,24 @@ import (
 	"github.com/hilather/go-lab-mitmproxy/internal/rules"
 )
 
-func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *ruleSession) {
+func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *ruleSession) ruleResult {
 	started := time.Now()
 	host, port, err := splitAuthority(req.URL.Host, "80")
 	if err != nil {
 		writeProxyError(w, http.StatusBadRequest, domainerr.CodeValidationFailed, "invalid authority", "")
-		return
+		return ruleAbort
 	}
 	if sess == nil {
 		sess = s.beginSession()
 	}
 	if s.rejectDisabledWebSocket(w, req, host, sess) {
-		return
+		return ruleAbort
 	}
 	if !sess.spec.Protocols.AbsoluteForm.Enabled {
 		s.metrics.reject("absolute_form")
 		s.capture(s.flowFromReq(req, host, "http", http.StatusForbidden, string(domainerr.CodeForbidden), started), sess)
 		writeProxyError(w, http.StatusForbidden, domainerr.CodeForbidden, "absolute-form is disabled", "spec.protocols.absoluteForm.enabled")
-		return
+		return ruleAbort
 	}
 
 	guardCtx, guardCancel := s.upstreamCtxSess(req.Context(), sess)
@@ -44,10 +44,10 @@ func (s *Server) serveAbsolute(w http.ResponseWriter, req *http.Request, sess *r
 	guardCancel()
 	if err != nil {
 		s.rejectResolve(w, req, host, err, sess)
-		return
+		return ruleAbort
 	}
 
-	s.forwardOriginHTTP(w, req, res, host, port, started, sess)
+	return s.forwardOriginHTTP(w, req, res, host, port, started, sess)
 }
 
 // rejectDisabledWebSocket is the cleartext websocket gate. It reads only
@@ -77,7 +77,7 @@ func (s *Server) rejectDisabledWebSocket(w http.ResponseWriter, req *http.Reques
 	return true
 }
 
-func (s *Server) forwardOriginHTTP(w http.ResponseWriter, req *http.Request, res resolved, host, port string, started time.Time, sess *ruleSession) {
+func (s *Server) forwardOriginHTTP(w http.ResponseWriter, req *http.Request, res resolved, host, port string, started time.Time, sess *ruleSession) ruleResult {
 	if sess == nil {
 		sess = s.beginSession()
 	}
@@ -85,12 +85,17 @@ func (s *Server) forwardOriginHTTP(w http.ResponseWriter, req *http.Request, res
 
 	ws := httputilx.IsWebSocketUpgrade(req.Header)
 	if headerHasExpect(req.Header) && !ws {
-		s.serveExpectAbsolute(w, req, res, host, port, started, sess)
-		return
+		return s.serveExpectAbsolute(w, req, res, host, port, started, sess)
 	}
 
-	if handled := s.runRequestRules(req.Context(), w, req, host, "http", started, sess); handled {
-		return
+	switch result := s.runRequestRules(req.Context(), w, req, host, "http", started, sess); result {
+	case ruleSilentClose:
+		if !s.silentCloseHTTP(w, sess.closeModeOr(model.SilentCloseRST)) {
+			return ruleSilentClose
+		}
+		return ruleSilentClose
+	case ruleSynthesize, ruleAbort:
+		return result
 	}
 
 	upCtx, upCancel := s.upstreamCtxSess(req.Context(), sess)
@@ -114,7 +119,7 @@ func (s *Server) forwardOriginHTTP(w http.ResponseWriter, req *http.Request, res
 		f := s.flowFromReq(req, host, "http", 0, "upstream", started)
 		s.captureRule(f, req, sess.reqCap, nil, nil, sess, sess.reqHit)
 		writeProxyError(w, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed", "")
-		return
+		return ruleAbort
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -126,10 +131,16 @@ func (s *Server) forwardOriginHTTP(w http.ResponseWriter, req *http.Request, res
 			s.metrics.ruleHit(rules.ActionLateSkip)
 		}
 		s.hijackUpgrade(w, req, resp, sticky, sess.reqCap, host, started, sess)
-		return
+		return ruleContinue
 	}
 
-	s.finishHTTPResponse(req.Context(), w, req, resp, host, "http", started, sess, nil)
+	result := s.finishHTTPResponse(req.Context(), w, req, resp, host, "http", started, sess, nil)
+	if result == ruleSilentClose {
+		if !s.silentCloseHTTP(w, sess.closeModeOr(model.SilentCloseRST)) {
+			return ruleSilentClose
+		}
+	}
+	return result
 }
 
 func headerHasExpect(h http.Header) bool {
@@ -143,15 +154,15 @@ func headerHasExpect(h http.Header) bool {
 
 // serveExpectAbsolute Hijacks before any body read so net/http cannot emit 100,
 // then runs request/response rules on the hijacked conn.
-func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, res resolved, host, port string, started time.Time, sess *ruleSession) {
+func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, res resolved, host, port string, started time.Time, sess *ruleSession) ruleResult {
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		writeProxyError(w, http.StatusInternalServerError, domainerr.CodeInternalError, "hijack not supported", "")
-		return
+		return ruleAbort
 	}
 	client, bufrw, err := hj.Hijack()
 	if err != nil {
-		return
+		return ruleAbort
 	}
 	s.beginHijacked()
 	defer s.endHijacked()
@@ -175,8 +186,12 @@ func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, r
 			_ = bufrw.Flush()
 		}
 	}
-	if handled := s.runRequestRulesWrite(req.Context(), req, host, "http", started, sess, write); handled {
-		return
+	switch result := s.runRequestRulesWrite(req.Context(), req, host, "http", started, sess, write); result {
+	case ruleSilentClose:
+		silentCloseConn(client, sess.closeModeOr(model.SilentCloseRST))
+		return ruleSilentClose
+	case ruleSynthesize, ruleAbort:
+		return result
 	}
 
 	upCtx, upCancel := s.upstreamCtxSess(req.Context(), sess)
@@ -190,10 +205,10 @@ func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, r
 		f := s.flowFromReq(req, host, "http", 0, "upstream", started)
 		s.captureRule(f, req, sess.reqCap, nil, nil, sess, sess.reqHit)
 		writeHijackedError(client, http.StatusBadGateway, domainerr.CodeInternalError, "upstream request failed")
-		return
+		return ruleAbort
 	}
 	defer func() { _ = resp.Body.Close() }()
-	s.finishResponseWrite(req.Context(), req, resp, host, "", "http", started, sess, nil, func(out *http.Response) error {
+	result := s.finishResponseWrite(req.Context(), req, resp, host, "", "http", started, sess, nil, func(out *http.Response) error {
 		if err := writeConnResponse(client, out); err != nil {
 			return err
 		}
@@ -202,6 +217,10 @@ func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, r
 		}
 		return nil
 	})
+	if result == ruleSilentClose {
+		silentCloseConn(client, sess.closeModeOr(model.SilentCloseRST))
+	}
+	return result
 }
 
 func (s *Server) originRequest(ctx context.Context, req *http.Request, res resolved, host, port string, preCap *cappedWriter, sess *ruleSession) (*http.Request, *cappedWriter) {

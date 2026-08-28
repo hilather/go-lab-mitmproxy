@@ -1,0 +1,17 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  rules:
+    enabled: true
+    items:
+      - id: silent-fin
+        enabled: true
+        phase: request
+        match:
+          pathPrefix: /login
+        action:
+          type: silent
+          silent:
+            close: fin

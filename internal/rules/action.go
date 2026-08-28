@@ -15,7 +15,7 @@ func Mutates(hit *Hit) bool {
 		return false
 	}
 	switch hit.Action.Type {
-	case model.ActionBody, model.ActionStatus, model.ActionDrop, model.ActionBreakpoint:
+	case model.ActionBody, model.ActionStatus, model.ActionDrop, model.ActionBreakpoint, model.ActionRedirect:
 		return true
 	default:
 		return false
@@ -112,7 +112,7 @@ func BodyReplace(hit *Hit) (body []byte, replace bool) {
 	switch hit.Action.Type {
 	case model.ActionBody:
 		return []byte(hit.Action.Body.Replace), true
-	case model.ActionStatus, model.ActionDrop:
+	case model.ActionStatus, model.ActionDrop, model.ActionRedirect:
 		if hit.Action.Body.Replace == "" {
 			return nil, false
 		}
@@ -120,4 +120,66 @@ func BodyReplace(hit *Hit) (body []byte, replace bool) {
 	default:
 		return nil, false
 	}
+}
+
+// SilentClose returns rst or fin. Empty / unknown → rst.
+func SilentClose(hit *Hit) string {
+	if hit == nil {
+		return model.SilentCloseRST
+	}
+	mode := ""
+	switch hit.Action.Type {
+	case model.ActionSilent:
+		mode = strings.TrimSpace(hit.Action.Silent.Close)
+	case model.ActionHang:
+		mode = strings.TrimSpace(hit.Action.Hang.Close)
+	}
+	if mode == model.SilentCloseFIN {
+		return model.SilentCloseFIN
+	}
+	return model.SilentCloseRST
+}
+
+// HangTimeout is the configured hang duration before clamp.
+func HangTimeout(hit *Hit) time.Duration {
+	if hit == nil {
+		return 0
+	}
+	return hit.Action.Hang.Timeout
+}
+
+// ClampHangTimeout bounds hang wait to [1s, 30s], then min(sessionTimeout)
+// when sessionTimeout > 0.
+func ClampHangTimeout(d, sessionTimeout time.Duration) time.Duration {
+	if d < MinHangTimeout {
+		d = MinHangTimeout
+	}
+	if d > MaxHangTimeout {
+		d = MaxHangTimeout
+	}
+	if sessionTimeout > 0 && d > sessionTimeout {
+		d = sessionTimeout
+	}
+	return d
+}
+
+// RedirectStatus returns 301/302/303/307/308, default 302.
+func RedirectStatus(hit *Hit) int {
+	if hit == nil {
+		return model.RedirectDefaultStatus
+	}
+	switch hit.Action.Redirect.Status {
+	case 301, 302, 303, 307, 308:
+		return hit.Action.Redirect.Status
+	default:
+		return model.RedirectDefaultStatus
+	}
+}
+
+// RedirectLocation is the trimmed Location value.
+func RedirectLocation(hit *Hit) string {
+	if hit == nil {
+		return ""
+	}
+	return strings.TrimSpace(hit.Action.Redirect.Location)
 }

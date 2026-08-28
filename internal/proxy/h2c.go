@@ -122,11 +122,15 @@ func (s *Server) roundTripH2C(ctx context.Context, in http2x.Stream, pinned *rul
 	}
 
 	rw := newCaptureRW()
+	var result ruleResult
 	if tagged {
-		s.serveOrigDestHTTP(rw, inner, dest, sess)
-		return rw.response(), nil, nil
+		result = s.serveOrigDestHTTP(rw, inner, dest, sess)
+	} else {
+		result = s.serveAbsolute(rw, inner, sess)
 	}
-	s.serveAbsolute(rw, inner, sess)
+	if result == ruleSilentClose {
+		return nil, nil, http2x.ErrSilentClose
+	}
 	return rw.response(), nil, nil
 }
 

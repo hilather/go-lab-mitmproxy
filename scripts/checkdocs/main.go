@@ -53,6 +53,7 @@ var RequiredRootDocs = []string{
 	"docs/adr/0011-optional-compat-flow-rest.md",
 	"docs/adr/0012-protocol-expansion-12.md",
 	"docs/adr/0013-live-protocol-feature-gates.md",
+	"docs/adr/0014-qa-block-modes.md",
 	"tasks/00-program-board.md",
 	"tasks/README.md",
 	".github/workflows/ci.yml",

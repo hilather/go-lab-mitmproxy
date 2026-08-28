@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Rules, Proxy, Application
-Last reviewed: 2026-08-25 (replay Dials captured URL port)
-Related ADRs: 0002
+Last reviewed: 2026-08-28 (D69 QA block modes)
+Related ADRs: 0002, 0014
 
 Package `internal/rules`. **Default-off.** Master switch `spec.rules.enabled` must be `true` for any item to fire. First **enabled** item whose match succeeds wins. No weights, no hash-v1, no random (D12).
 
@@ -13,7 +13,7 @@ Proxy hooks (cleartext absolute-form and intercepted inner HTTP/1.1 **and** inne
 
 1. After request parse + target guards: request-phase match.
 2. After upstream response headers (before any client body byte): response-phase match.
-3. Stream vs mutate (D21): capture-only tees to `maxBodyBytes`; `body` / `status` / `drop` / `breakpoint` buffer to `maxBodyBytes` and fail-closed (`body_skipped`) beyond that.
+3. Stream vs mutate (D21): capture-only tees to `maxBodyBytes`; `body` / `status` / `drop` / `breakpoint` / `redirect` buffer to `maxBodyBytes` and fail-closed (`body_skipped`) beyond that. `silent` / `hang` are capture-only.
 4. Breakpoint: `Insert` paused, `WaitPaused(ctx)` with ctx deadline `min(rule.timeout, store.maxWait)` (1s–60s). Timeout / stale epoch continues unmodified. `Resume` / `Drop` are store primitives (REST in API-001). Unit test Resume without HTTP.
 
 Raw CONNECT tunnels have no inner HTTP, so rules do not apply. Mutating response rules after a WebSocket `101` are `late_skip`. Replay is **not** a rule action (API-001).
@@ -36,9 +36,9 @@ rules:
         headerContains: ""
         protocol: ""           # optional; http/1.1 | h2 | websocket | connect | socks5 | socks4
       action:
-        type: delay            # breakpoint | drop | delay | status | header | body
+        type: delay            # breakpoint | drop | delay | status | header | body | silent | hang | redirect
         delay: 2s              # 0–30s
-        status: 0              # status action: 400–599
+        status: 0              # status/drop: empty/0 or 400–599; not the redirect 3xx
         headers:
           set: {}
           remove: []
@@ -46,7 +46,17 @@ rules:
           replace: ""          # raw bytes as UTF-8 string in YAML; max 64KiB in spec
         breakpoint:
           timeout: 30s         # 1s–60s
+        silent:
+          close: rst           # rst | fin; empty → rst
+        hang:
+          timeout: 5s          # required when type=hang; 1s–30s
+          close: rst
+        redirect:
+          location: "https://app.lab.test/login"  # required when type=redirect
+          status: 302          # 301|302|303|307|308; empty → 302
 ```
+
+Issue [#52](https://github.com/hilather/go-lab-mitmproxy/issues/52) `http_status` is the existing `status` type (no alias). Close-after-status is existing `drop` (default 403). ADR [0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) (D69).
 
 Match fields are AND. Empty match matches everything (still requires `rules.enabled` and item `enabled`). Host match is case-insensitive. Path match is on the decoded URL path (no query). On an inner HTTP/2 stream the reconstructed request includes ordered pseudo-headers (`:method`, `:scheme`, `:authority`, `:path`); `match.method` uses `:method`, `match.pathPrefix`/`pathExact` use the path-component of `:path` (query stripped), `match.host` uses the host of `:authority`, and `match.headerName` sees leading-`:` names. `match.protocol` is optional and case-insensitive; a non-empty value that does not match the request protocol (including `h2` on an inner h2 stream) matches nothing. SOCKS tunnel metadata stamps `Protocol=socks5` or `socks4` (plus `Via`/`SOCKS`). Inner intercept copies the same `Via`/`SOCKS`. Breakpoints pause the **stream**, not the CONNECT TCP session (D37): request-phase `WaitPaused` runs outside the origin mutex so a paused stream does not block another stream’s request-phase rules. The mutex covers origin RoundTrip plus full body drain (D44).
 
@@ -58,8 +68,11 @@ Match fields are AND. Empty match matches everything (still requires `rules.enab
 | `header` | Mutate request headers before dial | Mutate response headers before client write |
 | `body` | Replace request body (fails closed if truncated / over 64 KiB spec) | Replace response body (same) |
 | `breakpoint` | Pause before dial; operator resume/edit/drop | Pause after upstream, before client body |
+| `silent` | No HTTP bytes; TCP RST (default) or FIN. HTTP/2: RST_STREAM `CANCEL` on that stream only | Same; drain and discard origin body. WebSocket `101` is `late_skip` |
+| `hang` | Hold `hang.timeout` (1s–30s), then silent close. Not resumable | Same after origin headers |
+| `redirect` | No Dial; synthesize 301/302/303/307/308 (default 302) + required `Location` | Replace status + `Location` |
 
-Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML.
+Validate: `rules.items[].id` unique. `action.delay` ∈ [0, 30s]. `action.status` empty or 400–599. Body replace ≤ 64 KiB in YAML. `hang.timeout` required and ∈ [1s, 30s]. `redirect.location` required (≤2048 bytes, no CR/LF/NUL). `redirect.status` empty or 301/302/303/307/308. `silent.close` / `hang.close` empty, `rst`, or `fin`. `http_status` is not a legal type.
 
 ## Breakpoint flow
 

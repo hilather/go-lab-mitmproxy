@@ -1,0 +1,6 @@
+# Request-phase silent fin: no HTTP response bytes; clean TCP FIN.
+C: POST http://{{HOST}}/login HTTP/1.1
+C: Host: {{HOST}}
+C: Content-Length: 2
+C:
+C: pw

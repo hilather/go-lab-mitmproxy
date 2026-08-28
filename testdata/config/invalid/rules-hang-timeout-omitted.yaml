@@ -1,0 +1,13 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  rules:
+    enabled: true
+    items:
+      - id: hang-omitted
+        enabled: true
+        phase: request
+        action:
+          type: hang

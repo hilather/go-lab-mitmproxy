@@ -1,0 +1,18 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  rules:
+    enabled: true
+    items:
+      - id: hang-login
+        enabled: true
+        phase: request
+        match:
+          pathPrefix: /login
+        action:
+          type: hang
+          hang:
+            timeout: 5s
+            close: rst

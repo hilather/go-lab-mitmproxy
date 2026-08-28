@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -132,6 +133,48 @@ func TestServeClientGET(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("handler not invoked")
+	}
+}
+
+func TestServeClientSilentCloseRSTCancel(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		_ = ServeClient(ctx, server, func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
+			return nil, nil, ErrSilentClose
+		})
+	}()
+	cc, err := (&http2.Transport{}).NewClientConn(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cc.Close() }()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/silent", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = cc.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected RST CANCEL, not HEADERS")
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("timed out waiting for RST: %v", err)
+	}
+	var se http2.StreamError
+	if errors.As(err, &se) && se.Code != http2.ErrCodeCancel {
+		t.Fatalf("RST code %v want CANCEL", se.Code)
+	}
+}
+
+func TestResetCancelIgnoresPlainConn(t *testing.T) {
+	if ResetCancel(nil) {
+		t.Fatal("nil")
+	}
+	c1, c2 := net.Pipe()
+	defer func() { _ = c1.Close(); _ = c2.Close() }()
+	if ResetCancel(c1) {
+		t.Fatal("plain pipe is not framedStreamConn")
 	}
 }
 

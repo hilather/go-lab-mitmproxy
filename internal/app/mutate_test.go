@@ -803,3 +803,64 @@ func TestPlanReplaceRulesHasNoLiveNextConnection(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceRulesBlockModes(t *testing.T) {
+	svc, boot := mustBoot(t)
+	ctx := context.Background()
+	good := []model.RuleSpec{
+		{ID: "silent-login", Enabled: true, Phase: model.RulePhaseRequest, Action: model.RuleActionSpec{Type: model.ActionSilent, Silent: model.RuleSilentSpec{Close: model.SilentCloseRST}}},
+		{ID: "hang-login", Enabled: true, Phase: model.RulePhaseRequest, Action: model.RuleActionSpec{Type: model.ActionHang, Hang: model.RuleHangSpec{Timeout: time.Second}}},
+		{ID: "redir-login", Enabled: true, Phase: model.RulePhaseRequest, Action: model.RuleActionSpec{Type: model.ActionRedirect, Redirect: model.RuleRedirectSpec{Location: "https://app.lab.test/login"}}},
+	}
+	out, err := svc.Apply(ctx, actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Reason:           "block modes",
+		Operations: []model.Operation{{
+			Op:    model.OpReplaceRules,
+			Rules: &model.RulesSpec{Enabled: true, Items: good},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = out
+	got := svc.Active().Canonical.Spec.Rules
+	if !got.Enabled || len(got.Items) != 3 {
+		t.Fatalf("rules %+v", got)
+	}
+	if got.Items[0].Action.Type != model.ActionSilent || got.Items[1].Action.Type != model.ActionHang || got.Items[2].Action.Type != model.ActionRedirect {
+		t.Fatalf("types %q %q %q", got.Items[0].Action.Type, got.Items[1].Action.Type, got.Items[2].Action.Type)
+	}
+
+	cases := []struct {
+		name string
+		item model.RuleSpec
+		path string
+	}{
+		{"http_status", model.RuleSpec{ID: "bad", Enabled: true, Phase: model.RulePhaseRequest, Action: model.RuleActionSpec{Type: "http_status", Status: 403}}, "spec.rules.items[0].action.type"},
+		{"hang31", model.RuleSpec{ID: "bad", Enabled: true, Phase: model.RulePhaseRequest, Action: model.RuleActionSpec{Type: model.ActionHang, Hang: model.RuleHangSpec{Timeout: 31 * time.Second}}}, "spec.rules.items[0].action.hang.timeout"},
+		{"noloc", model.RuleSpec{ID: "bad", Enabled: true, Phase: model.RulePhaseRequest, Action: model.RuleActionSpec{Type: model.ActionRedirect}}, "spec.rules.items[0].action.redirect.location"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.Validate(ctx, actor(), ValidateIn{Operations: []model.Operation{{
+				Op:    model.OpReplaceRules,
+				Rules: &model.RulesSpec{Enabled: true, Items: []model.RuleSpec{tc.item}},
+			}}})
+			requireCode(t, err, domainerr.CodeValidationFailed)
+			de, ok := domainerr.As(err)
+			if !ok {
+				t.Fatal(err)
+			}
+			found := false
+			for _, v := range de.FieldViolations {
+				if v.Path == tc.path {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("want path %s in %+v", tc.path, de.FieldViolations)
+			}
+		})
+	}
+}

@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-23 (D65 labmitm_h2_push_captured_total)
-Related ADRs: 0001
+Last reviewed: 2026-08-28 (D69 rule action labels)
+Related ADRs: 0001, 0014
 
 ## Logs (`log/slog` JSON)
 
@@ -34,7 +34,7 @@ Bounded labels only.
 | `labmitm_socks_sessions_total` | counter | `result` (`ok`, `denied`, `auth`, `command`) |
 | `labmitm_flows_total` | counter | `scheme`, `intercepted`, `result` |
 | `labmitm_tls_intercepts_total` | counter | `result` (`ok`, `mint_fail`, `tls_handshake`, `upstream_tls`, `upstream_verify_fail`, `http2_inner`) |
-| `labmitm_rule_hits_total` | counter | `action` |
+| `labmitm_rule_hits_total` | counter | `action` (`drop`, `delay`, `status`, `header`, `body`, `breakpoint`, `silent`, `hang`, `redirect`, plus `body_skipped` / `late_skip` / `breakpoint_timeout`) |
 | `labmitm_store_flows` | gauge | — |
 | `labmitm_store_bytes` | gauge | — |
 | `labmitm_store_evictions_total` | counter | — |

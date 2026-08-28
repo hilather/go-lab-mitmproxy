@@ -1,0 +1,14 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: lab-proxy
+spec:
+  rules:
+    enabled: true
+    items:
+      - id: alias
+        enabled: true
+        phase: request
+        action:
+          type: http_status
+          status: 403

@@ -231,6 +231,100 @@ func TestInFlightRequestKeepsPinnedSnapshot(t *testing.T) {
 	}
 }
 
+func TestInFlightRequestKeepsPinnedSnapshotSilent(t *testing.T) {
+	svc, boot := mustBoot(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	origin := startLiveOrigin(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			close(started)
+			<-release
+		}
+		_, _ = io.WriteString(w, "slow")
+	}))
+	first, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: boot.Revision,
+		Operations: []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      "delay-slow",
+					Enabled: true,
+					Phase:   model.RulePhaseRequest,
+					Match:   model.RuleMatchSpec{PathPrefix: "/slow"},
+					Action:  model.RuleActionSpec{Type: model.ActionDelay, Delay: 40 * time.Millisecond},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	px := startLiveProxy(t, svc)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var firstStatus int
+	var firstBody string
+	go func() {
+		defer wg.Done()
+		resp := viaProxy(t, px.Addr().String(), origin+"/slow")
+		firstStatus = resp.StatusCode
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		firstBody = string(b)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("origin never saw in-flight delayed request")
+	}
+
+	_, err = svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: first.RuntimeRevision,
+		Operations: []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{
+				Enabled: true,
+				Items: []model.RuleSpec{{
+					ID:      "silent-all",
+					Enabled: true,
+					Phase:   model.RulePhaseRequest,
+					Action:  model.RuleActionSpec{Type: model.ActionSilent},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	wg.Wait()
+	if firstStatus != 200 || firstBody != "slow" {
+		t.Fatalf("in-flight delay must keep the pinned engine, status=%d body=%q", firstStatus, firstBody)
+	}
+
+	tr := &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) {
+			return url.Parse("http://" + px.Addr().String())
+		},
+		DisableCompression: true,
+		ForceAttemptHTTP2:  false,
+	}
+	req, err := http.NewRequest(http.MethodGet, origin+"/next", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := tr.RoundTrip(req)
+	if err == nil {
+		_, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		t.Fatalf("next request must hit silent RST, got status %d", resp.StatusCode)
+	}
+}
+
 func TestResetDiscardsInFlightCapture(t *testing.T) {
 	svc, _ := mustBoot(t)
 	insertRaw(t, svc, "already.lab")

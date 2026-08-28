@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -540,6 +541,32 @@ func TestNoCORSHeaders(t *testing.T) {
 	requireProblem(t, got, http.StatusForbidden, "forbidden")
 	if got.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Fatal("CORS header present")
+	}
+}
+
+func TestContractReplaceRulesBlockModes(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+	rev := decodeJSON(t, doReq(t, h, http.MethodGet, "/v1/state", ""))["runtimeRevision"].(string)
+	body := []byte(`{"expectedRevision":` + strconv.Quote(rev) + `,"reason":"block modes","operations":[{"op":"replaceRules","rules":{"enabled":true,"items":[{"id":"silent-login","enabled":true,"phase":"request","action":{"type":"silent","silent":{"close":"rst"}}},{"id":"hang-login","enabled":true,"phase":"request","action":{"type":"hang","hang":{"timeout":"1s"}}},{"id":"redir-login","enabled":true,"phase":"request","action":{"type":"redirect","redirect":{"location":"https://app.lab.test/login"}}}]}}]}`)
+	val := doReq(t, h, http.MethodPost, "/v1/state:validate", string(body))
+	requireStatus(t, val, http.StatusOK)
+	apply := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(body))
+	requireStatus(t, apply, http.StatusOK)
+
+	bad := doReq(t, h, http.MethodPost, "/v1/state:validate", `{"operations":[{"op":"replaceRules","rules":{"enabled":true,"items":[{"id":"bad","enabled":true,"phase":"request","action":{"type":"http_status","status":403}}]}}]}`)
+	p := requireProblem(t, bad, http.StatusBadRequest, "validation_failed")
+	found := false
+	if vs, ok := p["fieldViolations"].([]any); ok {
+		for _, raw := range vs {
+			m, _ := raw.(map[string]any)
+			if m["path"] == "spec.rules.items[0].action.type" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("want action.type violation: %s", bad.Body.String())
 	}
 }
 

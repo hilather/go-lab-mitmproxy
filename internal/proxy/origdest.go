@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -176,7 +177,7 @@ func (s *Server) isDirectConnect(dest origDestMeta) bool {
 	return dest.IP.IsUnspecified() || dest.IP.IsLoopback() || isLocalIP(dest.IP.String())
 }
 
-func (s *Server) serveOrigDestHTTP(w http.ResponseWriter, req *http.Request, dest origDestMeta, sess *ruleSession) {
+func (s *Server) serveOrigDestHTTP(w http.ResponseWriter, req *http.Request, dest origDestMeta, sess *ruleSession) ruleResult {
 	started := time.Now()
 	if sess == nil {
 		sess = s.beginSession()
@@ -184,7 +185,7 @@ func (s *Server) serveOrigDestHTTP(w http.ResponseWriter, req *http.Request, des
 	sess.via = "original-dest"
 	sess.originalDest = dest.HostPort
 	if s.rejectDisabledWebSocket(w, req, dest.IP.String(), sess) {
-		return
+		return ruleAbort
 	}
 
 	guardCtx, guardCancel := s.upstreamCtxSess(req.Context(), sess)
@@ -192,16 +193,16 @@ func (s *Server) serveOrigDestHTTP(w http.ResponseWriter, req *http.Request, des
 	guardCancel()
 	if err != nil {
 		s.rejectResolve(w, req, dest.IP.String(), err, sess)
-		return
+		return ruleAbort
 	}
 	if s.isHairpin(res, sess.spec) || s.isDirectConnect(dest) {
 		s.metrics.reject("origdest")
 		s.capture(s.flowFromReq(req, dest.IP.String(), "http", http.StatusForbidden, string(domainerr.CodeTargetDenied), started), sess)
 		writeProxyError(w, http.StatusForbidden, domainerr.CodeTargetDenied, "target denied", "")
-		return
+		return ruleAbort
 	}
 	host, port := s.origDestCaptureHost(req, dest, sess.spec)
-	s.forwardOriginHTTP(w, req, res, host, port, started, sess)
+	return s.forwardOriginHTTP(w, req, res, host, port, started, sess)
 }
 
 func (s *Server) origDestCaptureHost(req *http.Request, dest origDestMeta, spec model.Spec) (host, port string) {
@@ -379,6 +380,10 @@ func tcpConnOf(c net.Conn) *net.TCPConn {
 		case *peekedConn:
 			c = t.Conn
 		case *recordingConn:
+			c = t.Conn
+		case *tls.Conn:
+			c = t.NetConn()
+		case *readerConn:
 			c = t.Conn
 		default:
 			return nil

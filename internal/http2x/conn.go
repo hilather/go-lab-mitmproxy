@@ -64,6 +64,24 @@ func (c *framedStreamConn) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// ResetCancel writes RST_STREAM CANCEL on a framed stream, including after
+// DATA has already been written (AfterAck intercept). Close after write is
+// DATA endStream and is not silent rst.
+func ResetCancel(c net.Conn) bool {
+	f, ok := c.(*framedStreamConn)
+	if !ok || f == nil {
+		return false
+	}
+	f.mu.Lock()
+	f.writeClosed = true
+	f.mu.Unlock()
+	if f.body != nil {
+		_ = f.body.Close()
+	}
+	_ = f.write(func() error { return f.fr.WriteRSTStream(f.id, http2.ErrCodeCancel) })
+	return true
+}
+
 func (c *framedStreamConn) Close() error {
 	c.mu.Lock()
 	wrote := c.wrote

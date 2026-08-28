@@ -27,7 +27,7 @@ func TestKnownEnums(t *testing.T) {
 	if !KnownRulePhase(RulePhaseRequest) || KnownRulePhase("both") {
 		t.Fatal("phase set")
 	}
-	if !KnownRuleAction(ActionBreakpoint) || KnownRuleAction("fuzz") {
+	if !KnownRuleAction(ActionBreakpoint) || !KnownRuleAction(ActionSilent) || !KnownRuleAction(ActionHang) || !KnownRuleAction(ActionRedirect) || KnownRuleAction("fuzz") || KnownRuleAction("http_status") {
 		t.Fatal("action set")
 	}
 	if !KnownRuleProtocol(FlowProtocolHTTP2) || !KnownRuleProtocol(FlowProtocolSOCKS5) || KnownRuleProtocol("http2") {

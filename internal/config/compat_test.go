@@ -41,6 +41,17 @@ var expectedInvalid = map[string]string{
 	"multi-doc.yaml":                              violationInvalidValue,
 	"yaml-alias.yaml":                             violationInvalidValue,
 	"duplicate-key.yaml":                          violationDuplicateKey,
+	"rules-http-status.yaml":                      violationInvalidValue,
+	"rules-hang-timeout-0.yaml":                   violationRequired,
+	"rules-hang-timeout-31s.yaml":                 violationInvalidValue,
+	"rules-hang-timeout-omitted.yaml":             violationRequired,
+	"rules-redirect-empty-location.yaml":          violationRequired,
+	"rules-redirect-crlf.yaml":                    violationInvalidValue,
+	"rules-redirect-status-300.yaml":              violationInvalidValue,
+	"rules-redirect-status-304.yaml":              violationInvalidValue,
+	"rules-redirect-status-403.yaml":              violationInvalidValue,
+	"rules-silent-close-reset.yaml":               violationInvalidValue,
+	"rules-status-302.yaml":                       violationInvalidValue,
 }
 
 // TestConfigCompat is the positive+negative fixture matrix for make test-config-compat.

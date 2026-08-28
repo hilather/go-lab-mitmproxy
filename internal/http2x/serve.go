@@ -303,6 +303,9 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 						if errors.Is(herr, ErrInnerCONNECT) {
 							code = http2.ErrCodeProtocol
 						}
+						if errors.Is(herr, ErrSilentClose) {
+							code = http2.ErrCodeCancel
+						}
 						if resp != nil && resp.Body != nil {
 							_ = resp.Body.Close()
 						}
@@ -350,6 +353,9 @@ func serveTunnel(ctx context.Context, tun TunnelHandler, in Stream, parent net.C
 		code := http2.ErrCodeInternal
 		if errors.Is(err, ErrInnerCONNECT) {
 			code = http2.ErrCodeProtocol
+		}
+		if errors.Is(err, ErrSilentClose) {
+			code = http2.ErrCodeCancel
 		}
 		_ = write(func() error { return fr.WriteRSTStream(in.ID, code) })
 		return

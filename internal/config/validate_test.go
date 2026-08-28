@@ -282,6 +282,37 @@ func TestValidateExtendedConnectWithClientCleartext(t *testing.T) {
 	}
 }
 
+func TestValidateBlockModesFieldPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		doc  string
+		path string
+		code string
+	}{
+		{"http_status", "type: http_status\n          status: 403\n", "spec.rules.items[0].action.type", violationInvalidValue},
+		{"hang0", "type: hang\n          hang:\n            timeout: 0s\n", "spec.rules.items[0].action.hang.timeout", violationRequired},
+		{"location", "type: redirect\n          redirect:\n            location: \"\"\n", "spec.rules.items[0].action.redirect.location", violationRequired},
+		{"redir403", "type: redirect\n          redirect:\n            location: /x\n            status: 403\n", "spec.rules.items[0].action.redirect.status", violationInvalidValue},
+		{"close", "type: silent\n          silent:\n            close: reset\n", "spec.rules.items[0].action.silent.close", violationInvalidValue},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  rules:\n    items:\n      - id: x\n        phase: request\n        action:\n          " + tc.doc
+			_, err := Load([]byte(doc))
+			de := requireValidation(t, err, tc.code)
+			found := false
+			for _, v := range de.FieldViolations {
+				if v.Path == tc.path && v.Code == tc.code {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("want %s %s in %+v", tc.path, tc.code, de.FieldViolations)
+			}
+		})
+	}
+}
+
 func TestValidateUnknownRuleProtocol(t *testing.T) {
 	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  rules:\n    items:\n      - id: proto\n        phase: request\n        match:\n          protocol: http2\n        action:\n          type: drop\n"
 	_, err := Load([]byte(doc))
