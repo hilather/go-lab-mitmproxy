@@ -77,3 +77,4 @@ The numbered pack is the source of truth.
 |---|---|
 | [00-program-board.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/tasks/00-program-board.md) | PRs 1–14 and milestones |
 | [README.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/tasks/README.md) | Task working rules |
+| [tasks/plans/qa-407-proxy-auth.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-407-proxy-auth.md) | Plan only: issue #52 HTTP 407 on `listeners.proxy` (ADR 0014 / D69); not implemented |
