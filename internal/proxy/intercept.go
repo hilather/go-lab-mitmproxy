@@ -336,7 +336,7 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		f.Protocol = model.FlowProtocolWebSocket
 		s.metrics.session("ok")
 		if inspect {
-			s.inspectUpgrade(clientTLS, leftover, upTLS, resp.Body, sess, f)
+			s.inspectUpgrade(clientTLS, leftover, upTLS, resp.Body, host, inner, sess, f)
 			s.capture(f, sess)
 			return true
 		}
@@ -1066,7 +1066,7 @@ func (s *Server) innerH2Tunnel(ctx context.Context, rt http.RoundTripper, origin
 				return
 			}
 			if inspect {
-				s.inspectUpgrade(client, nil, origin, origin, sess, f)
+				s.inspectUpgrade(client, nil, origin, origin, host, inner, sess, f)
 				s.capture(f, sess)
 				return
 			}

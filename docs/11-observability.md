@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-28 (D69 rule action labels)
-Related ADRs: 0001, 0014
+Last reviewed: 2026-08-28 (D69 rule action labels; D73 action=block)
+Related ADRs: 0001, 0014, 0015
 
 ## Logs (`log/slog` JSON)
 
@@ -34,7 +34,7 @@ Bounded labels only.
 | `labmitm_socks_sessions_total` | counter | `result` (`ok`, `denied`, `auth`, `command`) |
 | `labmitm_flows_total` | counter | `scheme`, `intercepted`, `result` |
 | `labmitm_tls_intercepts_total` | counter | `result` (`ok`, `mint_fail`, `tls_handshake`, `upstream_tls`, `upstream_verify_fail`, `http2_inner`) |
-| `labmitm_rule_hits_total` | counter | `action` (`drop`, `delay`, `status`, `header`, `body`, `breakpoint`, `silent`, `hang`, `redirect`, plus `body_skipped` / `late_skip` / `breakpoint_timeout`) |
+| `labmitm_rule_hits_total` | counter | `action` (`drop`, `delay`, `status`, `header`, `body`, `breakpoint`, `silent`, `hang`, `redirect`, `block`, plus `body_skipped` / `late_skip` / `breakpoint_timeout`). Websocket-phase `drop` reuses `{action="drop"}`. No `phase` label. |
 | `labmitm_store_flows` | gauge | — |
 | `labmitm_store_bytes` | gauge | — |
 | `labmitm_store_evictions_total` | counter | — |
@@ -47,7 +47,7 @@ Bounded labels only.
 | `labmitm_audit_events_total` | counter | `event` |
 | `labmitm_telemetry_dropped_total` | counter | `reason` |
 | `labmitm_h2_trailer_dropped_total` | counter | — |
-| `labmitm_ws_frames_total` | counter | `opcode` (`continuation`, `text`, `binary`, `close`, `ping`, `pong`, `other`) |
+| `labmitm_ws_frames_total` | counter | `opcode` (`continuation`, `text`, `binary`, `close`, `ping`, `pong`, `other`). Frames **forwarded** only; `drop` / `block` increment `labmitm_rule_hits_total` instead. |
 | `labmitm_grpc_decode_total` | counter | `result` (`ok`, `malformed`, `truncated`, `skipped`) |
 | `labmitm_h2_push_captured_total` | counter | `result` (`ok`, `rst`) |
 

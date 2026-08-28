@@ -202,6 +202,197 @@ func TestMatchPseudoHeaders(t *testing.T) {
 	}
 }
 
+func TestWebSocketPhaseFirstMatch(t *testing.T) {
+	eng := snapshotEngine(true,
+		model.RuleSpec{ID: "req", Enabled: true, Phase: model.RulePhaseRequest, Action: model.RuleActionSpec{Type: model.ActionDrop}},
+		model.RuleSpec{ID: "drop-text", Enabled: true, Phase: model.RulePhaseWebSocket, Match: model.RuleMatchSpec{Opcode: model.RuleOpcodeText}, Action: model.RuleActionSpec{Type: model.ActionDrop}},
+		model.RuleSpec{ID: "later", Enabled: true, Phase: model.RulePhaseWebSocket, Action: model.RuleActionSpec{Type: model.ActionBlock}},
+	)
+	in := Request{Protocol: model.FlowProtocolWebSocket, Opcode: model.RuleOpcodeText, Direction: model.WSDirectionClient, Path: "/ws"}
+	hit := eng.Match(model.RulePhaseWebSocket, in)
+	if hit == nil || hit.ID != "drop-text" || hit.Action.Type != model.ActionDrop {
+		t.Fatalf("hit %+v", hit)
+	}
+	if eng.Match(model.RulePhaseWebSocket, Request{Protocol: model.FlowProtocolWebSocket, Opcode: model.RuleOpcodePing}) == nil {
+		t.Fatal("later empty-match must still win on ping")
+	}
+}
+
+func TestWebSocketMasterSwitchOff(t *testing.T) {
+	eng := snapshotEngine(false,
+		model.RuleSpec{ID: "drop", Enabled: true, Phase: model.RulePhaseWebSocket, Action: model.RuleActionSpec{Type: model.ActionDrop}},
+	)
+	if eng.Match(model.RulePhaseWebSocket, Request{Protocol: model.FlowProtocolWebSocket, Opcode: model.RuleOpcodeText}) != nil {
+		t.Fatal("disabled master switch must match nothing")
+	}
+	if eng.HasEnabledWebSocket() {
+		t.Fatal("disabled engine has no enabled websocket items")
+	}
+}
+
+func TestWebSocketEmptyMatch(t *testing.T) {
+	eng := snapshotEngine(true,
+		model.RuleSpec{ID: "any", Enabled: true, Phase: model.RulePhaseWebSocket, Action: model.RuleActionSpec{Type: model.ActionDrop}},
+	)
+	if hit := eng.Match(model.RulePhaseWebSocket, Request{Protocol: model.FlowProtocolWebSocket, Path: "/z"}); hit == nil || hit.ID != "any" {
+		t.Fatalf("empty match %+v", hit)
+	}
+}
+
+func TestWebSocketOpcodeDirectionPayload(t *testing.T) {
+	eng := snapshotEngine(true, model.RuleSpec{
+		ID:      "secret",
+		Enabled: true,
+		Phase:   model.RulePhaseWebSocket,
+		Match: model.RuleMatchSpec{
+			Opcode:          model.RuleOpcodeText,
+			Direction:       model.WSDirectionClient,
+			PayloadContains: "secret",
+		},
+		Action: model.RuleActionSpec{Type: model.ActionDrop},
+	})
+	ok := Request{
+		Protocol:  model.FlowProtocolWebSocket,
+		Opcode:    model.RuleOpcodeText,
+		Direction: model.WSDirectionClient,
+		Payload:   []byte("the secret token"),
+	}
+	if hit := eng.Match(model.RulePhaseWebSocket, ok); hit == nil {
+		t.Fatal("expected payloadContains hit")
+	}
+	bad := ok
+	bad.Opcode = model.RuleOpcodeBinary
+	if eng.Match(model.RulePhaseWebSocket, bad) != nil {
+		t.Fatal("opcode mismatch")
+	}
+	bad = ok
+	bad.Direction = model.WSDirectionOrigin
+	if eng.Match(model.RulePhaseWebSocket, bad) != nil {
+		t.Fatal("direction mismatch")
+	}
+	bad = ok
+	bad.Payload = []byte("nope")
+	if eng.Match(model.RulePhaseWebSocket, bad) != nil {
+		t.Fatal("payload miss")
+	}
+	bad = ok
+	bad.Payload = nil
+	if eng.Match(model.RulePhaseWebSocket, bad) != nil {
+		t.Fatal("nil payload must miss non-empty payloadContains")
+	}
+}
+
+func TestWebSocketProtocolForced(t *testing.T) {
+	eng := snapshotEngine(true, model.RuleSpec{
+		ID:      "ws",
+		Enabled: true,
+		Phase:   model.RulePhaseWebSocket,
+		Match:   model.RuleMatchSpec{Protocol: model.FlowProtocolWebSocket},
+		Action:  model.RuleActionSpec{Type: model.ActionDrop},
+	})
+	if hit := eng.Match(model.RulePhaseWebSocket, Request{Protocol: model.FlowProtocolWebSocket, Opcode: model.RuleOpcodeText}); hit == nil {
+		t.Fatal("match.protocol websocket must hit")
+	}
+	if eng.Match(model.RulePhaseWebSocket, Request{Protocol: model.FlowProtocolHTTP11, Opcode: model.RuleOpcodeText}) != nil {
+		t.Fatal("http/1.1 must miss")
+	}
+	if eng.Match(model.RulePhaseWebSocket, Request{Protocol: model.FlowProtocolHTTP2, Opcode: model.RuleOpcodeText}) != nil {
+		t.Fatal("h2 must miss")
+	}
+}
+
+func TestRequestPhaseDoesNotWinOnWebSocketMatch(t *testing.T) {
+	eng := snapshotEngine(true, model.RuleSpec{
+		ID:      "req",
+		Enabled: true,
+		Phase:   model.RulePhaseRequest,
+		Action:  model.RuleActionSpec{Type: model.ActionDrop},
+	})
+	if eng.Match(model.RulePhaseWebSocket, Request{Protocol: model.FlowProtocolWebSocket, Path: "/"}) != nil {
+		t.Fatal("request-phase item must not win on Match(websocket)")
+	}
+	if eng.HasEnabledWebSocket() {
+		t.Fatal("request-only engine must not report enabled websocket items")
+	}
+}
+
+func TestOversizedPayloadContainsMissThenOpcodeWins(t *testing.T) {
+	eng := snapshotEngine(true,
+		model.RuleSpec{
+			ID:      "secret",
+			Enabled: true,
+			Phase:   model.RulePhaseWebSocket,
+			Match:   model.RuleMatchSpec{PayloadContains: "secret"},
+			Action:  model.RuleActionSpec{Type: model.ActionDrop},
+		},
+		model.RuleSpec{
+			ID:      "text",
+			Enabled: true,
+			Phase:   model.RulePhaseWebSocket,
+			Match:   model.RuleMatchSpec{Opcode: model.RuleOpcodeText},
+			Action:  model.RuleActionSpec{Type: model.ActionBlock},
+		},
+	)
+	in := Request{Protocol: model.FlowProtocolWebSocket, Opcode: model.RuleOpcodeText, Direction: model.WSDirectionClient}
+	if eng.NeedsFramePayload(in, 64, 4) {
+		t.Fatal("oversized payloadContains must not demand a load")
+	}
+	hit := eng.Match(model.RulePhaseWebSocket, in)
+	if hit == nil || hit.ID != "text" {
+		t.Fatalf("later opcode-only must win when payload is nil: %+v", hit)
+	}
+}
+
+func TestNeedsFramePayloadPathMissStillLoads(t *testing.T) {
+	eng := snapshotEngine(true,
+		model.RuleSpec{
+			ID:      "admin",
+			Enabled: true,
+			Phase:   model.RulePhaseWebSocket,
+			Match:   model.RuleMatchSpec{Opcode: model.RuleOpcodeText, PathPrefix: "/admin"},
+			Action:  model.RuleActionSpec{Type: model.ActionDrop},
+		},
+		model.RuleSpec{
+			ID:      "secret",
+			Enabled: true,
+			Phase:   model.RulePhaseWebSocket,
+			Match:   model.RuleMatchSpec{PathPrefix: "/ws", PayloadContains: "secret"},
+			Action:  model.RuleActionSpec{Type: model.ActionDrop},
+		},
+	)
+	in := Request{Protocol: model.FlowProtocolWebSocket, Opcode: model.RuleOpcodeText, Path: "/ws"}
+	if !eng.NeedsFramePayload(in, 6, 1024) {
+		t.Fatal("earlier path-miss must still load later payloadContains")
+	}
+	in.Payload = []byte("secret")
+	if hit := eng.Match(model.RulePhaseWebSocket, in); hit == nil || hit.ID != "secret" {
+		t.Fatalf("later payloadContains %+v", hit)
+	}
+}
+
+func TestNeedsFramePayloadEarlierOpcodeWinsWithoutLoad(t *testing.T) {
+	eng := snapshotEngine(true,
+		model.RuleSpec{
+			ID:      "text",
+			Enabled: true,
+			Phase:   model.RulePhaseWebSocket,
+			Match:   model.RuleMatchSpec{Opcode: model.RuleOpcodeText},
+			Action:  model.RuleActionSpec{Type: model.ActionDrop},
+		},
+		model.RuleSpec{
+			ID:      "secret",
+			Enabled: true,
+			Phase:   model.RulePhaseWebSocket,
+			Match:   model.RuleMatchSpec{PayloadContains: "secret"},
+			Action:  model.RuleActionSpec{Type: model.ActionBlock},
+		},
+	)
+	in := Request{Protocol: model.FlowProtocolWebSocket, Opcode: model.RuleOpcodeText}
+	if eng.NeedsFramePayload(in, 6, 1024) {
+		t.Fatal("earlier opcode-only winner must not demand a load")
+	}
+}
+
 func TestNilEngine(t *testing.T) {
 	var e *Engine
 	if e.Match(model.RulePhaseRequest, Request{}) != nil || e.Enabled() {

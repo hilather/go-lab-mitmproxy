@@ -26,8 +26,9 @@ const (
 	LogLevelWarn  = "warn"
 	LogLevelError = "error"
 
-	RulePhaseRequest  = "request"
-	RulePhaseResponse = "response"
+	RulePhaseRequest   = "request"
+	RulePhaseResponse  = "response"
+	RulePhaseWebSocket = "websocket"
 
 	ActionBreakpoint = "breakpoint"
 	ActionDrop       = "drop"
@@ -38,11 +39,20 @@ const (
 	ActionSilent     = "silent"
 	ActionHang       = "hang"
 	ActionRedirect   = "redirect"
+	ActionBlock      = "block"
 
 	SilentCloseRST = "rst"
 	SilentCloseFIN = "fin"
 
 	RedirectDefaultStatus = 302
+
+	RuleOpcodeContinuation = "continuation"
+	RuleOpcodeText         = "text"
+	RuleOpcodeBinary       = "binary"
+	RuleOpcodeClose        = "close"
+	RuleOpcodePing         = "ping"
+	RuleOpcodePong         = "pong"
+	RuleOpcodeOther        = "other"
 )
 
 // ListenersSpec configures the proxy, management, and optional orig-dest listeners.
@@ -167,13 +177,16 @@ type RuleSpec struct {
 
 // RuleMatchSpec fields are AND. Empty match matches everything.
 type RuleMatchSpec struct {
-	Host           string `json:"host"`
-	PathPrefix     string `json:"pathPrefix"`
-	PathExact      string `json:"pathExact"`
-	Method         string `json:"method"`
-	HeaderName     string `json:"headerName"`
-	HeaderContains string `json:"headerContains"`
-	Protocol       string `json:"protocol"`
+	Host            string `json:"host"`
+	PathPrefix      string `json:"pathPrefix"`
+	PathExact       string `json:"pathExact"`
+	Method          string `json:"method"`
+	HeaderName      string `json:"headerName"`
+	HeaderContains  string `json:"headerContains"`
+	Protocol        string `json:"protocol"`
+	Opcode          string `json:"opcode"`
+	Direction       string `json:"direction"`
+	PayloadContains string `json:"payloadContains"`
 }
 
 // ProtocolsSpec is hop-protocol policy. HTTP/2 nested flags default off.
@@ -352,10 +365,10 @@ func KnownRole(r string) bool {
 	}
 }
 
-// KnownRulePhase reports whether p is request or response.
+// KnownRulePhase reports whether p is request, response, or websocket.
 func KnownRulePhase(p string) bool {
 	switch p {
-	case RulePhaseRequest, RulePhaseResponse:
+	case RulePhaseRequest, RulePhaseResponse, RulePhaseWebSocket:
 		return true
 	default:
 		return false
@@ -365,7 +378,27 @@ func KnownRulePhase(p string) bool {
 // KnownRuleAction reports whether t is a v1alpha1 rule action.
 func KnownRuleAction(t string) bool {
 	switch t {
-	case ActionBreakpoint, ActionDrop, ActionDelay, ActionStatus, ActionHeader, ActionBody, ActionSilent, ActionHang, ActionRedirect:
+	case ActionBreakpoint, ActionDrop, ActionDelay, ActionStatus, ActionHeader, ActionBody, ActionSilent, ActionHang, ActionRedirect, ActionBlock:
+		return true
+	default:
+		return false
+	}
+}
+
+// KnownRuleOpcode reports whether op is a v1alpha1 match.opcode token.
+func KnownRuleOpcode(op string) bool {
+	switch op {
+	case RuleOpcodeContinuation, RuleOpcodeText, RuleOpcodeBinary, RuleOpcodeClose, RuleOpcodePing, RuleOpcodePong, RuleOpcodeOther:
+		return true
+	default:
+		return false
+	}
+}
+
+// KnownRuleDirection reports whether d is a v1alpha1 match.direction token.
+func KnownRuleDirection(d string) bool {
+	switch d {
+	case WSDirectionClient, WSDirectionOrigin:
 		return true
 	default:
 		return false

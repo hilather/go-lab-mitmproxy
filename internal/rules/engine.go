@@ -62,11 +62,14 @@ type Hit struct {
 // are the side being matched (request headers in request phase, response
 // headers in response phase).
 type Request struct {
-	Host     string
-	Path     string
-	Method   string
-	Headers  []model.Header
-	Protocol string
+	Host      string
+	Path      string
+	Method    string
+	Headers   []model.Header
+	Protocol  string
+	Opcode    string
+	Direction string
+	Payload   []byte
 }
 
 // Match returns the first enabled item whose AND match succeeds for phase.
@@ -89,6 +92,45 @@ func (e *Engine) Match(phase string, in Request) *Hit {
 		return &Hit{ID: item.ID, Phase: item.Phase, Action: item.Action}
 	}
 	return nil
+}
+
+// HasEnabledWebSocket reports whether any enabled item is phase websocket.
+// Walks Engine items; never Match("websocket", Request{}).
+func (e *Engine) HasEnabledWebSocket() bool {
+	if e == nil || !e.enabled {
+		return false
+	}
+	for i := range e.items {
+		if e.items[i].Enabled && e.items[i].Phase == model.RulePhaseWebSocket {
+			return true
+		}
+	}
+	return false
+}
+
+// NeedsFramePayload reports whether the pump must load unmasked bytes before
+// Match. Uses the same predicates as Match minus only payloadContains.
+func (e *Engine) NeedsFramePayload(in Request, declared uint64, visCap int) bool {
+	if e == nil || !e.enabled {
+		return false
+	}
+	for i := range e.items {
+		item := e.items[i]
+		if !item.Enabled || item.Phase != model.RulePhaseWebSocket {
+			continue
+		}
+		if !matchANDExceptPayload(item.Match, in) {
+			continue
+		}
+		if item.Match.PayloadContains == "" {
+			return false
+		}
+		if visCap < 0 || declared > uint64(visCap) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func cloneItem(in model.RuleSpec) model.RuleSpec {

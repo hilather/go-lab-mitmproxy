@@ -245,7 +245,7 @@
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
         "enabled": { "type": "boolean" },
-        "phase": { "enum": ["request", "response"] },
+        "phase": { "enum": ["request", "response", "websocket"] },
         "match": { "$ref": "#/$defs/ruleMatch" },
         "action": { "$ref": "#/$defs/ruleAction" }
       }
@@ -260,14 +260,17 @@
         "method": { "type": "string" },
         "headerName": { "type": "string" },
         "headerContains": { "type": "string" },
-        "protocol": { "type": "string", "enum": ["", "http/1.1", "h2", "websocket", "connect", "socks5", "socks4"], "description": "optional; empty matches any protocol" }
+        "protocol": { "type": "string", "enum": ["", "http/1.1", "h2", "websocket", "connect", "socks5", "socks4"], "description": "optional; empty matches any protocol" },
+        "opcode": { "type": "string", "enum": ["", "continuation", "text", "binary", "close", "ping", "pong", "other"], "description": "optional; websocket phase only; empty matches any opcode" },
+        "direction": { "type": "string", "enum": ["", "client", "origin"], "description": "optional; websocket phase only; empty matches any direction" },
+        "payloadContains": { "type": "string", "description": "optional; websocket phase only; substring of the unmasked payload" }
       }
     },
     "ruleAction": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "type": { "enum": ["breakpoint", "drop", "delay", "status", "header", "body", "silent", "hang", "redirect"] },
+        "type": { "enum": ["breakpoint", "drop", "delay", "status", "header", "body", "silent", "hang", "redirect", "block"] },
         "delay": { "$ref": "#/$defs/duration", "description": "0–30s" },
         "status": { "type": "integer", "description": "empty/0 or 400–599; not the redirect 3xx" },
         "headers": { "$ref": "#/$defs/ruleHeaders" },

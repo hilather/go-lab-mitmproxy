@@ -427,17 +427,30 @@ func TestContractWebSocketFrames(t *testing.T) {
 		Protocol: model.FlowProtocolWebSocket,
 		State:    model.FlowStateCompleted,
 		Status:   101,
+		RuleIDs:  []string{"drop-secret"},
 		WebSocket: &model.WebSocketInfo{
-			FrameCount: 1,
-			Frames: []model.WebSocketFrame{{
-				Direction: model.WSDirectionClient,
-				Opcode:    "text",
-				OpcodeNum: 1,
-				Fin:       true,
-				Masked:    true,
-				Payload:   []byte("hello"),
-				Size:      5,
-			}},
+			FrameCount: 2,
+			Frames: []model.WebSocketFrame{
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "text",
+					OpcodeNum: 1,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("hello"),
+					Size:      5,
+				},
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "text",
+					OpcodeNum: 1,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("secret"),
+					Size:      6,
+					Action:    model.ActionDrop,
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -458,27 +471,74 @@ func TestContractWebSocketFrames(t *testing.T) {
 	if _, ok := ws["frames"]; ok {
 		t.Fatal("list item must omit frames")
 	}
-	if ws["frameCount"] != float64(1) {
+	if ws["frameCount"] != float64(2) {
 		t.Fatalf("frameCount=%v", ws["frameCount"])
 	}
 
 	got := doReq(t, h, http.MethodGet, "/v1/flows/"+id, "")
 	requireStatus(t, got, http.StatusOK)
-	gws, _ := decodeJSON(t, got)["websocket"].(map[string]any)
+	body := decodeJSON(t, got)
+	ids, _ := body["ruleIds"].([]any)
+	if len(ids) != 1 || ids[0] != "drop-secret" {
+		t.Fatalf("ruleIds=%v", body["ruleIds"])
+	}
+	gws, _ := body["websocket"].(map[string]any)
 	frames, _ := gws["frames"].([]any)
-	if len(frames) != 1 {
+	if len(frames) != 2 {
 		t.Fatalf("get frames=%s", got.Body.String())
 	}
 	fr := frames[0].(map[string]any)
 	if fr["payload"] != "hello" {
 		t.Fatalf("payload=%v (must be string, not base64)", fr["payload"])
 	}
+	if _, ok := fr["action"]; ok {
+		t.Fatal("forwarded frame must omit action")
+	}
 	if _, ok := fr["maskKey"]; ok {
 		t.Fatal("maskKey must not be exported")
+	}
+	dropped := frames[1].(map[string]any)
+	if dropped["action"] != model.ActionDrop || dropped["payload"] != "secret" {
+		t.Fatalf("dropped frame %+v", dropped)
 	}
 
 	replay := doReq(t, h, http.MethodPost, "/v1/flows/"+id+":replay", "")
 	requireProblem(t, replay, http.StatusBadRequest, "validation_failed")
+}
+
+func TestContractWebSocketFrameRules(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+	schema := doReq(t, h, http.MethodGet, "/v1/schema/config", "")
+	requireStatus(t, schema, http.StatusOK)
+	body := schema.Body.String()
+	if !strings.Contains(body, `"websocket"`) || !strings.Contains(body, `"block"`) || !strings.Contains(body, `"payloadContains"`) {
+		t.Fatal("schema.get must list websocket phase, block action, and payloadContains")
+	}
+	st := doReq(t, h, http.MethodGet, "/v1/state", "")
+	rev := decodeJSON(t, st)["runtimeRevision"].(string)
+	raw, err := json.Marshal(map[string]any{
+		"expectedRevision": rev,
+		"reason":           "websocket frame rules",
+		"operations": []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{Enabled: true, Items: []model.RuleSpec{{
+				ID: "drop-secret", Enabled: true, Phase: model.RulePhaseWebSocket,
+				Match:  model.RuleMatchSpec{Opcode: model.RuleOpcodeText, PayloadContains: "secret"},
+				Action: model.RuleActionSpec{Type: model.ActionDrop},
+			}}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply := doReq(t, h, http.MethodPost, "/v1/changes:apply", string(raw))
+	requireStatus(t, apply, http.StatusOK)
+	exp := doReq(t, h, http.MethodGet, "/v1/state:export?format=json", "")
+	requireStatus(t, exp, http.StatusOK)
+	if !strings.Contains(exp.Body.String(), `"phase":"websocket"`) {
+		t.Fatalf("export missing websocket rule: %s", exp.Body.String())
+	}
 }
 
 func TestContractGRPC(t *testing.T) {

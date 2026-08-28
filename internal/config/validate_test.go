@@ -313,6 +313,19 @@ func TestValidateBlockModesFieldPaths(t *testing.T) {
 	}
 }
 
+func TestValidateWebSocketRulePhase(t *testing.T) {
+	ok := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: drop-text\n        phase: websocket\n        match:\n          opcode: text\n        action:\n          type: drop\n"
+	if _, err := Load([]byte(ok)); err != nil {
+		t.Fatalf("valid websocket drop: %v", err)
+	}
+	_, err := Load([]byte("apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: bad\n        phase: request\n        action:\n          type: block\n"))
+	_ = requireValidation(t, err, violationInvalidValue)
+	_, err = Load([]byte("apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: bad\n        phase: websocket\n        action:\n          type: body\n"))
+	_ = requireValidation(t, err, violationInvalidValue)
+	_, err = Load([]byte("apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: r\nspec:\n  rules:\n    items:\n      - id: bad\n        phase: request\n        match:\n          opcode: text\n        action:\n          type: drop\n"))
+	_ = requireValidation(t, err, violationInvalidValue)
+}
+
 func TestValidateUnknownRuleProtocol(t *testing.T) {
 	doc := "apiVersion: labmitm.dev/v1alpha1\nkind: LabMITM\nmetadata:\n  name: x\nspec:\n  rules:\n    items:\n      - id: proto\n        phase: request\n        match:\n          protocol: http2\n        action:\n          type: drop\n"
 	_, err := Load([]byte(doc))

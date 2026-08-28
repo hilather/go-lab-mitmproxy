@@ -1,0 +1,26 @@
+# Websocket-phase items are valid when inspectFrames is false; they never fire on the copy path.
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: ws-rules-off
+spec:
+  protocols:
+    websocket:
+      inspectFrames: false
+  rules:
+    enabled: true
+    items:
+      - id: drop-text
+        enabled: true
+        phase: websocket
+        match:
+          opcode: text
+        action:
+          type: drop
+      - id: block-binary
+        enabled: true
+        phase: websocket
+        match:
+          opcode: binary
+        action:
+          type: block

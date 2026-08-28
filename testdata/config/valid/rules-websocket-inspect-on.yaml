@@ -1,0 +1,29 @@
+# Websocket-phase drop/block are valid while inspectFrames is on (D72).
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: ws-rules-on
+spec:
+  protocols:
+    websocket:
+      inspectFrames: true
+  rules:
+    enabled: true
+    items:
+      - id: drop-secret
+        enabled: true
+        phase: websocket
+        match:
+          pathPrefix: /ws
+          opcode: text
+          payloadContains: secret
+        action:
+          type: drop
+      - id: kill-binary
+        enabled: true
+        phase: websocket
+        match:
+          opcode: binary
+          direction: client
+        action:
+          type: block

@@ -245,6 +245,7 @@ type webSocketFrameJSON struct {
 	Payload   string `json:"payload,omitempty"`
 	Size      int    `json:"size"`
 	Truncated bool   `json:"truncated"`
+	Action    string `json:"action,omitempty"`
 	Version   int    `json:"version,omitempty"`
 	ATYP      string `json:"atyp,omitempty"`
 	Dest      string `json:"dest,omitempty"`
@@ -469,6 +470,7 @@ func fromWebSocket(ws *model.WebSocketInfo, listItem bool) *webSocketInfoJSON {
 			Payload:   string(fr.Payload),
 			Size:      size,
 			Truncated: fr.Truncated,
+			Action:    fr.Action,
 		}
 	}
 	return out

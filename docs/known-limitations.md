@@ -2,7 +2,7 @@
 
 Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-08-28 (D69 hang admission hold)
+Last reviewed: 2026-08-28 (D69 hang admission hold; D72–D74 websocket frame-rule residuals)
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.3.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.3.0.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68. ADR [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) records **D51'** (live hop/accept vs Reset bind) and the **D22 carve** (1.0-preserving hop gates default on).
 
@@ -134,7 +134,7 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 - Generate-mode CA rotates on every restart/reset. Operators who need a stable CA use `tls.ca.mode: files`.
 - Default metadata CIDRs are AWS/GCP IPv4 + AWS IPv6 IMDS. Alibaba `100.100.100.200/32` and RFC1918 are **not** default-deny (lab SUTs).
 - HTML preview of captured pages is escaped text (optional sandboxed iframe is off by default).
-- WebSocket frames: flag-off is 101 + copy; flag-on is `protocols.websocket.inspectFrames` (D67). Inner Extended CONNECT websocket is `protocols.http2.extendedConnect` (D63).
+- WebSocket frames: flag-off is 101 + copy; flag-on is `protocols.websocket.inspectFrames` (D67). Inner Extended CONNECT websocket is `protocols.http2.extendedConnect` (D63). `phase: websocket` drop/block ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) D72–D74) requires that Reset; items are valid while the flag is off and never fire on the copy path. Pin: open inspect sockets, later inner upgrades on a pinned CONNECT, and later h2c streams on a pinned PRI do not see `replaceRules` / `setFeature rules.enabled`. `payloadContains` cannot see frames larger than the pinned visibility cap (fail-open miss). No per-message reassembly; `continuation` matches as `continuation`. Dropped `close` does not end the inspect loop; forwarded `close` still ends that pump. Client-facing h2c Extended CONNECT has no request-phase or response-phase `matchHit`. Rules-path close-length-1 does not forward the illegal byte; fast path still does. Both set `Error=websocket`. Inspector Frames tab may not badge `action` until a UI follow-on. Canonical JSON of any non-empty `rules.items` list grows three empty match keys.
 
 ## Store and control plane (unchanged)
 

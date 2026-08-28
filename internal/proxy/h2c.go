@@ -322,7 +322,7 @@ func (s *Server) h2cWebSocketTunnel(ctx context.Context, in http2x.Stream, sess 
 			}
 			defer func() { _ = client.Close() }()
 			if inspect {
-				s.inspectUpgrade(client, nil, origin, origin, sess, f)
+				s.inspectUpgrade(client, nil, origin, origin, host, inner, sess, f)
 				s.capture(f, sess)
 				return
 			}

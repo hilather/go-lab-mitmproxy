@@ -24,11 +24,17 @@ func TestKnownEnums(t *testing.T) {
 	if !KnownOp(OpReplaceStoreCaps) || !KnownOp(OpSetFeature) || !KnownOp(OpReplaceCompat) || KnownOp("addZone") || KnownOp("replaceProtocols") || KnownOp("replaceProxyAccept") {
 		t.Fatal("op set")
 	}
-	if !KnownRulePhase(RulePhaseRequest) || KnownRulePhase("both") {
+	if !KnownRulePhase(RulePhaseRequest) || !KnownRulePhase(RulePhaseWebSocket) || KnownRulePhase("both") {
 		t.Fatal("phase set")
 	}
-	if !KnownRuleAction(ActionBreakpoint) || !KnownRuleAction(ActionSilent) || !KnownRuleAction(ActionHang) || !KnownRuleAction(ActionRedirect) || KnownRuleAction("fuzz") || KnownRuleAction("http_status") {
+	if !KnownRuleAction(ActionBreakpoint) || !KnownRuleAction(ActionSilent) || !KnownRuleAction(ActionHang) || !KnownRuleAction(ActionRedirect) || !KnownRuleAction(ActionBlock) || KnownRuleAction("fuzz") || KnownRuleAction("http_status") {
 		t.Fatal("action set")
+	}
+	if !KnownRuleOpcode(RuleOpcodeText) || KnownRuleOpcode("TEXT") {
+		t.Fatal("opcode set")
+	}
+	if !KnownRuleDirection(WSDirectionClient) || KnownRuleDirection("both") {
+		t.Fatal("direction set")
 	}
 	if !KnownRuleProtocol(FlowProtocolHTTP2) || !KnownRuleProtocol(FlowProtocolSOCKS5) || KnownRuleProtocol("http2") {
 		t.Fatal("protocol set")

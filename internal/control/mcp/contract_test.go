@@ -357,17 +357,30 @@ func TestContractWebSocketFrames(t *testing.T) {
 		Protocol: model.FlowProtocolWebSocket,
 		State:    model.FlowStateCompleted,
 		Status:   101,
+		RuleIDs:  []string{"drop-secret"},
 		WebSocket: &model.WebSocketInfo{
-			FrameCount: 1,
-			Frames: []model.WebSocketFrame{{
-				Direction: model.WSDirectionClient,
-				Opcode:    "text",
-				OpcodeNum: 1,
-				Fin:       true,
-				Masked:    true,
-				Payload:   []byte("hello"),
-				Size:      5,
-			}},
+			FrameCount: 2,
+			Frames: []model.WebSocketFrame{
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "text",
+					OpcodeNum: 1,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("hello"),
+					Size:      5,
+				},
+				{
+					Direction: model.WSDirectionClient,
+					Opcode:    "text",
+					OpcodeNum: 1,
+					Fin:       true,
+					Masked:    true,
+					Payload:   []byte("secret"),
+					Size:      6,
+					Action:    model.ActionDrop,
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -387,27 +400,71 @@ func TestContractWebSocketFrames(t *testing.T) {
 	if _, ok := ws["frames"]; ok {
 		t.Fatal("list item must omit frames")
 	}
-	if ws["frameCount"] != float64(1) {
+	if ws["frameCount"] != float64(2) {
 		t.Fatalf("frameCount=%v", ws["frameCount"])
 	}
 
 	got := structuredMap(t, callTool(t, cs, "mitm_flow_get", map[string]any{"id": id}))
+	ids, _ := got["ruleIds"].([]any)
+	if len(ids) != 1 || ids[0] != "drop-secret" {
+		t.Fatalf("ruleIds=%v", got["ruleIds"])
+	}
 	gws, _ := got["websocket"].(map[string]any)
 	frames, _ := gws["frames"].([]any)
-	if len(frames) != 1 {
+	if len(frames) != 2 {
 		t.Fatalf("get frames=%v", got)
 	}
 	fr := frames[0].(map[string]any)
 	if fr["payload"] != "hello" {
 		t.Fatalf("payload=%v (must be string, not base64)", fr["payload"])
 	}
+	if _, ok := fr["action"]; ok {
+		t.Fatal("forwarded frame must omit action")
+	}
 	if _, ok := fr["maskKey"]; ok {
 		t.Fatal("maskKey must not be exported")
+	}
+	dropped := frames[1].(map[string]any)
+	if dropped["action"] != model.ActionDrop || dropped["payload"] != "secret" {
+		t.Fatalf("dropped frame %+v", dropped)
 	}
 
 	err = callToolExpectError(t, cs, "mitm_flow_replay", map[string]any{"id": id})
 	if domainCode(t, err) != "validation_failed" {
 		t.Fatalf("replay=%v", err)
+	}
+}
+
+func TestContractWebSocketFrameRules(t *testing.T) {
+	s, _ := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	schema := callTool(t, cs, "mitm_schema_get", map[string]any{})
+	raw, _ := json.Marshal(schema.StructuredContent)
+	if !strings.Contains(string(raw), `"websocket"`) || !strings.Contains(string(raw), `"block"`) || !strings.Contains(string(raw), `"payloadContains"`) {
+		t.Fatalf("schema.get must list websocket/block/payloadContains: %s", raw)
+	}
+	state := structuredMap(t, callTool(t, cs, "mitm_state_get", map[string]any{}))
+	rev, _ := state["runtimeRevision"].(string)
+	apply := structuredMap(t, callTool(t, cs, "mitm_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"reason":           "websocket frame rules",
+		"operations": []model.Operation{{
+			Op: model.OpReplaceRules,
+			Rules: &model.RulesSpec{Enabled: true, Items: []model.RuleSpec{{
+				ID: "drop-secret", Enabled: true, Phase: model.RulePhaseWebSocket,
+				Match:  model.RuleMatchSpec{Opcode: model.RuleOpcodeText, PayloadContains: "secret"},
+				Action: model.RuleActionSpec{Type: model.ActionDrop},
+			}}},
+		}},
+	}))
+	if apply["applied"] != true {
+		t.Fatalf("apply=%v", apply)
+	}
+	exp := structuredMap(t, callTool(t, cs, "mitm_state_export", map[string]any{"format": "json"}))
+	body, _ := exp["body"].(string)
+	if !strings.Contains(body, `"phase":"websocket"`) {
+		t.Fatalf("export missing websocket rule: %v", exp)
 	}
 }
 

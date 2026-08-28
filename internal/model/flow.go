@@ -115,6 +115,7 @@ type WebSocketFrame struct {
 	Payload   []byte
 	Size      int
 	Truncated bool
+	Action    string
 }
 
 // GRPCInfo is a best-effort gRPC length-prefix + protobuf wire tree (D66).

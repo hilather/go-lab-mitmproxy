@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-08-28 (D69 silent/hang/redirect)
-Related ADRs: 0002, 0009, 0010, 0012, 0013, 0014
+Last reviewed: 2026-08-28 (D69 silent/hang/redirect; D72–D74 websocket frame rules)
+Related ADRs: 0002, 0009, 0010, 0012, 0013, 0014, 0015
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
 
@@ -234,7 +234,7 @@ If the gate is **on** and the request has `Upgrade: websocket` (case-insensitive
 2. Capture request headers (and body if small / capture-only).
 3. `RoundTrip` the upgrade.
 4. On `101`, set `flow.Protocol = "websocket"`, stop body capture, hijack both legs. Flag-off (`protocols.websocket.inspectFrames` default): insert the flow at 101, then bidirectional copy; do not decode frames. Flag-on (D67): two `internal/wsx` pumps; RSV1–3 are forwarded unchanged; ping/pong forwarded (the proxy does not answer unless the peer sent them); close forwarded then half-close; frames stored on `Flow.WebSocket` under `store.maxBodyBytes` (64-byte overhead + payload each; 4096-frame slice cap). Remainder is forwarded, not stored (`WebSocket.Truncated` and `Flow.Truncated`). Control frames larger than 125 bytes close both sides with `Error=websocket`. A large **data** frame is not a protocol error: the pumps stream the payload and store only the cap. **Insert runs when the inspect session ends** (there is no store update API for live frames); `Wait` / list stay empty for a still-open inspect socket.
-5. Mutating rules do **not** apply after `101`.
+5. Response-phase hits on HTTP/1.1 `101` remain `late_skip`. `phase: websocket` may match inspected frames when `inspectFrames` is on ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) D72–D74). Flag-off stays 101 + copy; websocket-phase items sit in the Engine and never fire. Inner D63 `:status=200` stays response-phase `late_skip`. Client-facing h2c Extended CONNECT has no request-phase or response-phase `matchHit`.
 6. Replay of `Protocol=websocket` is rejected. Compat flow REST does not grow a frames array.
 
 If `Upgrade` is present without `Connection: Upgrade`, treat as a normal request.

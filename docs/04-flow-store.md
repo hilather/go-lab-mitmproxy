@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Store, Proxy, Application
-Last reviewed: 2026-08-23 (D66 gRPC decode)
+Last reviewed: 2026-08-28 (D73 frames[].action)
 Related ADRs: 0003, 0012
 
 Package `internal/store`. Captured HTTP is runtime evidence, not desired state. Restart or reset wipes flows. Pattern is LabMail `docs/03-message-store.md`. SOCKS metadata may include `SOCKSInfo.User` as the matching YAML `userPass` id after RFC 1929 success; username and password are never stored on the flow.
@@ -86,7 +86,7 @@ inFlightOK        ⇔ reservedInFlight ≤ maxInFlightBytes
 insertAllowed     ⇔ storeOK ∧ inFlightOK
 ```
 
-WebSocket frames (D67, `inspectFrames`): each captured frame counts **64 bytes + `len(Payload)`** in `ResidentBytes`. All frame payloads on one flow share `store.maxBodyBytes`; the slice stops at 4096 frames. Concatenated captured payload over `spillThreshold` writes `{ULID}-ws.body` (Wipe unlinks `^[ULID]-(req|resp|ws)\.body`). List JSON omits the `frames` array (`frameCount` + `truncated` only).
+WebSocket frames (D67, `inspectFrames`): each captured frame counts **64 bytes + `len(Payload)`** in `ResidentBytes`. All frame payloads on one flow share `store.maxBodyBytes`; the slice stops at 4096 frames. Concatenated captured payload over `spillThreshold` writes `{ULID}-ws.body` (Wipe unlinks `^[ULID]-(req|resp|ws)\.body`). List JSON omits the `frames` array (`frameCount` + `truncated` only). GET-by-id frame objects may include `action` (`drop` / `block`; omitted when forwarded) ([ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) D73). Dropped and blocked frames are still stored under the same caps. Compat does not grow a frames array.
 
 gRPC tree (D66, `grpcDecode`): field overhead + `len(Text)` + nested fields count in `ResidentBytes`. Cap the tree at `maxBodyBytes` and nest depth 8. Do **not** store a parallel hex copy of the same bytes. List JSON omits `grpc.messages` (`contentType` / `truncated` / `decodeError` remain).
 

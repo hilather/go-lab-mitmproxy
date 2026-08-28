@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-28 (Status feature catalog)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013
+Last reviewed: 2026-08-28 (D69 block modes; D72–D74 websocket frame rules)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015
 
 ## Problem statement
 
@@ -126,6 +126,10 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D19** | **CONNECT Hijack + inner HTTP/1.1 session.** Never return that conn to `http.Server`. | Returning after 200 makes keep-alive parse the TLS ClientHello as a request. |
 | **D20** | **`intercept: true` does not silently tunnel.** Handshake failure closes both sides. | Silent fallback would hide a failed MITM. |
 | **D21** | **`Transport.RoundTrip` only; no `http.Client`.** Replay Dials the origin, ignores `HTTP_PROXY`, never hairpins. | `Client.Do` follows redirects and would merge hops. |
+| **D69** | **QA block modes extend `action.type`:** `silent`, `hang`, and `redirect` (not a parallel engine). | [ADR 0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) |
+| **D72** | **`phase: websocket` matches inspected frames after HTTP/1.1 `101` or inner D63 `:status=200`.** Response-phase hits on those statuses stay `late_skip`. h2c has no request/response `matchHit`. | [ADR 0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) |
+| **D73** | **Websocket-phase `drop` omits one frame; `block` closes both TCP sides.** `labmitm_ws_frames_total` counts forwarded frames only. | ADR 0015 |
+| **D74** | **`inspectFrames` stays Reset-only (D51').** Live path is `replaceRules` / `setFeature rules.enabled` on the STA-001 pin (next request / next CONNECT / next h2c PRI; open inspect sockets never reload). Catalog stays 31. | ADR 0015 |
 
 ## Process architecture
 

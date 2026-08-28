@@ -1,0 +1,13 @@
+apiVersion: labmitm.dev/v1alpha1
+kind: LabMITM
+metadata:
+  name: r
+spec:
+  rules:
+    items:
+      - id: bad
+        phase: request
+        match:
+          opcode: text
+        action:
+          type: drop

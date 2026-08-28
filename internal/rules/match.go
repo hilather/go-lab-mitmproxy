@@ -1,12 +1,20 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
 
 func matchAND(m model.RuleMatchSpec, in Request) bool {
+	if !matchANDExceptPayload(m, in) {
+		return false
+	}
+	return matchPayloadContains(m, in)
+}
+
+func matchANDExceptPayload(m model.RuleMatchSpec, in Request) bool {
 	host := in.Host
 	if auth := headerValue(in.Headers, ":authority"); auth != "" {
 		host = authorityHost(auth)
@@ -40,7 +48,23 @@ func matchAND(m model.RuleMatchSpec, in Request) bool {
 	if !matchHeader(m, in.Headers) {
 		return false
 	}
+	if m.Opcode != "" && m.Opcode != in.Opcode {
+		return false
+	}
+	if m.Direction != "" && m.Direction != in.Direction {
+		return false
+	}
 	return true
+}
+
+func matchPayloadContains(m model.RuleMatchSpec, in Request) bool {
+	if m.PayloadContains == "" {
+		return true
+	}
+	if in.Payload == nil {
+		return false
+	}
+	return bytes.Contains(in.Payload, []byte(m.PayloadContains))
 }
 
 func headerValue(hs []model.Header, name string) string {
