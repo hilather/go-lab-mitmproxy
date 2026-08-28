@@ -65,6 +65,25 @@ func readSilentClose(t *testing.T, r io.Reader, wantRST bool) {
 	}
 }
 
+func assertInterceptSilentCapture(t *testing.T, got *model.Flow, path string) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("nil flow")
+	}
+	if !got.Intercepted {
+		t.Fatalf("silent intercept captured intercepted=false url=%q", got.URL)
+	}
+	if got.TLS == nil {
+		t.Fatal("silent intercept missing TLS")
+	}
+	if got.Scheme != "https" {
+		t.Fatalf("scheme %q", got.Scheme)
+	}
+	if !strings.HasPrefix(got.URL, "https://") || !strings.Contains(got.URL, path) {
+		t.Fatalf("url %q want absolute https ...%s", got.URL, path)
+	}
+}
+
 func writeAbsolute(t *testing.T, proxyAddr, originURL, method, path, body string) *proxytest.Client {
 	t.Helper()
 	c, err := proxytest.Dial(proxyAddr)
@@ -452,6 +471,7 @@ func TestInterceptHTTP1SilentRSTAndFIN(t *testing.T) {
 			if got.State != model.FlowStateCompleted || got.Error != rules.FlowErrorSilent || got.Status != 0 {
 				t.Fatalf("flow %+v", got)
 			}
+			assertInterceptSilentCapture(t, got, "/deny")
 		})
 	}
 }
@@ -509,6 +529,14 @@ func TestInterceptHTTP2SilentKeepsSibling(t *testing.T) {
 	got := waitFlow(t, inbox, model.FlowFilter{PathPrefix: "/login"})
 	if got.State != model.FlowStateCompleted || got.Error != rules.FlowErrorSilent {
 		t.Fatalf("flow %+v", got)
+	}
+	assertInterceptSilentCapture(t, got, "/login")
+	ok := waitFlow(t, inbox, model.FlowFilter{PathPrefix: "/ok"})
+	if !ok.Intercepted || ok.TLS == nil {
+		t.Fatalf("sibling intercept %+v", ok)
+	}
+	if got.Intercepted != ok.Intercepted || (got.TLS == nil) != (ok.TLS == nil) {
+		t.Fatalf("silent stamp != sibling: silent intercepted=%v tls=%v sibling intercepted=%v tls=%v", got.Intercepted, got.TLS != nil, ok.Intercepted, ok.TLS != nil)
 	}
 }
 

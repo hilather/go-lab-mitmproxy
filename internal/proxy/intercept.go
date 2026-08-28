@@ -288,7 +288,7 @@ func (s *Server) roundTripInner(tr *http.Transport, clientTLS, upTLS *tls.Conn, 
 		return false
 	}
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
-	switch result := s.runRequestRulesWrite(s.ctx, inner, host, "https", started, sess, func(resp *http.Response) {
+	switch result := s.runRequestRulesWrite(s.ctx, inner, host, port, "https", started, sess, info, func(resp *http.Response) {
 		_ = writeConnResponse(clientTLS, resp)
 	}); result {
 	case ruleSilentClose:
@@ -782,7 +782,7 @@ func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, ori
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
 
 	var syn *http.Response
-	result := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(resp *http.Response) {
+	result := s.runRequestRulesWrite(ctx, inner, host, port, "https", started, sess, info, func(resp *http.Response) {
 		syn = resp
 	})
 	switch result {
@@ -907,7 +907,7 @@ func (s *Server) innerH2Tunnel(ctx context.Context, rt http.RoundTripper, origin
 	})
 	sess.reqHit = s.matchHit(sess, model.RulePhaseRequest, host, inner, inner.Header, true)
 	var syn *http.Response
-	result := s.runRequestRulesWrite(ctx, inner, host, "https", started, sess, func(resp *http.Response) {
+	result := s.runRequestRulesWrite(ctx, inner, host, port, "https", started, sess, info, func(resp *http.Response) {
 		syn = resp
 	})
 	switch result {

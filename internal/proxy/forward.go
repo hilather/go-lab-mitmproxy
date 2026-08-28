@@ -189,7 +189,7 @@ func (s *Server) serveExpectAbsolute(w http.ResponseWriter, req *http.Request, r
 			_ = bufrw.Flush()
 		}
 	}
-	switch result := s.runRequestRulesWrite(req.Context(), req, host, "http", started, sess, write); result {
+	switch result := s.runRequestRulesWrite(req.Context(), req, host, port, "http", started, sess, nil, write); result {
 	case ruleSilentClose:
 		silentCloseConn(client, sess.closeModeOr(model.SilentCloseRST))
 		return ruleSilentClose
