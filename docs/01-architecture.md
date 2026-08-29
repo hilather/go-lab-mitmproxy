@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-29 (operator Flows split-pane inspector)
+Last reviewed: 2026-08-29 (operator SPA remaining-page chrome)
 Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017
 
 ## Problem statement
@@ -199,7 +199,7 @@ Required for GA / 1.0 (D13, PR 13). The UI talks REST only. XSS/CSP: [docs/08-re
 | Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` (copy step; `web/` has its own `go.mod` so parent `go test ./...` does not walk `node_modules`) |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie `labmitm_session` + `X-LabMITM-CSRF`. Cookie is REST-only. No Basic form. |
-| Pages | Flows split-pane (list stays mounted; selection on `/` + `/flows/:id` drives Request / Response / TLS; Trailers / Frames / gRPC when present). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary (`why not decrypted: port not in tls.ports:[443]`), not empty HTTP panes. Handshake `tls_handshake` / `http2_inner` stays an error, not that chip. Header chrome: LabMITM, **live**, **:443 intercept only** (overlay/default copy — not live `GET /v1/state` `tls.ports`). CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` except `ui.enabled`; reset-only rows link to `/reset`; no `/features` route), audit (if scoped), gated reset |
+| Pages | Flows split-pane (list stays mounted; selection on `/` + `/flows/:id` drives Request / Response / TLS; Trailers / Frames / gRPC when present). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary (`why not decrypted: port not in tls.ports:[443]`), not empty HTTP panes. Handshake `tls_handshake` / `http2_inner` stays an error, not that chip. Header chrome: LabMITM, **live**, **:443 intercept only** (overlay/default copy — not live `GET /v1/state` `tls.ports`). Status / Audit / Reset / Login page bodies share the same dark lab chrome (IBM Plex, `#0b0c0e` / `#6ea8d1` / `#c4a35a`); tunnel-not-decrypt remains a **flow** chip only. CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` except `ui.enabled`; reset-only rows link to `/reset`; no `/features` route), audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream` (SSE) stays mounted while selecting flows (`flow.inserted` / `flow.paused` / `flow.deleted` / `store.wiped`). Fallback: 3s poll of `GET /v1/flows`. |
 | Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download is `download=` plus blob fetch; raw body GETs are `application/octet-stream` + attachment. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle, Relay |

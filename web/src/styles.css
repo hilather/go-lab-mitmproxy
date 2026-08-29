@@ -169,6 +169,9 @@ button.linkish {
 }
 
 .page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
   max-width: 64rem;
   margin: 0 auto;
   padding: 1.25rem;
@@ -176,6 +179,30 @@ button.linkish {
 
 .page--narrow {
   max-width: 32rem;
+}
+
+.page h1 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.page h2 {
+  margin: 0 0 0.55rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.85rem 1rem;
+}
+
+.panel h2:last-child,
+.panel > :last-child {
+  margin-bottom: 0;
 }
 
 .workspace {
@@ -280,6 +307,11 @@ button.linkish {
 button {
   font: inherit;
   cursor: pointer;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  padding: 0.35rem 0.7rem;
 }
 
 button[type="submit"],
@@ -313,6 +345,8 @@ button:disabled {
   color: var(--err-fg);
   background: var(--err-bg);
   padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
 }
 
 .banner-error[role="alert"] {
@@ -322,6 +356,8 @@ button:disabled {
 .banner-warn {
   background: var(--warn-bg);
   padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
 }
 
 .flow-list {
@@ -429,10 +465,30 @@ pre.raw {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
 }
 
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.9em;
+  background: var(--elev);
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.25rem;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--fg);
+  box-shadow: 0 0 0 1000px var(--panel) inset;
+  caret-color: var(--fg);
+}
+
 table.data {
   width: 100%;
   border-collapse: collapse;
-  background: var(--card);
+  background: var(--panel);
 }
 
 table.data th,
@@ -441,6 +497,11 @@ table.data td {
   border-bottom: 1px solid var(--line);
   padding: 0.4rem 0.55rem;
   vertical-align: top;
+}
+
+table.data th {
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .badge,

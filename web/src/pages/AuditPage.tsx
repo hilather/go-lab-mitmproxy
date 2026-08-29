@@ -20,6 +20,8 @@ export function AuditPage() {
   if (error !== "") {
     return (
       <main className="page">
+        <p className="kicker">Audit</p>
+        <h1>Audit</h1>
         <p className="banner-error" role="alert">
           {error}
         </p>
@@ -29,18 +31,26 @@ export function AuditPage() {
   if (events === null) {
     return (
       <main className="page">
-        <p role="status">Loading audit…</p>
+        <p className="kicker">Audit</p>
+        <h1>Audit</h1>
+        <p className="muted" role="status">
+          Loading audit…
+        </p>
       </main>
     );
   }
 
   return (
     <main className="page">
+      <p className="kicker">Audit</p>
       <h1>Audit</h1>
       <p className="muted">Scoped to mitm.audit.read. Bodies and secrets are not recorded.</p>
       {events.length === 0 ? (
-        <p>No audit events.</p>
+        <div className="panel">
+          <p className="muted">No audit events.</p>
+        </div>
       ) : (
+        <div className="panel">
         <table className="data">
           <thead>
             <tr>
@@ -68,6 +78,7 @@ export function AuditPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </main>
   );

@@ -39,6 +39,7 @@ export function LoginPage() {
 
   return (
     <main className="page page--narrow">
+      <p className="kicker">Sign in</p>
       <h1>Sign in to LabMITM</h1>
       <p>
         Exchange a scoped API bearer token for an HttpOnly session cookie. Credentials are not
@@ -49,7 +50,7 @@ export function LoginPage() {
           {error}
         </p>
       ) : null}
-      <form className="stack" onSubmit={(e) => void onSubmit(e)} noValidate>
+      <form className="stack panel" onSubmit={(e) => void onSubmit(e)} noValidate>
         <div className="field">
           <label htmlFor="login-token">API bearer token</label>
           <input
