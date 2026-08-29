@@ -119,6 +119,6 @@ attack tool. Catalog id is **`labmitm`**. Lab pin is vendor tag **v1.1.0** +
 `labmitm:local`. Residuals:
 [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md).
 Current tag notes:
-[docs/releases/v1.4.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.4.0.md).
+[docs/releases/v1.5.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.5.0.md).
 Untagged 1.0 notes:
 [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md).

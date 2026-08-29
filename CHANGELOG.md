@@ -10,7 +10,27 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- Operator Flows inspector is a split pane: the live list stays mounted while selection on `/` and `/flows/:id` drives Request / Response / TLS. Completed raw CONNECT is a tunnel-not-decrypt summary (`why not decrypted: port not in tls.ports:[443]`), not empty HTTP panes. Handshake-failure CONNECT stays an error. Dark chrome (IBM Plex OFL-1.1, `#0b0c0e` / `#6ea8d1` / `#c4a35a`) with header chips **live** and **:443 intercept only** (overlay/default copy). Status / Audit / Reset / Login page bodies share that chrome; tunnel-not-decrypt stays a flow chip. SSE also refreshes on `flow.deleted`. SPA only; no fuzzer/repeater; captured HTML stays escaped text.
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.5.0 - 2026-08-29
+
+Operator SPA chrome from [PR #67](https://github.com/hilather/go-lab-mitmproxy/pull/67): split-pane Flows inspector plus leftover Login / Status / Audit / Reset page bodies. Same data-plane as v1.4.0. Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. No new ADR, apply verb, or metric. No fuzzer. Management stays bearer. **D7 stands.** Notes: [docs/releases/v1.5.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.5.0/docs/releases/v1.5.0.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.5.0/docs/known-limitations.md).
+
+### Added
+
+- None.
+
+### Changed
+
+- Operator Flows inspector is a split pane: the live list stays mounted while selection on `/` and `/flows/:id` drives Request / Response / TLS. Completed raw CONNECT is a tunnel-not-decrypt summary (`why not decrypted: port not in tls.ports:[443]`), not empty HTTP panes. Handshake-failure CONNECT stays an error. Dark chrome (IBM Plex OFL-1.1, `#0b0c0e` / `#6ea8d1` / `#c4a35a`) with header chips **live** and **:443 intercept only** (overlay/default copy). Shell restyle: primary nav is a sidenav (Sign out is not new). Status / Audit / Reset / Login page bodies share that chrome; tunnel-not-decrypt stays a flow chip. SSE also refreshes on already-emitted `flow.deleted`. Selection clears to `/` when the selected id is gone. SPA only; no fuzzer/repeater; captured HTML stays escaped text.
 
 ### Fixed
 
