@@ -43,7 +43,7 @@ describe("XSS and secret handling", () => {
   });
 
   it("flow body downloads are attachments, not document navigations", () => {
-    const page = readFileSync(join(srcRoot, "pages/FlowPage.tsx"), "utf8");
+    const page = readFileSync(join(srcRoot, "pages/FlowInspector.tsx"), "utf8");
     expect(page).toMatch(/download=\{flowBodyFilename/);
     expect(page).toMatch(/ev\.preventDefault\(\)/);
     expect(page).toMatch(/downloadFlowBody/);

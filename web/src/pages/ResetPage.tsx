@@ -37,19 +37,20 @@ export function ResetPage() {
 
   return (
     <main className="page page--narrow">
+      <p className="kicker">Reset</p>
       <h1>Reset</h1>
       <p>
         Reset rereads the mounted bootstrap YAML and wipes captured flows. Type{" "}
         <code>{RESET_PHRASE}</code> to enable the control.
       </p>
-      {!allowed ? <p>Requires scope mitm.admin.</p> : null}
+      {!allowed ? <p className="muted">Requires scope mitm.admin.</p> : null}
       {error !== "" ? (
         <p className="banner-error" role="alert">
           {error}
         </p>
       ) : null}
-      {notice !== "" ? <p role="status">{notice}</p> : null}
-      <form className="stack" onSubmit={(e) => void onSubmit(e)}>
+      {notice !== "" ? <p className="muted" role="status">{notice}</p> : null}
+      <form className="stack panel" onSubmit={(e) => void onSubmit(e)}>
         <div className="field">
           <label htmlFor="reset-phrase">Confirmation phrase</label>
           <input

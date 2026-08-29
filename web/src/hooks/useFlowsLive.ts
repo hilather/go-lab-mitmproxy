@@ -42,6 +42,7 @@ export function useFlowsLive(onChange: () => void, enabled: boolean): LiveMode {
       es = new EventSource("/v1/events/stream");
       es.addEventListener("flow.inserted", refresh);
       es.addEventListener("flow.paused", refresh);
+      es.addEventListener("flow.deleted", refresh);
       es.addEventListener("store.wiped", refresh);
       es.onopen = () => {
         // close() can still deliver a queued open after fallbackToPoll.

@@ -49,6 +49,7 @@ describe("useFlowsLive", () => {
     expect(FakeEventSource.instances[0]?.url).toBe("/v1/events/stream");
     expect(FakeEventSource.instances[0]?.closed).toBe(false);
     expect(FakeEventSource.instances[0]?.listeners.has("flow.inserted")).toBe(true);
+    expect(FakeEventSource.instances[0]?.listeners.has("flow.deleted")).toBe(true);
   });
 
   it("polls every 3s when EventSource cannot be constructed", () => {

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: TLS, Proxy, Security
-Last reviewed: 2026-08-23 (D62 h2c CONNECT intercept AfterAck)
+Last reviewed: 2026-08-29 (operator SPA tunnel-not-decrypt chrome)
 Related ADRs: 0002, 0009, 0012
 
 Package `internal/tlsmitm`. Only this package and `internal/proxy` touch `crypto/tls` on the data plane. Management TLS (optional) lives in `internal/control/rest` like LabMail. `internal/tlsmitm` must **not** Dial.
@@ -72,7 +72,7 @@ tls:
 
 `intercept: false` → raw CONNECT tunnel. `intercept: true` with a host list → only listed hosts **and** listed ports attempt TLS; other CONNECTs tunnel. Empty `hosts` + `intercept: true` = all hosts on `ports`. Empty `ports` after normalize materializes `[443]`.
 
-Handshake failure (client or upstream) on an intercept-eligible CONNECT: close both sides; store metadata-only flow with `Error=tls_handshake` (client) or `Error=upstream_tls` (origin verify/handshake); increment `labmitm_tls_intercepts_total{result=...}`. **No silent fallback to a blind tunnel** (D20). Client-facing h2c CONNECT uses the same order: 2xx HEADERS, then `serveInterceptConn` on the framed stream (no HTTP/1.1 200); handshake failure RSTs/closes the stream and does not splice DATA to origin.
+Handshake failure (client or upstream) on an intercept-eligible CONNECT: close both sides; store metadata-only flow with `Error=tls_handshake` (client) or `Error=upstream_tls` (origin verify/handshake); increment `labmitm_tls_intercepts_total{result=...}`. **No silent fallback to a blind tunnel** (D20). The operator SPA shows a completed raw CONNECT as tunnel-not-decrypt (`why not decrypted: port not in tls.ports:[443]`); handshake-failure rows stay an error, not that chip. Client-facing h2c CONNECT uses the same order: 2xx HEADERS, then `serveInterceptConn` on the framed stream (no HTTP/1.1 200); handshake failure RSTs/closes the stream and does not splice DATA to origin.
 
 Golden: `CONNECT 127.0.0.1:80` with `intercept: true` and default ports → raw tunnel (`intercepted=false`). `CONNECT 127.0.0.1:443` to a plaintext listener with intercept on → `Error=tls_handshake`.
 
