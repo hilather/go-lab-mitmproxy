@@ -10,7 +10,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- None.
+- Operator Flows inspector is a split pane: the live list stays mounted while selection on `/` and `/flows/:id` drives Request / Response / TLS. Completed raw CONNECT is a tunnel-not-decrypt summary (`why not decrypted: port not in tls.ports:[443]`), not empty HTTP panes. Handshake-failure CONNECT stays an error. Dark chrome (IBM Plex OFL-1.1, `#0b0c0e` / `#6ea8d1` / `#c4a35a`) with header chips **live** and **:443 intercept only** (overlay/default copy). SSE also refreshes on `flow.deleted`. SPA only; no fuzzer/repeater; captured HTML stays escaped text.
 
 ### Fixed
 

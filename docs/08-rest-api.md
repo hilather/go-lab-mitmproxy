@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-28 (D73 frames[].action; replaceHTTPAuth D76)
+Last reviewed: 2026-08-29 (operator Flows split-pane inspector; SSE `flow.deleted`)
 Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
@@ -90,8 +90,11 @@ data: {"id":"01J…","host":"app.lab","storeGeneration":19}
 event: flow.paused
 data: {"id":"01J…","storeGeneration":20}
 
+event: flow.deleted
+data: {"id":"01J…","storeGeneration":21}
+
 event: store.wiped
-data: {"storeGeneration":21}
+data: {"storeGeneration":22}
 ```
 
 Heartbeat comment every 15s. MCP `subscriptions/listen` on `labmitm://flows` notifies **URI only**; clients pull bodies with `mitm_flows_list`.
@@ -142,8 +145,8 @@ Required for GA / 1.0 (D13). Talks REST only.
 | Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie + CSRF. No Basic form. |
-| Pages | Flow list, flow detail (protocol badge, HTTP/2 stream id, trailers, SOCKS dest, original dest, Frames tab), CA download, status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` except `ui.enabled`; reset-only rows link to `/reset`; no `/features` route), audit (if scoped), gated reset |
-| Live update | `EventSource` `GET /v1/events/stream`. Fallback: 3s poll of `GET /v1/flows` |
+| Pages | Flows split-pane (list stays mounted; `/` + `/flows/:id` selection drives Request / Response / TLS). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary, not empty HTTP panes. Header **:443 intercept only** is overlay/default chrome copy. CA download, status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` except `ui.enabled`; reset-only rows link to `/reset`; no `/features` route), audit (if scoped), gated reset |
+| Live update | `EventSource` `GET /v1/events/stream` (`flow.inserted` / `flow.paused` / `flow.deleted` / `store.wiped`) stays mounted while selecting flows. Fallback: 3s poll of `GET /v1/flows` |
 | Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download links use `download=` plus a blob fetch (click is not a document navigation). Raw body GETs are `application/octet-stream` + `Content-Disposition: attachment`. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle |
 

@@ -336,4 +336,101 @@ describe("FlowPage", () => {
     expect(screen.queryByRole("tab", { name: /gRPC/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
   });
+
+  it("shows a tunnel summary for completed CONNECT, not empty HTTP panes", async () => {
+    const tunnel = {
+      ...flow,
+      id: "01JCONN",
+      method: "CONNECT",
+      url: "",
+      host: "directory",
+      scheme: "",
+      protocol: "connect",
+      status: 200,
+      intercepted: false,
+      requestBytes: 0,
+      responseBytes: 0,
+      request: { size: 0, truncated: false },
+      response: { size: 0, truncated: false },
+      tls: undefined,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.includes("/v1/flows/01JCONN") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, tunnel);
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+    renderApp(
+      <Routes>
+        <Route path="/flows/:id" element={<FlowPage />} />
+      </Routes>,
+      { route: "/flows/01JCONN" },
+    );
+    expect(await screen.findByText("Tunnel-not-decrypt")).toBeInTheDocument();
+    expect(screen.getByText(/why not decrypted: port not in tls.ports:\[443\]/)).toBeInTheDocument();
+    expect(screen.getByText("tunnel-not-decrypt")).toBeInTheDocument();
+    expect(screen.queryByText("No headers.")).toBeNull();
+    expect(screen.queryByText("Empty body.")).toBeNull();
+  });
+
+  it("shows handshake failure as an error, not a tunnel summary", async () => {
+    const fail = {
+      ...flow,
+      id: "01JTLS",
+      method: "CONNECT",
+      url: "",
+      host: "app.lab.test",
+      scheme: "https",
+      protocol: "connect",
+      status: 0,
+      state: "error",
+      error: "tls_handshake",
+      intercepted: false,
+      request: { size: 0, truncated: false },
+      response: { size: 0, truncated: false },
+      tls: undefined,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.includes("/v1/flows/01JTLS") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, fail);
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+    renderApp(
+      <Routes>
+        <Route path="/flows/:id" element={<FlowPage />} />
+      </Routes>,
+      { route: "/flows/01JTLS" },
+    );
+    expect(await screen.findByText("tls_handshake")).toBeInTheDocument();
+    expect(screen.queryByText("Tunnel-not-decrypt")).toBeNull();
+    expect(screen.queryByText("tunnel-not-decrypt")).toBeNull();
+  });
 });
+
