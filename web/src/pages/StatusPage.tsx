@@ -213,7 +213,11 @@ export function StatusPage() {
             {featureError}
           </p>
         ) : null}
-        {features === null && featureError === "" ? <p role="status">Loading features…</p> : null}
+        {features === null && featureError === "" ? (
+          <p className="muted" role="status">
+            Loading features…
+          </p>
+        ) : null}
         {features !== null ? (
           <>
             {canAdmin ? (
@@ -278,8 +282,10 @@ export function StatusPage() {
           </>
         ) : null}
       </section>
-      <h2>Revisions</h2>
-      <pre className="raw">{JSON.stringify(status.revisions, null, 2)}</pre>
+      <section className="panel">
+        <h2>Revisions</h2>
+        <pre className="raw">{JSON.stringify(status.revisions, null, 2)}</pre>
+      </section>
     </main>
   );
 }

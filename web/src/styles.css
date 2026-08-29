@@ -177,6 +177,14 @@ button.linkish {
   padding: 1.25rem;
 }
 
+.page > * {
+  min-width: 0;
+}
+
+.page > .kicker {
+  margin: 0;
+}
+
 .page--narrow {
   max-width: 32rem;
 }
@@ -302,6 +310,12 @@ button.linkish {
   background: var(--panel);
   color: var(--fg);
   border-radius: 0.3rem;
+}
+
+.panel .field input,
+.panel .field textarea,
+.panel .field select {
+  background: var(--elev);
 }
 
 button {

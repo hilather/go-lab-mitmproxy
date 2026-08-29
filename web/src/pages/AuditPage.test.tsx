@@ -32,6 +32,7 @@ describe("AuditPage", () => {
     renderApp(<AuditPage />, { route: "/audit" });
     expect(await screen.findByRole("heading", { name: "Audit" })).toBeInTheDocument();
     expect(screen.getByText("No audit events.")).toBeInTheDocument();
+    expect(document.querySelector(".panel")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
   });
 

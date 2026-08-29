@@ -151,6 +151,16 @@ describe("operator chrome", () => {
       const active =
         route === "/status" ? "Status" : route === "/audit" ? "Audit" : "Reset";
       expect(screen.getByRole("link", { name: active })).toHaveClass("nav-active");
+      expect(await screen.findByRole("heading", { name: active })).toBeInTheDocument();
+      if (route === "/status") {
+        expect(await screen.findByRole("heading", { name: "Lab CA" })).toBeInTheDocument();
+        expect(screen.getByText(/Ready:/)).toBeInTheDocument();
+      } else if (route === "/audit") {
+        expect(await screen.findByText("No audit events.")).toBeInTheDocument();
+      } else {
+        expect(await screen.findByRole("button", { name: /Reset LabMITM/i })).toBeInTheDocument();
+      }
+      expect(document.querySelector(".panel")).not.toBeNull();
       expect(screen.queryByText("tunnel-not-decrypt")).toBeNull();
       expect(screen.queryByText("intercepted")).toBeNull();
       expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
