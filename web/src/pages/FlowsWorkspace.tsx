@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useMatch } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useMatch, useNavigate } from "react-router-dom";
 import { APIError, clearFlows, listAllFlows } from "../api/client";
 import type { Flow } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
@@ -21,12 +21,19 @@ import { FlowInspector } from "./FlowInspector";
 export function FlowsWorkspace() {
   const { hasScope } = useAuth();
   const canWrite = hasScope(SCOPE_WRITE);
+  const navigate = useNavigate();
   const selected = useMatch("/flows/:id")?.params.id ?? "";
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const [items, setItems] = useState<Flow[]>([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [generation, setGeneration] = useState<number | null>(null);
 
+  // useCallback(..., []) only — selected/navigate/search/generation in deps
+  // reconnect EventSource (useFlowsLive [enabled, onChange]).
   const refresh = useCallback(() => {
     void (async () => {
       try {
@@ -34,6 +41,10 @@ export function FlowsWorkspace() {
         setItems(list.items);
         setGeneration(list.storeGeneration);
         setError("");
+        const id = selectedRef.current;
+        if (id !== "" && !list.items.some((f) => f.id === id)) {
+          navigateRef.current("/", { replace: true });
+        }
       } catch (err) {
         setError(err instanceof APIError ? err.message : "Could not load flows.");
       }
@@ -53,6 +64,7 @@ export function FlowsWorkspace() {
     }
     try {
       await clearFlows();
+      navigate("/", { replace: true });
       refresh();
     } catch (err) {
       setError(err instanceof APIError ? err.message : "Clear failed.");

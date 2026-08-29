@@ -392,7 +392,9 @@ export function FlowInspector({
     { id: "response", label: "Response" },
     { id: "tls", label: "TLS" },
   ];
-  if (!tunnel) {
+  const hasTrailers =
+    (flow.request.trailers ?? []).length > 0 || (flow.response.trailers ?? []).length > 0;
+  if (!tunnel && hasTrailers) {
     tabs.splice(2, 0, { id: "trailers", label: "Trailers" });
   }
   if (flow.websocket != null) {

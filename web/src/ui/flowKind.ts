@@ -98,12 +98,12 @@ export function listStatusLabel(flow: Flow): string {
 
 export function listTimingLabel(flow: Flow): string {
   if (isTunnelNotDecrypt(flow) && flow.timings.totalMs === 0) {
-    return "—";
+    return "-";
   }
   if (flow.timings.totalMs > 0) {
     return `${flow.timings.totalMs}ms`;
   }
-  return "—";
+  return "-";
 }
 
 export function flowPath(flow: Flow): string {

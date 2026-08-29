@@ -67,6 +67,12 @@ class RecordingEventSource {
     this.listeners.set(type, set);
   }
 
+  dispatch(type: string, data = ""): void {
+    for (const fn of this.listeners.get(type) ?? []) {
+      fn(new MessageEvent(type, { data }));
+    }
+  }
+
   removeEventListener(): void {}
 
   close(): void {
@@ -108,6 +114,7 @@ describe("FlowsWorkspace", () => {
   afterEach(() => {
     resetClientState();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     RecordingEventSource.instances = [];
   });
 
@@ -123,6 +130,7 @@ describe("FlowsWorkspace", () => {
     expect(screen.getByText("4ms")).toBeInTheDocument();
     expect(screen.getByText("200")).toHaveClass("status-ok");
     expect(screen.getByText("CONN")).toHaveClass("method-tunnel");
+    expect(screen.getByText("-")).toBeInTheDocument();
     expect(screen.getByText("tunnel")).toHaveClass("status-tunnel");
     expect(screen.getByPlaceholderText("Host, method, or status")).toBeInTheDocument();
     expect(screen.getByText(/CONNECT to LDAPS\/TacLab TLS is tunnel-not-decrypt/)).toBeInTheDocument();
@@ -157,6 +165,91 @@ describe("FlowsWorkspace", () => {
     await user.type(screen.getByPlaceholderText("Host, method, or status"), "tunnel");
     expect(screen.getByText("CONN")).toBeInTheDocument();
     expect(screen.queryByText("app.lab.test")).toBeNull();
+    expect(RecordingEventSource.instances).toHaveLength(1);
+  });
+
+  it("clears selection when Clear succeeds without reconnecting EventSource", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let wiped = false;
+    vi.stubGlobal("EventSource", RecordingEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url === "/v1/flows" && init?.method === "DELETE") {
+          wiped = true;
+          return json(200, { deleted: 2 });
+        }
+        if (url.includes("/v1/flows/01JH2LIST") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, httpFlow);
+        }
+        if (url.includes("/v1/flows")) {
+          return json(200, {
+            revision: "r1",
+            storeGeneration: wiped ? 5 : 4,
+            nextCursor: null,
+            items: wiped ? [] : [httpFlow, connectFlow],
+          });
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+    renderApp(<AppRoutes />, { route: "/flows/01JH2LIST" });
+    expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
+    expect(RecordingEventSource.instances).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: /Clear flows/i }));
+    expect(await screen.findByText("Select a captured flow.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeNull();
+    expect(RecordingEventSource.instances).toHaveLength(1);
+  });
+
+  it("drops a deleted selection from SSE without reconnecting EventSource", async () => {
+    let gone = false;
+    vi.stubGlobal("EventSource", RecordingEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.includes("/v1/flows/01JH2LIST") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, httpFlow);
+        }
+        if (url.includes("/v1/flows")) {
+          return json(200, {
+            revision: "r1",
+            storeGeneration: gone ? 5 : 4,
+            nextCursor: null,
+            items: gone ? [connectFlow] : [httpFlow, connectFlow],
+          });
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+    renderApp(<AppRoutes />, { route: "/flows/01JH2LIST" });
+    expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
+    expect(RecordingEventSource.instances).toHaveLength(1);
+    gone = true;
+    RecordingEventSource.instances[0]?.dispatch("flow.deleted");
+    expect(await screen.findByText("Select a captured flow.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeNull();
     expect(RecordingEventSource.instances).toHaveLength(1);
   });
 });
