@@ -58,6 +58,7 @@ export type WebSocketFrame = {
   payload?: string;
   size: number;
   truncated: boolean;
+  action?: string;
 };
 
 export type WebSocketInfo = {
@@ -179,6 +180,7 @@ export type StatusFeatures = {
   acceptUserPass: boolean;
   originalDestination: boolean;
   compatFlowREST: boolean;
+  httpAuth: boolean;
 };
 
 export type Status = {
@@ -213,9 +215,100 @@ export type FeaturePatch = {
   enabled: boolean;
 };
 
+export type TLSCASpec = {
+  mode: string;
+  certFile: string;
+  keyFile: string;
+};
+
+export type TLSUpstreamSpec = {
+  insecureSkipVerify: boolean;
+  extraCAFiles: string[];
+};
+
+export type TLSSpec = {
+  intercept: boolean;
+  hosts: string[];
+  ports: number[];
+  ca: TLSCASpec;
+  upstream: TLSUpstreamSpec;
+};
+
+export type HTTPAuthUser = {
+  id: string;
+  usernameFile: string;
+  passwordFile: string;
+};
+
+export type HTTPAuthSpec = {
+  enabled: boolean;
+  realm: string;
+  users: HTTPAuthUser[];
+};
+
+export type AdmissionSpec = {
+  maxSessions: number;
+  maxSessionsPerIP: number;
+  maxInFlight: number;
+  maxInFlightBytes: string;
+  sessionTimeout: string;
+  idleTimeout: string;
+  headerTimeout: string;
+  dialTimeout: string;
+  upstreamTimeout: string;
+  maxConcurrentStreams: number;
+};
+
+export type RulesSpec = {
+  enabled: boolean;
+  items: unknown[];
+};
+
+export type FlowRESTCompatSpec = {
+  enabled: boolean;
+  pathPrefix: string;
+};
+
+export type CompatSpec = {
+  flowREST: FlowRESTCompatSpec;
+};
+
 export type ChangeOperation = {
   op: string;
   feature?: FeaturePatch;
+  tls?: TLSSpec;
+  rules?: RulesSpec;
+  admission?: AdmissionSpec;
+  compat?: CompatSpec;
+  httpAuth?: HTTPAuthSpec;
+};
+
+export type CanonicalSpec = {
+  tls?: TLSSpec;
+  rules?: RulesSpec;
+  compat?: CompatSpec;
+  listeners?: {
+    originalDestination?: { enabled?: boolean; address?: string };
+    proxy?: { address?: string };
+    management?: { address?: string };
+  };
+  proxy?: {
+    admission?: AdmissionSpec;
+    httpAuth?: HTTPAuthSpec;
+  };
+  observability?: {
+    metrics?: { listen?: string };
+  };
+};
+
+export type StateView = {
+  runtimeRevision: string;
+  bootstrapRevision?: string;
+  generation?: number;
+  drifted?: boolean;
+  canonical?: {
+    spec?: CanonicalSpec;
+  };
 };
 
 export type ChangeSet = {

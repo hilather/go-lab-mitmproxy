@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-28 (D75 action.bytesPerSecond; replaceHTTPAuth D76)
-Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016, 0017
+Last reviewed: 2026-08-30 (Status live-apply; D77; replaceCompat nest)
+Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
 
@@ -234,7 +234,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `replaceTLS` | `tls` object | Recompile CA/host list; in-flight CONNECT unchanged |
 | `replaceRules` | `rules` object | `{}` / empty items + `enabled: false` is stock capture |
 | `replaceTargets` | `targets` object | Live on next request |
-| `replaceCompat` | `compat` object (`enabled` + `pathPrefix`) | Live on next management request. Prefix collision with restPath/mcpPath is `validation_failed`. |
+| `replaceCompat` | `compat` object (`{ flowREST: { enabled, pathPrefix } }`) | Live on next management request. Nested `flowREST` is required; a flat `{enabled, pathPrefix}` zeros `FlowREST` and disables `/compat`. Prefix collision with restPath/mcpPath is `validation_failed`. |
 | `setFeature` | `feature`: `{id, enabled}` | Closed IDs: `protocols.http2`, `protocols.websocket`, `protocols.connect`, `protocols.absoluteForm`, `listeners.proxy.acceptSOCKS5`/`acceptSOCKS4`, `compat.flowREST` (enabled only), `rules.enabled` (items unchanged), `ui.enabled`. Rejects `listeners.originalDestination` (Reset-only) and `tls.intercept` (use `replaceTLS`). Plan warns `live_next_connection`. |
 | `replaceHTTPAuth` | `httpAuth` object (`enabled` + `realm` + `users[]`) | 8th `KnownOp`. Live snapshot swap, no Reset, no inbox wipe. File-ref users restat on this op only. `setFeature` of `proxy.httpAuth` is `validation_failed` (boolean-only catalog). Plan warns `live_next_connection`. |
 
@@ -254,7 +254,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 | `compat.flowREST.enabled` | **live** `setFeature` (next management request) |
 | `compat.flowREST.pathPrefix` | **live** `replaceCompat` only (not `setFeature`) |
 | `rules.enabled` | **live** `setFeature` (items unchanged) |
-| `ui.enabled` | **live** `setFeature` from REST/MCP only — **no Status toggle** |
+| `ui.enabled` | **live** `setFeature` from REST/MCP and Status (gated off-confirm, [ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77) |
 | `tls.intercept` | **live** `replaceTLS` (generate-mode CA rotates when the TLS spec changes) |
 | `proxy.httpAuth` | **live** `replaceHTTPAuth` (D76). Not a `setFeature` ID. SOCKS `acceptUserPass` stays Reset-only. |
 | `acceptBind` / `acceptUDPAssociate` / `acceptUserPass` | Reset-only (1.2; no `replaceProxyAccept`) |

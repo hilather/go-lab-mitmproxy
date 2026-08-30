@@ -46,9 +46,9 @@ Empty `spec: {}` hop behavior is unchanged: HTTP/1.1 + SOCKS-close + no orig-des
 
 **1.2 nested flags stay Reset-only** (this ADR does not reopen [ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md)): `acceptBind` / `acceptUDPAssociate` / `acceptUserPass`, `protocols.http2.clientCleartext` / `origin` / `extendedConnect` / `capturePush` / `grpcDecode`, `protocols.websocket.inspectFrames`.
 
-`compat.flowREST.pathPrefix` is not a `setFeature` ID (`setFeature` is boolean-only). It is live-writable via `replaceCompat` only. `ui.enabled` is `setFeature` from REST/MCP only — no Status toggle.
+`compat.flowREST.pathPrefix` is not a `setFeature` ID (`setFeature` is boolean-only). It is live-writable via `replaceCompat` only. `ui.enabled` is live `setFeature` from REST/MCP and from Status after a gated off-confirm ([ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77).
 
-`Feature.Verb` is one frozen token per ID: `setFeature` for every boolean `setFeature` can write; `replaceTLS` for `tls.intercept`; `reset` for `listeners.originalDestination`. `replaceCompat` (prefix) and `replaceRules` (full subtree) remain apply verbs in [docs/06-state-and-configuration.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/06-state-and-configuration.md); they are **not** `Feature.Verb`. Status toggles `applyMode=live && verb=="setFeature" && id!="ui.enabled"`.
+`Feature.Verb` is one frozen token per ID: `setFeature` for every boolean `setFeature` can write; `replaceTLS` for `tls.intercept`; `reset` for `listeners.originalDestination`. `replaceCompat` (prefix) and `replaceRules` (full subtree) remain apply verbs in [docs/06-state-and-configuration.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/06-state-and-configuration.md); they are **not** `Feature.Verb`. Status toggles `applyMode=live && verb=="setFeature"` (including `ui.enabled` after ADR 0018 gated off-confirm).
 
 ### Mutation
 
@@ -121,7 +121,7 @@ Listing is a new `features.get` capability (`GET /v1/features`, `mitm_features_l
 
 1. **`compat.flowREST.pathPrefix` is live-writable via `replaceCompat` only.** Enabled is already live-read. Collision with restPath/mcpPath stays `validation_failed`. `setFeature` is boolean-only and does not write prefix.
 2. **Inner disabled websocket: 403 that inner request, keep the CONNECT.** `writeConnResponse` without `Connection: close`; `roundTripInner` returns `stop=false`. Cleartext orig-dest HTTP Upgrade uses the same websocket helper as `serveAbsolute` (before dest-IP Dial). `absoluteForm` stays off orig-dest.
-3. **Status lists all rows; admin toggles live `setFeature` hop/accept rows except `ui.enabled`.** Viewers read-only. `ui.enabled` remains `setFeature`-able from REST/MCP.
+3. **Status lists all rows; admin toggles live `setFeature` hop/accept rows including `ui.enabled` after a gated off-confirm.** See [ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77. Viewers read-only. Recovery after gate-off is REST/MCP `setFeature ui.enabled: true` or bootstrap YAML + Reset.
 4. **Keep `protocols.connect` and `protocols.absoluteForm`.** They are in the schema from the gates PR; they are **not** dropped after goldens exist.
 
 ## Consequences
@@ -145,4 +145,4 @@ Listing is a new `features.get` capability (`GET /v1/features`, `mitm_features_l
 
 ## Review triggers
 
-Review when live-apply of 1.2 nested flags is proposed (needs a new ADR), when orig-dest live bind/unbind is proposed, when a `replaceProtocols` verb is requested, or when Status toggling `ui.enabled` is reconsidered.
+Review when live-apply of 1.2 nested flags is proposed (needs a new ADR), when orig-dest live bind/unbind is proposed, or when a `replaceProtocols` verb is requested. Status toggling `ui.enabled` was reconsidered in [ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md).

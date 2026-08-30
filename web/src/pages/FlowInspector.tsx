@@ -154,6 +154,12 @@ function FramesPanel({ flow }: { flow: Flow }) {
             {fr.closeCode ? ` · ${fr.closeCode}` : ""}
             {fr.truncated ? " · truncated" : ""}
             {fr.masked ? " · masked" : ""}
+            {fr.action === "drop" || fr.action === "block" ? (
+              <>
+                {" "}
+                <span className="badge">{fr.action}</span>
+              </>
+            ) : null}
           </h2>
           <FramePayload frame={fr} />
         </section>

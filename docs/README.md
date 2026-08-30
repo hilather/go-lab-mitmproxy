@@ -76,6 +76,7 @@ The numbered pack is the source of truth.
 | [0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) | WebSocket frame rules (D72–D74); `inspectFrames` stays Reset-only |
 | [0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md) | Additive `action.type: throttle` (D75); catalog stays 31 rows |
 | [0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) | HTTP proxy 407 on `listeners.proxy` (D76); live `replaceHTTPAuth`; K10 reopen for `status.features.httpAuth` |
+| [0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) | Status may apply `ui.enabled` after gated off-confirm (D77); recovery is REST/MCP |
 
 ## Post-GA plans
 
@@ -85,6 +86,7 @@ Normative docs still win. These plans freeze a follow-on workstream after skepti
 |---|---|
 | [qa-bandwidth-throttle.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-bandwidth-throttle.md) | Issue #52 bandwidth throttle (ACCEPT; implemented) |
 | [qa-407-proxy-auth.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/qa-407-proxy-auth.md) | Issue #52 HTTP 407 on `listeners.proxy` (ACCEPT; ADR 0017 / D76) |
+| [spa-live-apply-controls.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/spa-live-apply-controls.md) | Operator SPA live-apply controls (ACCEPT; ADR 0018 / D77) |
 
 ## Task lists
 

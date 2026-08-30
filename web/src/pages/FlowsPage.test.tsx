@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../App";
 import { json, renderApp, resetClientState, sessionView } from "../test/render";
+import { portsOnlyState } from "../test/state";
 
 const httpFlow = {
   id: "01JH2LIST",
@@ -85,6 +86,9 @@ function mockAPI() {
     const url = String(input);
     if (url.endsWith("/v1/session")) {
       return json(200, sessionView());
+    }
+    if (url.endsWith("/v1/state")) {
+      return json(200, portsOnlyState("sha256:abc", [8443]));
     }
     if (url.includes("/v1/flows/01JH2LIST") && !url.includes("/request") && !url.includes("/response")) {
       return json(200, httpFlow);

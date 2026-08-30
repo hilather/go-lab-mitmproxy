@@ -5,6 +5,7 @@ import {
   apiFetch,
   applyChanges,
   bearerAuthorization,
+  getState,
   clearMemoryCSRF,
   createSession,
   downloadFlowBody,
@@ -102,6 +103,64 @@ describe("API client", () => {
       reason: "qa",
       operations: [{ op: "setFeature", feature: { id: "protocols.http2", enabled: true } }],
     });
+  });
+
+  it("gets /v1/state and serializes live apply verbs", async () => {
+    setMemoryCSRF("csrf-test");
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async (input) => {
+        if (String(input).endsWith("/v1/state")) {
+          return new Response(JSON.stringify({ runtimeRevision: "sha256:abc", canonical: { spec: {} } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ applied: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const view = await getState();
+    expect(view.runtimeRevision).toBe("sha256:abc");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/v1/state");
+
+    await applyChanges({
+      expectedRevision: "sha256:abc",
+      idempotencyKey: "k2",
+      reason: "",
+      operations: [
+        {
+          op: "replaceCompat",
+          compat: { flowREST: { enabled: false, pathPrefix: "/compat" } },
+        },
+        { op: "replaceTLS", tls: { intercept: true, hosts: [], ports: [443], ca: { mode: "generate", certFile: "", keyFile: "" }, upstream: { insecureSkipVerify: false, extraCAFiles: [] } } },
+        { op: "replaceHTTPAuth", httpAuth: { enabled: false, realm: "labmitm-proxy", users: [] } },
+        { op: "replaceRules", rules: { enabled: false, items: [] } },
+        {
+          op: "replaceAdmission",
+          admission: {
+            maxSessions: 1,
+            maxSessionsPerIP: 1,
+            maxInFlight: 1,
+            maxInFlightBytes: "64MiB",
+            sessionTimeout: "10m",
+            idleTimeout: "120s",
+            headerTimeout: "10s",
+            dialTimeout: "10s",
+            upstreamTimeout: "60s",
+            maxConcurrentStreams: 100,
+          },
+        },
+      ],
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body ?? ""));
+    expect(body.operations[0].compat).toEqual({ flowREST: { enabled: false, pathPrefix: "/compat" } });
+    expect(body.operations[1].op).toBe("replaceTLS");
+    expect(body.operations[2].op).toBe("replaceHTTPAuth");
+    expect(body.operations[3].op).toBe("replaceRules");
+    expect(body.operations[4].admission.maxInFlightBytes).toBe("64MiB");
   });
 
   it("walks nextCursor so a 51st flow is not dropped", async () => {
