@@ -1,6 +1,6 @@
 # Plan: Operator SPA live-apply controls (Status / inspector)
 
-Status: BLOCKED (skeptic-plan-review sweep 3 still had BLOCKING findings; cap 3). Do not implement on this revision. Folds below are the would-be contract for a later ACCEPT.
+Status: ACCEPT (architecture ACCEPT from Keystone; sweep-3 items are test-fixture / React-tree contracts in sections 2, 5, 8 — not SHAPE/DIRECTION). Implement on PR #70.
 Owners: Operator UI
 Last reviewed: 2026-08-30
 Branch: `cursor/spa-live-apply-controls-bb9c`
@@ -222,7 +222,7 @@ PR last line: **Mud Turtle**. Do not merge.
 - No live `GET /v1/status` `tls.ports` field (by design; `state.get` is the spec).
 - No visual rule builder (JSON items only).
 - Reset-only knobs remain Reset-only (visible, not toggled).
-- **This workstream did not implement** (plan review BLOCKED after 3 skeptic sweeps). All listed live-apply Status controls remain missing on `main`.
+- Implemented on PR #70 (`cursor/spa-live-apply-controls-bb9c`).
 
 ## Review-plan (first-party)
 

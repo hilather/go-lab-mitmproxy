@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-08-29 (operator SPA remaining-page chrome)
-Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017
+Last reviewed: 2026-08-30 (operator SPA live-apply controls; D77)
+Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
 
@@ -145,12 +145,12 @@ Required for GA / 1.0 (D13). Talks REST only.
 | Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie + CSRF. No Basic form. |
-| Pages | Flows split-pane (list stays mounted; `/` + `/flows/:id` selection drives Request / Response / TLS). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary, not empty HTTP panes. Header **:443 intercept only** is overlay/default chrome copy. Status / Audit / Reset / Login page bodies share that dark lab chrome; tunnel-not-decrypt remains a flow chip only. CA download, status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` except `ui.enabled`; reset-only rows link to `/reset`; no `/features` route), audit (if scoped), gated reset |
+| Pages | Flows split-pane (list stays mounted; `/` + `/flows/:id` selection drives Request / Response / TLS). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary, not empty HTTP panes. Header intercept-ports chip reads live `GET /v1/state` `canonical.spec.tls.ports`. Status / Audit / Reset / Login page bodies share that dark lab chrome; tunnel-not-decrypt remains a flow chip only. CA download, status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` including gated `ui.enabled` off-confirm; compact `status.features.httpAuth` + Reset-required 1.2 flags; live `replaceTLS` / `replaceHTTPAuth` / `replaceRules` / `replaceAdmission` / `replaceCompat`; reset-only catalog row links to `/reset`; no `/features` route; no new capabilities), Frames `drop`/`block` badges, audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream` (`flow.inserted` / `flow.paused` / `flow.deleted` / `store.wiped`) stays mounted while selecting flows. Fallback: 3s poll of `GET /v1/flows` |
 | Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download links use `download=` plus a blob fetch (click is not a document navigation). Raw body GETs are `application/octet-stream` + `Content-Disposition: attachment`. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle |
 
-`spec.ui.enabled: false` serves 404 for `/` but keeps REST/MCP.
+`spec.ui.enabled: false` serves 404 for `/` (and `/status`, `/flows/…`) but keeps REST/MCP. Status may apply that bit after a gated off-confirm ([ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77). Recovery is REST/MCP `setFeature ui.enabled: true` or bootstrap YAML + Reset.
 
 ## LabMITM compat flow REST (mitmproxy-inspired subset)
 

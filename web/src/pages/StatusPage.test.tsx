@@ -1,34 +1,12 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CSRF_HEADER } from "../api/client";
 import type { Feature, FeatureList } from "../api/types";
 import { json, renderApp, resetClientState, sessionView } from "../test/render";
+import { portsOnlyState, sampleState, sampleStatus } from "../test/state";
 import { FORBIDDEN_CONTROL_LABELS } from "../ui/forbidden";
 import { StatusPage } from "./StatusPage";
-
-function sampleStatus() {
-  return {
-    ready: true,
-    intercept: true,
-    revisions: { runtime: "abc" },
-    listeners: [{ name: "proxy", address: "127.0.0.1:8888" }],
-    store: { flowCount: 1, storeBytes: 12, storeGeneration: 3, epoch: 1 },
-    ca: {
-      mode: "generate",
-      spkiSha256: "deadbeef",
-      subject: "CN=LabMITM",
-      notAfter: "2099-01-01T00:00:00Z",
-    },
-    features: {
-      http2: false,
-      socks5: false,
-      socks4: false,
-      originalDestination: false,
-      compatFlowREST: false,
-    },
-  };
-}
 
 function feature(
   id: string,
@@ -94,6 +72,9 @@ function stubPageFetch(opts?: {
     if (url.endsWith("/v1/status")) {
       return json(200, sampleStatus());
     }
+    if (url.endsWith("/v1/state") && method === "GET") {
+      return json(200, sampleState(catalog.runtimeRevision));
+    }
     if (url.endsWith("/v1/features") && method === "GET") {
       return json(200, catalog);
     }
@@ -142,14 +123,60 @@ describe("StatusPage", () => {
     expect(reset).toHaveAttribute("href", "/reset");
   });
 
-  it("does not offer a Status toggle for ui.enabled or tls.intercept", async () => {
+  it("offers a Status toggle for ui.enabled but not tls.intercept", async () => {
     stubPageFetch();
     renderApp(<StatusPage />, { route: "/status" });
     expect(await screen.findByRole("switch", { name: "Toggle protocols.websocket" })).toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "Toggle ui.enabled" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Toggle ui.enabled" })).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "Toggle tls.intercept" })).toBeNull();
-    expect(screen.getByText(/change via REST\/MCP/)).toBeInTheDocument();
-    expect(screen.getByText("setFeature")).toBeInTheDocument();
+    expect(screen.queryByText(/change via REST\/MCP/)).toBeNull();
+  });
+
+  it("confirms only when turning ui.enabled off; cancel posts nothing", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = stubPageFetch();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderApp(<StatusPage />, { route: "/status" });
+    const toggle = await screen.findByRole("switch", { name: "Toggle ui.enabled" });
+    await user.click(toggle);
+    expect(confirm).toHaveBeenCalled();
+    expect(String(confirm.mock.calls[0]?.[0])).toMatch(/404/);
+    expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+  });
+
+  it("does not confirm when turning ui.enabled on", async () => {
+    const catalog = sampleFeatures();
+    const row = catalog.items.find((item) => item.id === "ui.enabled");
+    if (row) {
+      row.enabled = false;
+    }
+    const user = userEvent.setup();
+    const { fetchMock } = stubPageFetch({ features: catalog });
+    const confirm = vi.spyOn(window, "confirm");
+    renderApp(<StatusPage />, { route: "/status" });
+    await user.click(await screen.findByRole("switch", { name: "Toggle ui.enabled" }));
+    expect(confirm).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+    });
+    const applyCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/v1/changes:apply"));
+    const sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
+    expect(sent.operations).toEqual([{ op: "setFeature", feature: { id: "ui.enabled", enabled: true } }]);
+  });
+
+  it("posts setFeature for ui.enabled after confirm", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = stubPageFetch();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("11111111-1111-4111-8111-111111111111");
+    renderApp(<StatusPage />, { route: "/status" });
+    await user.click(await screen.findByRole("switch", { name: "Toggle ui.enabled" }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+    });
+    const applyCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/v1/changes:apply"));
+    const sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
+    expect(sent.operations).toEqual([{ op: "setFeature", feature: { id: "ui.enabled", enabled: false } }]);
   });
 
   it("hides toggles from viewers", async () => {
@@ -158,6 +185,8 @@ describe("StatusPage", () => {
     expect(await screen.findByText("protocols.websocket")).toBeInTheDocument();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByLabelText(/Reason/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Apply TLS/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Apply HTTP auth/i })).toBeNull();
   });
 
   it("has no exploit or SSL-strip labels", async () => {
@@ -237,6 +266,7 @@ describe("StatusPage", () => {
       () => keys[keyN++] ?? "33333333-3333-4333-8333-333333333333",
     );
     let featureGets = 0;
+    let applyFailed = false;
     const applyBodies: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -249,12 +279,16 @@ describe("StatusPage", () => {
         if (url.endsWith("/v1/status")) {
           return json(200, sampleStatus());
         }
+        if (url.endsWith("/v1/state") && method === "GET") {
+          return json(200, sampleState(applyFailed ? "sha256:newer" : "sha256:abc"));
+        }
         if (url.endsWith("/v1/features") && method === "GET") {
           featureGets += 1;
-          return json(200, sampleFeatures(featureGets === 1 ? "sha256:abc" : "sha256:newer"));
+          return json(200, sampleFeatures(applyFailed ? "sha256:newer" : "sha256:abc"));
         }
         if (url.endsWith("/v1/changes:apply") && method === "POST") {
           applyBodies.push(String(init?.body ?? ""));
+          applyFailed = true;
           return json(409, {
             status: 409,
             title: "conflict",
@@ -285,5 +319,204 @@ describe("StatusPage", () => {
       "22222222-2222-4222-8222-222222222222",
     );
     expect(JSON.parse(applyBodies[1] ?? "").expectedRevision).toBe("sha256:newer");
+  });
+
+  it("renders compact httpAuth and reset-required 1.2 flags without extra Reset links", async () => {
+    stubPageFetch();
+    renderApp(<StatusPage />, { route: "/status" });
+    expect(await screen.findByRole("heading", { name: "Runtime flags" })).toBeInTheDocument();
+    expect(screen.getByText(/httpAuth:/)).toBeInTheDocument();
+    expect(screen.getByText("inspectWebSocketFrames")).toBeInTheDocument();
+    expect(screen.getByText("acceptBind")).toBeInTheDocument();
+    expect(screen.getByText("http2ClientCleartext")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Reset required/i })).toHaveAttribute("href", "/reset");
+    expect(screen.queryByRole("switch", { name: /inspectWebSocketFrames|acceptBind|http2ClientCleartext/ })).toBeNull();
+  });
+
+  it("posts replaceTLS with the full tls subtree and rejects blank ports", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = stubPageFetch();
+    renderApp(<StatusPage />, { route: "/status" });
+    const ports = await screen.findByLabelText("Ports");
+    await user.clear(ports);
+    await user.click(screen.getByRole("button", { name: /Apply TLS/i }));
+    expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/ports are required/);
+
+    await user.type(ports, "443,8443");
+    await user.click(screen.getByRole("button", { name: /Apply TLS/i }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+    });
+    const applyCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/v1/changes:apply"));
+    const sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
+    expect(sent.operations[0].op).toBe("replaceTLS");
+    expect(sent.operations[0].tls.ports).toEqual([443, 8443]);
+    expect(sent.operations[0].tls.ca).toEqual({ mode: "generate", certFile: "", keyFile: "" });
+  });
+
+  it("rejects invalid httpAuth users JSON without posting", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = stubPageFetch();
+    renderApp(<StatusPage />, { route: "/status" });
+    const box = await screen.findByLabelText("Users (file refs)");
+    fireEvent.change(box, { target: { value: "{not-json" } });
+    await user.click(screen.getByRole("button", { name: /Apply HTTP auth/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/invalid/);
+    expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+  });
+
+  it("does not render subtree apply forms until nested spec exists", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.endsWith("/v1/status")) {
+          return json(200, sampleStatus());
+        }
+        if (url.endsWith("/v1/state") && method === "GET") {
+          return json(200, portsOnlyState("sha256:abc", [8443]));
+        }
+        if (url.endsWith("/v1/features") && method === "GET") {
+          return json(200, sampleFeatures());
+        }
+        return notFound();
+      }),
+    );
+    renderApp(<StatusPage />, { route: "/status" });
+    expect(await screen.findByRole("heading", { name: "TLS intercept" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Apply TLS/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Apply HTTP auth/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Apply rules/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Apply admission/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Apply compat/i })).toBeNull();
+  });
+
+  it("refetches GET /v1/status after replaceTLS", async () => {
+    const user = userEvent.setup();
+    let applied = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.endsWith("/v1/status")) {
+          return json(
+            200,
+            sampleStatus(
+              applied
+                ? {
+                    intercept: false,
+                    ca: {
+                      mode: "generate",
+                      spkiSha256: "cafebabe",
+                      subject: "CN=LabMITM",
+                      notAfter: "2099-01-01T00:00:00Z",
+                    },
+                  }
+                : {},
+            ),
+          );
+        }
+        if (url.endsWith("/v1/state") && method === "GET") {
+          return json(200, sampleState());
+        }
+        if (url.endsWith("/v1/features") && method === "GET") {
+          return json(200, sampleFeatures());
+        }
+        if (url.endsWith("/v1/changes:apply") && method === "POST") {
+          applied = true;
+          return json(200, { applied: true, runtimeRevision: "sha256:next" });
+        }
+        return notFound();
+      }),
+    );
+    renderApp(<StatusPage />, { route: "/status" });
+    expect(await screen.findByText("deadbeef")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /Apply TLS/i }));
+    expect(await screen.findByText("cafebabe")).toBeInTheDocument();
+    expect(screen.getByText(/Intercept:/)).toHaveTextContent(/off/);
+  });
+
+  it("posts replaceHTTPAuth file-ref users and refuses enabled+empty users", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = stubPageFetch();
+    renderApp(<StatusPage />, { route: "/status" });
+    await screen.findByLabelText("Users (file refs)");
+    await user.click(screen.getByRole("checkbox", { name: /httpAuth enabled/i }));
+    await user.click(screen.getByRole("button", { name: /Apply HTTP auth/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/users is required/);
+    expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Users (file refs)"), {
+      target: { value: '[{"id":"lab-proxy","usernameFile":"/etc/u","passwordFile":"/etc/p"}]' },
+    });
+    await user.click(screen.getByRole("button", { name: /Apply HTTP auth/i }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+    });
+    const applyCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/v1/changes:apply"));
+    const sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
+    expect(sent.operations[0]).toEqual({
+      op: "replaceHTTPAuth",
+      httpAuth: {
+        enabled: true,
+        realm: "labmitm-proxy",
+        users: [{ id: "lab-proxy", usernameFile: "/etc/u", passwordFile: "/etc/p" }],
+      },
+    });
+    expect(JSON.stringify(sent)).not.toContain("labpass");
+  });
+
+  it("posts replaceRules, replaceAdmission, and nested replaceCompat", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = stubPageFetch();
+    renderApp(<StatusPage />, { route: "/status" });
+    await screen.findByLabelText("Items JSON");
+    fireEvent.change(screen.getByLabelText("Items JSON"), {
+      target: {
+        value: '[{"id":"drop-all","enabled":true,"phase":"request","action":{"type":"drop"}}]',
+      },
+    });
+    await user.click(screen.getByRole("button", { name: /Apply rules/i }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+    });
+    let applyCall = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply")).at(-1);
+    let sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
+    expect(sent.operations[0].op).toBe("replaceRules");
+    expect(sent.operations[0].rules.enabled).toBe(false);
+    expect(sent.operations[0].rules.items[0].id).toBe("drop-all");
+
+    await user.click(screen.getByRole("button", { name: /Apply admission/i }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply"))).toHaveLength(2);
+    });
+    applyCall = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply")).at(-1);
+    sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
+    expect(sent.operations[0].op).toBe("replaceAdmission");
+    expect(sent.operations[0].admission.maxInFlightBytes).toBe("64MiB");
+    expect(sent.operations[0].admission.sessionTimeout).toBe("10m");
+    expect(sent.operations[0].admission.maxConcurrentStreams).toBe(100);
+
+    await user.clear(screen.getByLabelText("pathPrefix"));
+    await user.type(screen.getByLabelText("pathPrefix"), "/compat-qa");
+    await user.click(screen.getByRole("button", { name: /Apply compat/i }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply"))).toHaveLength(3);
+    });
+    applyCall = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply")).at(-1);
+    sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
+    expect(sent.operations[0]).toEqual({
+      op: "replaceCompat",
+      compat: { flowREST: { enabled: false, pathPrefix: "/compat-qa" } },
+    });
   });
 });

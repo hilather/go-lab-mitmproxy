@@ -237,6 +237,85 @@ describe("FlowPage", () => {
     expect(await screen.findByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument();
     expect(document.querySelector("iframe")).toBeNull();
     expect(document.querySelector("[dangerouslySetInnerHTML]")).toBeNull();
+    expect(screen.queryByText("drop")).toBeNull();
+    expect(screen.queryByText("block")).toBeNull();
+  });
+
+  it("badges drop and block frame actions", async () => {
+    const user = userEvent.setup();
+    const wsFlow = {
+      ...flow,
+      id: "01JWS2",
+      protocol: "websocket",
+      status: 101,
+      websocket: {
+        frameCount: 3,
+        truncated: false,
+        frames: [
+          {
+            direction: "client",
+            opcode: "text",
+            opcodeNum: 1,
+            fin: true,
+            masked: true,
+            payload: "kept",
+            size: 4,
+            truncated: false,
+          },
+          {
+            direction: "origin",
+            opcode: "text",
+            opcodeNum: 1,
+            fin: true,
+            masked: false,
+            payload: "gone",
+            size: 4,
+            truncated: false,
+            action: "drop",
+          },
+          {
+            direction: "client",
+            opcode: "binary",
+            opcodeNum: 2,
+            fin: true,
+            masked: true,
+            payload: "xx",
+            size: 2,
+            truncated: false,
+            action: "block",
+          },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.includes("/v1/flows/01JWS2") && !url.includes("/request") && !url.includes("/response")) {
+          return json(200, wsFlow);
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+
+    renderApp(
+      <Routes>
+        <Route path="/flows/:id" element={<FlowPage />} />
+      </Routes>,
+      { route: "/flows/01JWS2" },
+    );
+    await user.click(await screen.findByRole("tab", { name: /Frames/i }));
+    expect(screen.getByText("drop")).toHaveClass("badge");
+    expect(screen.getByText("block")).toHaveClass("badge");
   });
 
   it("renders gRPC tab as escaped text, never as HTML", async () => {

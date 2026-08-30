@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { InterceptChip, LiveSpecProvider } from "./api/liveSpec";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { SCOPE_ADMIN, SCOPE_AUDIT } from "./auth/scopes";
 import { AuditPage } from "./pages/AuditPage";
@@ -37,6 +38,42 @@ function NavItem({ to, children }: { to: string; children: ReactNode }) {
   );
 }
 
+function SignedInChrome({
+  items,
+  logout,
+}: {
+  items: { to: string; label: string }[];
+  logout: () => void | Promise<void>;
+}) {
+  return (
+    <>
+      <header className="topbar">
+        <NavLink className="brand" to="/">
+          <span className="status-dot" aria-hidden="true" />
+          LabMITM
+        </NavLink>
+        <div className="topbar-chips">
+          <span className="chip chip-accent">live</span>
+          <InterceptChip />
+          <button type="button" className="linkish" onClick={() => void logout()}>
+            Sign out
+          </button>
+        </div>
+      </header>
+      <nav className="sidenav" aria-label="Primary">
+        {items.map((item) => (
+          <NavItem key={item.to} to={item.to}>
+            {item.label}
+          </NavItem>
+        ))}
+      </nav>
+      <div id="app-main">
+        <Outlet />
+      </div>
+    </>
+  );
+}
+
 export function Shell() {
   const { state, hasScope, logout } = useAuth();
   const signedIn = state.status === "signed_in";
@@ -44,33 +81,23 @@ export function Shell() {
   return (
     <div className="app">
       <SkipLink />
-      <header className="topbar">
-        <NavLink className="brand" to="/">
-          <span className="status-dot" aria-hidden="true" />
-          LabMITM
-        </NavLink>
-        {signedIn ? (
-          <div className="topbar-chips">
-            <span className="chip chip-accent">live</span>
-            <span className="chip">:443 intercept only</span>
-            <button type="button" className="linkish" onClick={() => void logout()}>
-              Sign out
-            </button>
-          </div>
-        ) : null}
-      </header>
       {signedIn ? (
-        <nav className="sidenav" aria-label="Primary">
-          {items.map((item) => (
-            <NavItem key={item.to} to={item.to}>
-              {item.label}
-            </NavItem>
-          ))}
-        </nav>
-      ) : null}
-      <div id="app-main">
-        <Outlet />
-      </div>
+        <LiveSpecProvider>
+          <SignedInChrome items={items} logout={logout} />
+        </LiveSpecProvider>
+      ) : (
+        <>
+          <header className="topbar">
+            <NavLink className="brand" to="/">
+              <span className="status-dot" aria-hidden="true" />
+              LabMITM
+            </NavLink>
+          </header>
+          <div id="app-main">
+            <Outlet />
+          </div>
+        </>
+      )}
     </div>
   );
 }

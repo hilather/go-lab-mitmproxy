@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP
-Last reviewed: 2026-08-28 (compact features.httpAuth D76)
-Related ADRs: 0004, 0005, 0006, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017
+Last reviewed: 2026-08-30 (SPA renders compact status.features; D77)
+Related ADRs: 0004, 0005, 0006, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
 
@@ -58,7 +58,7 @@ mitm.audit.read    audit ring
 | `health.ready` | `GET /v1/health/ready` | — | none | REST_ONLY |
 | `version.get` | `GET /v1/version` | `mitm_version_get` | `mitm.read` | |
 | `capabilities.get` | `GET /v1/capabilities` | `mitm_capabilities_get`, `labmitm://capabilities` | `mitm.read` | |
-| `status.get` | `GET /v1/status` | `mitm_status_get`, `labmitm://status` | `mitm.read` | listeners, store stats, revisions, intercept on/off, `features.{http2,http2ClientCleartext,http2Origin,http2ExtendedConnect,http2CapturePush,http2GRPCDecode,inspectWebSocketFrames,socks5,socks4,acceptBind,acceptUDPAssociate,acceptUserPass,originalDestination,compatFlowREST,httpAuth}` (spec flags; default false; `httpAuth` from `spec.proxy.httpAuth.enabled`, K10 reopen via [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)), `ca.{mode,spkiSha256,subject,notAfter}` (never key). Compact booleans only — **not** the 11-row catalog |
+| `status.get` | `GET /v1/status` | `mitm_status_get`, `labmitm://status` | `mitm.read` | listeners, store stats, revisions, intercept on/off, `features.{http2,http2ClientCleartext,http2Origin,http2ExtendedConnect,http2CapturePush,http2GRPCDecode,inspectWebSocketFrames,socks5,socks4,acceptBind,acceptUDPAssociate,acceptUserPass,originalDestination,compatFlowREST,httpAuth}` (spec flags; default false; `httpAuth` from `spec.proxy.httpAuth.enabled`, K10 reopen via [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)), `ca.{mode,spkiSha256,subject,notAfter}` (never key). Compact booleans only — **not** the 11-row catalog. The operator Status page **renders** these compact booleans (`httpAuth` badge + Reset-required 1.2 rows as muted text). Live ports stay on `state.get` `canonical.spec.tls.ports` — this row has no `tls.ports` field |
 | `features.get` | `GET /v1/features` | `mitm_features_list`, `labmitm://features` | `mitm.read` | derived 11-row hop/protocol catalog (`id`, `yamlPath`, `enabled`, `applyMode` live\|reset, `verb` setFeature\|replaceTLS\|reset). Mutation stays `changes.plan` / `changes.apply`. Do not nest under `status.features` |
 | `schema.get` | `GET /v1/schema/config` | `mitm_schema_get`, `labmitm://schema/config` | `mitm.read` | |
 | `state.get` | `GET /v1/state` | `mitm_state_get`, `labmitm://state` | `mitm.read` | redacted spec + revisions |

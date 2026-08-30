@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-08-28 (HTTP proxy 407 D76)
-Related ADRs: 0002, 0003, 0005, 0007, 0009, 0010, 0012, 0014, 0015, 0016, 0017
+Last reviewed: 2026-08-30 (Status ui.enabled gate-off; D77)
+Related ADRs: 0002, 0003, 0005, 0007, 0009, 0010, 0012, 0014, 0015, 0016, 0017, 0018
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).
 
@@ -59,7 +59,7 @@ See [docs/03-tls-interception.md](https://github.com/hilather/go-lab-mitmproxy/b
 
 - Tokens: **≥256 bits** entropy, compared as SHA-256 digests. File refs only.
 - Failed Bearer returns `401` `unauthenticated` with `WWW-Authenticate: Bearer realm="labmitm"`. MCP is bearer-only (no Basic).
-- UI session cookie name **`labmitm_session`**: `HttpOnly`, `SameSite=Lax`, `Secure` iff management TLS; CSRF header `X-LabMITM-CSRF` required on cookie-authenticated mutations even over HTTP (`POST /v1/session`, `DELETE /v1/session`). `GET /v1/session` returns the CSRF secret for a valid cookie (reload recovery). Session JSON (and other REST JSON) is `Cache-Control: no-store`. Token files are reread on reset and apply; the session table is cleared only when the compiled auth identity changes. A failed secret reread keeps the previous verifier and live sessions. Max concurrent sessions: 64.
+- UI session cookie name **`labmitm_session`**: `HttpOnly`, `SameSite=Lax`, `Secure` iff management TLS; CSRF header `X-LabMITM-CSRF` required on cookie-authenticated mutations even over HTTP (`POST /v1/session`, `DELETE /v1/session`). `GET /v1/session` returns the CSRF secret for a valid cookie (reload recovery). Session JSON (and other REST JSON) is `Cache-Control: no-store`. Token files are reread on reset and apply; the session table is cleared only when the compiled auth identity changes. A failed secret reread keeps the previous verifier and live sessions. Max concurrent sessions: 64. Status may gate-off `ui.enabled` after a confirm ([ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77); the next inspector request 404s. REST/MCP stay up. Recovery is REST/MCP `setFeature ui.enabled: true` or bootstrap YAML + Reset.
 - No `.well-known/oauth-protected-resource` (ADR 0005).
 - `X-Forwarded-For` is not trusted.
 - No CORS headers. OPTIONS is not a success path.

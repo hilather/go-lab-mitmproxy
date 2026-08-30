@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-08-29 (operator SPA remaining-page chrome)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017
+Last reviewed: 2026-08-30 (operator SPA live-apply controls; D77)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 ## Problem statement
 
@@ -105,7 +105,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 
 | ID | Decision | Rationale |
 |---|---|---|
-| **D1** | **Product name is LabMITM.** Repo remains `go-lab-mitmproxy`. Module `github.com/hilather/go-lab-mitmproxy`. Binary / CLI `labmitm`. Image `ghcr.io/hilather/labmitm`. YAML `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`. | LabMail naming rule. TacLab is the frozen exception (ADR 0018). |
+| **D1** | **Product name is LabMITM.** Repo remains `go-lab-mitmproxy`. Module `github.com/hilather/go-lab-mitmproxy`. Binary / CLI `labmitm`. Image `ghcr.io/hilather/labmitm`. YAML `apiVersion: labmitm.dev/v1alpha1`, `kind: LabMITM`. | LabMail naming rule. TacLab is the frozen exception (TacLab ADR 0018, cross-repo). |
 | **D2** | **Single process, two planes.** Proxy data plane is independent of management HTTP. Invalid bootstrap does **not** bind either listener. | LabDNS / LabMail process model. |
 | **D3** | **Desired state is YAML; the flow store is not.** Reset reloads YAML **and** wipes flows. | Family GitOps invariant. |
 | **D4** | **REST and MCP share one capability registry.** Adapters never call each other. | LabDNS / LabMail ADR 0004. |
@@ -123,6 +123,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D16** | **Data-plane Dial is required, isolated, and resolve-then-guard.** Dial only in `internal/proxy`. | Hostname-only guards miss CNAME→IMDS. |
 | **D17** | **Proxy HTTP hop is unauthenticated by default.** No always-on `Proxy-Authorization`. 1.2 supersedes the unauthenticated-data-plane sentence **for SOCKS only** ([ADR 0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) D60): opt-in file-ref username/password; GSSAPI out; management still bearer (D6). [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) **D76** supersedes the HTTP remainder **only when `spec.proxy.httpAuth.enabled` is true**. Empty `spec: {}` stays today's unauthenticated HTTP hop. | Lab clients (`curl --proxy`) must keep working. Binding localhost is the 1.0 access control. SOCKS user-pass and HTTP 407 are separate lab-static planes, default-off, fail-closed. |
 | **D76** | **Opt-in HTTP proxy 407 on `listeners.proxy` only.** Schema `spec.proxy.httpAuth` (default `enabled: false`). Live apply verb `replaceHTTPAuth` (8th `KnownOp`). File-ref users → snapshot `HTTPAuthUsers`. Basic only. Management stays bearer (D6). Catalog stays 31; `features.get` stays 11. Compact `status.features.httpAuth` is additive (K10 reopen). Orig-dest, inner intercept, SOCKS, Replay, h2c Extended CONNECT: out. | QA corp-proxy auth simulation. `setFeature` is boolean-only; `replaceRules` cannot 407 CONNECT and must not 407 inner hops. ADR 0014 / D69 is QA block modes. ADR 0015 / D72–D74 is WebSocket frame rules. |
+| **D77** | **Status may apply `ui.enabled` via existing `setFeature` after a gated off-confirm.** Turning off 404s all inspector routes (`/`, `/status`, `/flows/…`); REST/MCP stay up. Recovery is REST/MCP `setFeature ui.enabled: true` or bootstrap YAML + Reset. Apply mode stays live. Reset-only IDs stay Reset-only. HTTP 407 stays `replaceHTTPAuth`, not a Features-table switch. | [ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md). ADR 0013 closed call #3 reconsideration. |
 | **D18** | **Catalog id is `labmitm`.** Lab pin is vendor tag **v1.1.0** + `labmitm:local` (not a GHCR digest). | No predecessor to preserve. |
 | **D19** | **CONNECT Hijack + inner HTTP/1.1 session.** Never return that conn to `http.Server`. | Returning after 200 makes keep-alive parse the TLS ClientHello as a request. |
 | **D20** | **`intercept: true` does not silently tunnel.** Handshake failure closes both sides. | Silent fallback would hide a failed MITM. |
@@ -199,12 +200,12 @@ Required for GA / 1.0 (D13, PR 13). The UI talks REST only. XSS/CSP: [docs/08-re
 | Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` (copy step; `web/` has its own `go.mod` so parent `go test ./...` does not walk `node_modules`) |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie `labmitm_session` + `X-LabMITM-CSRF`. Cookie is REST-only. No Basic form. |
-| Pages | Flows split-pane (list stays mounted; selection on `/` + `/flows/:id` drives Request / Response / TLS; Trailers / Frames / gRPC when present). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary (`why not decrypted: port not in tls.ports:[443]`), not empty HTTP panes. Handshake `tls_handshake` / `http2_inner` stays an error, not that chip. Header chrome: LabMITM, **live**, **:443 intercept only** (overlay/default copy — not live `GET /v1/state` `tls.ports`). Status / Audit / Reset / Login page bodies share the same dark lab chrome (IBM Plex, `#0b0c0e` / `#6ea8d1` / `#c4a35a`); tunnel-not-decrypt remains a **flow** chip only. CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` except `ui.enabled`; reset-only rows link to `/reset`; no `/features` route), audit (if scoped), gated reset |
+| Pages | Flows split-pane (list stays mounted; selection on `/` + `/flows/:id` drives Request / Response / TLS; Trailers / Frames / gRPC when present). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary (`why not decrypted: port not in tls.ports:[443]`), not empty HTTP panes. Handshake `tls_handshake` / `http2_inner` stays an error, not that chip. Header chrome: LabMITM, **live**, intercept-ports chip from live `GET /v1/state` `canonical.spec.tls.ports` (e.g. `:443 intercept` / `:8443 intercept`; never hardcoded `:443 intercept only`). Status / Audit / Reset / Login page bodies share the same dark lab chrome (IBM Plex, `#0b0c0e` / `#6ea8d1` / `#c4a35a`); tunnel-not-decrypt remains a **flow** chip only. CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` including gated `ui.enabled` off-confirm; compact `status.features` including `httpAuth` + Reset-required 1.2 flags as muted text; live `replaceTLS` / `replaceHTTPAuth` / `replaceRules` / `replaceAdmission` / `replaceCompat`; reset-only catalog row links to `/reset`; no `/features` route), Frames tab badges `drop`/`block`, audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream` (SSE) stays mounted while selecting flows (`flow.inserted` / `flow.paused` / `flow.deleted` / `store.wiped`). Fallback: 3s poll of `GET /v1/flows`. |
 | Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download is `download=` plus blob fetch; raw body GETs are `application/octet-stream` + attachment. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
 | Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle, Relay |
 
-`spec.ui.enabled: false` serves 404 for `/` but keeps REST/MCP.
+`spec.ui.enabled: false` serves 404 for `/` (and `/status`, `/flows/…`) but keeps REST/MCP. Status may apply that bit after a gated off-confirm ([ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77).
 
 ## Package layout
 

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "./App";
 import { json, renderApp, resetClientState, sessionView } from "./test/render";
+import { portsOnlyState, sampleState, sampleStatus } from "./test/state";
 
 describe("operator chrome", () => {
   afterEach(() => {
@@ -18,6 +19,9 @@ describe("operator chrome", () => {
         const url = String(input);
         if (url.endsWith("/v1/session")) {
           return json(200, sessionView());
+        }
+        if (url.endsWith("/v1/state")) {
+          return json(200, portsOnlyState("sha256:abc", [8443]));
         }
         if (url.includes("/v1/flows/01J") && !url.includes("?")) {
           return json(200, {
@@ -78,7 +82,8 @@ describe("operator chrome", () => {
     expect(await screen.findByRole("link", { name: /Skip to main content/i })).toHaveAttribute("href", "#app-main");
     expect(screen.getByRole("link", { name: /LabMITM/i })).toBeInTheDocument();
     expect(screen.getByText("live")).toBeInTheDocument();
-    expect(screen.getByText(":443 intercept only")).toBeInTheDocument();
+    expect(await screen.findByText(":8443 intercept")).toBeInTheDocument();
+    expect(screen.queryByText(":443 intercept only")).toBeNull();
     expect(screen.getByRole("button", { name: /Sign out/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Flows" })).toHaveClass("nav-active");
     expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
@@ -97,15 +102,10 @@ describe("operator chrome", () => {
           return json(200, sessionView());
         }
         if (url.endsWith("/v1/status")) {
-          return json(200, {
-            ready: true,
-            intercept: true,
-            revisions: { runtime: "abc" },
-            listeners: [{ name: "proxy", address: "127.0.0.1:8888" }],
-            store: { flowCount: 1, storeBytes: 12, storeGeneration: 3, epoch: 1 },
-            ca: { mode: "generate", spkiSha256: "deadbeef", subject: "CN=LabMITM", notAfter: "2099-01-01T00:00:00Z" },
-            features: {},
-          });
+          return json(200, sampleStatus());
+        }
+        if (url.endsWith("/v1/state")) {
+          return json(200, sampleState("sha256:abc", [8443]));
         }
         if (url.endsWith("/v1/features")) {
           return json(200, {
@@ -142,7 +142,8 @@ describe("operator chrome", () => {
       const { unmount } = renderApp(<AppRoutes />, { route });
       expect(await screen.findByRole("link", { name: /Skip to main content/i })).toHaveAttribute("href", "#app-main");
       expect(screen.getByRole("link", { name: /LabMITM/i })).toBeInTheDocument();
-      expect(screen.getByText(":443 intercept only")).toBeInTheDocument();
+      expect(await screen.findByText(":8443 intercept")).toBeInTheDocument();
+      expect(screen.queryByText(":443 intercept only")).toBeNull();
       expect(screen.getByRole("button", { name: /Sign out/i })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Flows" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Status" })).toBeInTheDocument();

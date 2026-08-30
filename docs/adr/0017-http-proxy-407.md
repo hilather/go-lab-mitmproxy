@@ -49,4 +49,4 @@ Does not supersede: D6, D7, D12, D16, D19, D20, D21, D51' remainder (1.2 nested 
 
 ## Review triggers
 
-Review when Digest / NTLM / Negotiate, sharing SOCKS and HTTP user files by reference, 407 on orig-dest / inner intercept / Replay / h2c Extended CONNECT, a Status Features toggle, or a `setFeature` ID for HTTP auth is proposed.
+Review when Digest / NTLM / Negotiate, sharing SOCKS and HTTP user files by reference, 407 on orig-dest / inner intercept / Replay / h2c Extended CONNECT, or a `setFeature` ID for HTTP auth is proposed. Status exposes a `replaceHTTPAuth` panel (file-ref users; not a Features-table `setFeature` switch).

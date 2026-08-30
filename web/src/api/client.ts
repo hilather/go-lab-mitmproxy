@@ -10,6 +10,7 @@ import type {
   Problem,
   SessionCreated,
   SessionView,
+  StateView,
   Status,
 } from "./types";
 
@@ -270,6 +271,10 @@ export async function getStatus(): Promise<Status> {
 
 export async function getFeatures(): Promise<FeatureList> {
   return readJSON<FeatureList>(await apiFetch("/v1/features"));
+}
+
+export async function getState(): Promise<StateView> {
+  return readJSON<StateView>(await apiFetch("/v1/state"));
 }
 
 export async function applyChanges(body: ChangeSet): Promise<ApplyResult> {

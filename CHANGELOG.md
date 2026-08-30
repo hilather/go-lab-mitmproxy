@@ -6,7 +6,11 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
-- None.
+- Operator Status live-apply panels for `replaceTLS`, `replaceHTTPAuth` (407 file-ref users), `replaceRules`, `replaceAdmission`, and nested `replaceCompat` `{ compat: { flowREST } }`.
+- Status compact `status.features` panel: `httpAuth` badge plus Reset-required 1.2 flags as muted text (one catalog `Reset required` link).
+- Status gated `ui.enabled` off-confirm (D77 / ADR 0018). Recovery is REST/MCP.
+- Header intercept-ports chip from live `GET /v1/state` `canonical.spec.tls.ports` (not hardcoded `:443 intercept only`).
+- Inspector Frames tab badges `drop` / `block` from GET-by-id `frames[].action`.
 
 ### Changed
 
