@@ -31,7 +31,7 @@ export function interceptChipLabel(state: StateView | null): string {
   if (!tls.intercept) {
     return "intercept off";
   }
-  const ports = tls.ports ?? [];
+  const ports = Array.isArray(tls.ports) ? tls.ports : [];
   if (ports.length === 0) {
     return "intercept ports unknown";
   }

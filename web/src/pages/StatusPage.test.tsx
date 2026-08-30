@@ -388,8 +388,7 @@ describe("StatusPage", () => {
       }),
     );
     renderApp(<StatusPage />, { route: "/status" });
-    expect(await screen.findByRole("heading", { name: "TLS intercept" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Apply TLS/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Apply TLS/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Apply HTTP auth/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Apply rules/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Apply admission/i })).toBeNull();

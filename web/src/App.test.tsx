@@ -156,6 +156,9 @@ describe("operator chrome", () => {
       if (route === "/status") {
         expect(await screen.findByRole("heading", { name: "Lab CA" })).toBeInTheDocument();
         expect(screen.getByText(/Ready:/)).toBeInTheDocument();
+        expect(await screen.findByLabelText("Users (file refs)")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Apply admission/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Apply compat/i })).toBeInTheDocument();
       } else if (route === "/audit") {
         expect(await screen.findByText("No audit events.")).toBeInTheDocument();
       } else {
