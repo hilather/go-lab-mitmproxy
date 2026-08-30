@@ -1,6 +1,6 @@
 # Plan: OriginConn request-body + response-trailer completeness
 
-Status: ACCEPT (sweep 1 NO BLOCKING FINDINGS; non-blocking wording folded)
+Status: ACCEPT (plan sweep 1 NO BLOCKING FINDINGS; code review sweep 1 NO BLOCKING FINDINGS)
 Owners: Proxy / http2x
 Last reviewed: 2026-08-30
 Scope: `internal/http2x.OriginConn` plus the one reconstruct helper that feeds it. Do not merge. Do not rebase/merge leftover drafts #48 / #51.
