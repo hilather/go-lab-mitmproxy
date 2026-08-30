@@ -218,7 +218,9 @@ export function StatusPage() {
     return fallback;
   }
 
-  async function applyOp(operations: ChangeOperation[]): Promise<boolean> {
+  async function applyOp(
+    operations: ChangeOperation[] | (() => Promise<ChangeOperation[]>),
+  ): Promise<boolean> {
     if (busyRef.current) {
       return false;
     }
@@ -227,13 +229,14 @@ export function StatusPage() {
     setFeatureError("");
     const idempotencyKey = crypto.randomUUID();
     try {
+      const ops = typeof operations === "function" ? await operations() : operations;
       const fresh = await getState();
       const expectedRevision = fresh.runtimeRevision || revision;
       const result = await applyChanges({
         expectedRevision,
         idempotencyKey,
         reason: reason.trim(),
-        operations,
+        operations: ops,
       });
       if (result.runtimeRevision) {
         setRevision(result.runtimeRevision);
@@ -367,8 +370,10 @@ export function StatusPage() {
       setFeatureError("rules items JSON is invalid.");
       return;
     }
-    const enabled = await liveEnabled(FEATURE_RULES_ENABLED, current.enabled);
-    await applyOp([{ op: "replaceRules", rules: { enabled, items } }]);
+    await applyOp(async () => {
+      const enabled = await liveEnabled(FEATURE_RULES_ENABLED, current.enabled);
+      return [{ op: "replaceRules", rules: { enabled, items } }];
+    });
   }
 
   async function onApplyAdmission(ev: FormEvent) {
@@ -385,13 +390,15 @@ export function StatusPage() {
     if (!current || !canAdmin) {
       return;
     }
-    const enabled = await liveEnabled(FEATURE_COMPAT, current.enabled);
-    await applyOp([
-      {
-        op: "replaceCompat",
-        compat: { flowREST: { enabled, pathPrefix: compatPrefix } },
-      },
-    ]);
+    await applyOp(async () => {
+      const enabled = await liveEnabled(FEATURE_COMPAT, current.enabled);
+      return [
+        {
+          op: "replaceCompat",
+          compat: { flowREST: { enabled, pathPrefix: compatPrefix } },
+        },
+      ];
+    });
   }
 
   if (error !== "") {
@@ -418,7 +425,7 @@ export function StatusPage() {
   }
 
   const spec = liveState?.canonical?.spec;
-  const tlsReady = spec?.tls != null;
+  const tlsReady = spec?.tls != null && Array.isArray(spec.tls.ports);
   const authReady = spec?.proxy?.httpAuth != null;
   const rulesReady = spec?.rules != null;
   const admissionReady = spec?.proxy?.admission != null && admission != null;
@@ -507,12 +514,15 @@ export function StatusPage() {
             <span className="muted">unset until enabled (normalize default 127.0.0.1:8890)</span>
           )}
         </p>
-        {metricsListen !== "" ? (
-          <p>
-            metrics.listen: <code>{metricsListen}</code>{" "}
-            <span className="muted">Reset required</span>
-          </p>
-        ) : null}
+        <p>
+          metrics.listen:{" "}
+          {metricsListen !== "" ? (
+            <code>{metricsListen}</code>
+          ) : (
+            <span className="muted">unset</span>
+          )}{" "}
+          <span className="muted">Reset required</span>
+        </p>
       </section>
       <section className="panel">
         <h2>Runtime flags</h2>

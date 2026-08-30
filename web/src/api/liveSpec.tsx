@@ -20,8 +20,8 @@ export function useLiveSpec(): LiveSpecValue {
   return useContext(LiveSpecContext);
 }
 
-export function interceptChipLabel(state: StateView | null, error: string): string {
-  if (state === null || error !== "") {
+export function interceptChipLabel(state: StateView | null): string {
+  if (state === null) {
     return "intercept ports unknown";
   }
   const tls = state.canonical?.spec?.tls;
@@ -60,6 +60,6 @@ export function LiveSpecProvider({ children }: { children: ReactNode }) {
 }
 
 export function InterceptChip() {
-  const { state, error } = useLiveSpec();
-  return <span className="chip">{interceptChipLabel(state, error)}</span>;
+  const { state } = useLiveSpec();
+  return <span className="chip">{interceptChipLabel(state)}</span>;
 }
