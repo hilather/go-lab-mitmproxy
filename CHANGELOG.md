@@ -14,7 +14,8 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- Origin h2 (`protocols.http2.origin`) now forwards inner POST/PUT/PATCH/gRPC request DATA. `http2x.OriginConn` treated `ContentLength == 0` as no body, so reconstructed inner streams (h2 often omits content-length) sent HEADERS with END_STREAM and dropped the payload.
+- Origin-h2 `http2x.OriginConn` now surfaces trailing HEADERS on `Response.Trailer` (and skips 1xx informational HEADERS). Live intercept with `protocols.http2.origin` forwards gRPC `grpc-status` / other response trailers to the inner client and stores them on the flow instead of dropping the second HEADERS block.
 
 ### Removed or deprecated
 

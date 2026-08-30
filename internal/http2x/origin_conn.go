@@ -41,11 +41,72 @@ type Pushed struct {
 }
 
 type originStream struct {
-	id     uint32
-	body   *bodyBuf
-	hdr    chan []hpack.HeaderField
-	fail   chan error
-	closed atomic.Bool
+	id       uint32
+	body     *bodyBuf
+	hdr      chan []hpack.HeaderField
+	fail     chan error
+	closed   atomic.Bool
+	gotResp  atomic.Bool
+	trailers []hpack.HeaderField
+	trMu     sync.Mutex
+}
+
+func (st *originStream) storeTrailers(fields []hpack.HeaderField) {
+	if st == nil {
+		return
+	}
+	st.trMu.Lock()
+	st.trailers = fields
+	st.trMu.Unlock()
+}
+
+func (st *originStream) takeTrailers() []hpack.HeaderField {
+	if st == nil {
+		return nil
+	}
+	st.trMu.Lock()
+	defer st.trMu.Unlock()
+	return st.trailers
+}
+
+// trailerBody copies origin trailing HEADERS onto resp.Trailer after
+// the body is drained (stdlib convention: Trailer is filled at EOF/Close).
+type trailerBody struct {
+	io.ReadCloser
+	st   *originStream
+	dest *http.Header
+	once sync.Once
+}
+
+func (b *trailerBody) promote() {
+	b.once.Do(func() {
+		if b.dest == nil {
+			return
+		}
+		h := make(http.Header)
+		for _, hf := range b.st.takeTrailers() {
+			lk := strings.ToLower(hf.Name)
+			if lk == "" || strings.HasPrefix(lk, ":") || hopHeaders[lk] || lk == "trailer" {
+				continue
+			}
+			h.Add(hf.Name, hf.Value)
+		}
+		*b.dest = h
+	})
+}
+
+func (b *trailerBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err == io.EOF {
+		b.promote()
+	}
+	return n, err
+}
+
+func (b *trailerBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.promote()
+	return err
 }
 
 type pushStream struct {
@@ -204,15 +265,21 @@ func (o *OriginConn) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, ErrRefuseRedial
 		}
 		resp := responseFromFields(fields, st.body)
+		resp.Trailer = make(http.Header)
+		resp.Body = &trailerBody{ReadCloser: resp.Body, st: st, dest: &resp.Trailer}
 		return resp, nil
 	}
 }
 
+// requestHasBody matches net/http.Request.outgoingLength: a non-nil Body
+// with ContentLength 0 is unknown-length, not "no body". Inner h2
+// reconstruct leaves ContentLength 0 while teeing stream DATA (gRPC and
+// most h2 POSTs omit content-length).
 func requestHasBody(req *http.Request) bool {
 	if req == nil || req.Body == nil || req.Body == http.NoBody {
 		return false
 	}
-	return req.ContentLength != 0
+	return true
 }
 
 func (o *OriginConn) writeRequestBody(id uint32, body io.ReadCloser) {
@@ -393,10 +460,22 @@ func (o *OriginConn) handleHeaders(f *http2.MetaHeadersFrame) {
 	ps := o.pushes[id]
 	o.mu.Unlock()
 	if st != nil {
-		select {
-		case st.hdr <- fields:
-		default:
-			// trailers: close body
+		if status := statusOf(fields); status > 0 && status < 200 {
+			// 1xx informational HEADERS must not become the RoundTrip
+			// response or steal the trailer slot from the final status.
+			if f.StreamEnded() {
+				o.failStream(id, fmt.Errorf("http2x: informational HEADERS ended stream"))
+			}
+			return
+		}
+		if st.gotResp.Swap(true) {
+			st.storeTrailers(fields)
+		} else {
+			select {
+			case st.hdr <- fields:
+			default:
+				st.storeTrailers(fields)
+			}
 		}
 		if f.StreamEnded() && st.body != nil {
 			_ = st.body.Close()
