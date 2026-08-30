@@ -42,6 +42,7 @@ var RequiredRootDocs = []string{
 	"docs/releases/v1.3.0.md",
 	"docs/releases/v1.4.0.md",
 	"docs/releases/v1.5.0.md",
+	"docs/releases/v1.6.0.md",
 	"docs/adr/0001-use-go.md",
 	"docs/adr/0002-in-tree-http-forward-proxy.md",
 	"docs/adr/0003-ephemeral-flows-and-gitops.md",

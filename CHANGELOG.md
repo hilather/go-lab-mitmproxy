@@ -6,6 +6,26 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.6.0 - 2026-08-30
+
+Operator SPA live-apply from [PR #70](https://github.com/hilather/go-lab-mitmproxy/pull/70): Status panels for `replaceTLS`, `replaceHTTPAuth`, `replaceRules`, `replaceAdmission`, and nested `replaceCompat`; compact `status.features` `httpAuth` badge plus Reset-required 1.2 flags; ADR [0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77 gated `ui.enabled` off-confirm; live intercept chip from `GET /v1/state` `canonical.spec.tls.ports`; Frames tab `drop`/`block` badges. Origin-h2 `OriginConn` DATA + trailer completeness from [PR #69](https://github.com/hilather/go-lab-mitmproxy/pull/69). Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. No new capability IDs or apply verbs. No fuzzer. Management stays bearer. **D7 stands.** Notes: [docs/releases/v1.6.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.6.0/docs/releases/v1.6.0.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.6.0/docs/known-limitations.md).
+
+### Added
+
 - Operator Status live-apply panels for `replaceTLS`, `replaceHTTPAuth` (407 file-ref users), `replaceRules`, `replaceAdmission`, and nested `replaceCompat` `{ compat: { flowREST } }`.
 - Status compact `status.features` panel: `httpAuth` badge plus Reset-required 1.2 flags as muted text (one catalog `Reset required` link).
 - Status gated `ui.enabled` off-confirm (D77 / ADR 0018). Recovery is REST/MCP.
