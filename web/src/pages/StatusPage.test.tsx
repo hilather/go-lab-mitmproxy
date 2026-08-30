@@ -477,9 +477,18 @@ describe("StatusPage", () => {
 
   it("posts replaceRules, replaceAdmission, and nested replaceCompat", async () => {
     const user = userEvent.setup();
-    const { fetchMock } = stubPageFetch();
+    const catalog = sampleFeatures();
+    const { fetchMock } = stubPageFetch({ features: catalog });
     renderApp(<StatusPage />, { route: "/status" });
     await screen.findByLabelText("Items JSON");
+    const rulesRow = catalog.items.find((item) => item.id === "rules.enabled");
+    const compatRow = catalog.items.find((item) => item.id === "compat.flowREST");
+    if (rulesRow) {
+      rulesRow.enabled = true;
+    }
+    if (compatRow) {
+      compatRow.enabled = true;
+    }
     fireEvent.change(screen.getByLabelText("Items JSON"), {
       target: {
         value: '[{"id":"drop-all","enabled":true,"phase":"request","action":{"type":"drop"}}]',
@@ -492,7 +501,7 @@ describe("StatusPage", () => {
     let applyCall = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply")).at(-1);
     let sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
     expect(sent.operations[0].op).toBe("replaceRules");
-    expect(sent.operations[0].rules.enabled).toBe(false);
+    expect(sent.operations[0].rules.enabled).toBe(true);
     expect(sent.operations[0].rules.items[0].id).toBe("drop-all");
 
     await user.click(screen.getByRole("button", { name: /Apply admission/i }));
@@ -502,9 +511,18 @@ describe("StatusPage", () => {
     applyCall = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply")).at(-1);
     sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
     expect(sent.operations[0].op).toBe("replaceAdmission");
-    expect(sent.operations[0].admission.maxInFlightBytes).toBe("64MiB");
-    expect(sent.operations[0].admission.sessionTimeout).toBe("10m");
-    expect(sent.operations[0].admission.maxConcurrentStreams).toBe(100);
+    expect(sent.operations[0].admission).toEqual({
+      maxSessions: 256,
+      maxSessionsPerIP: 32,
+      maxInFlight: 64,
+      maxInFlightBytes: "64MiB",
+      sessionTimeout: "10m",
+      idleTimeout: "120s",
+      headerTimeout: "10s",
+      dialTimeout: "10s",
+      upstreamTimeout: "60s",
+      maxConcurrentStreams: 100,
+    });
 
     await user.clear(screen.getByLabelText("pathPrefix"));
     await user.type(screen.getByLabelText("pathPrefix"), "/compat-qa");
@@ -516,7 +534,7 @@ describe("StatusPage", () => {
     sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
     expect(sent.operations[0]).toEqual({
       op: "replaceCompat",
-      compat: { flowREST: { enabled: false, pathPrefix: "/compat-qa" } },
+      compat: { flowREST: { enabled: true, pathPrefix: "/compat-qa" } },
     });
   });
 });

@@ -59,11 +59,6 @@ function parsePorts(raw: string): number[] | string {
   return ports;
 }
 
-function catalogEnabled(list: FeatureList | null, id: string, fallback: boolean): boolean {
-  const row = list?.items.find((item) => item.id === id);
-  return row ? row.enabled : fallback;
-}
-
 export function StatusPage() {
   const { hasScope } = useAuth();
   const canAdmin = hasScope(SCOPE_ADMIN);
@@ -140,7 +135,7 @@ export function StatusPage() {
     }
     const spec = sv.canonical?.spec;
     const tls = spec?.tls;
-    if (tls) {
+    if (tls && Array.isArray(tls.ports)) {
       setTlsIntercept(tls.intercept);
       setTlsPorts(tls.ports.join(","));
     }
@@ -197,6 +192,30 @@ export function StatusPage() {
     } catch {
       // Chip refresh is best-effort.
     }
+  }
+
+  async function liveEnabled(id: string, fallback: boolean): Promise<boolean> {
+    try {
+      const list = await refreshFeatures();
+      const row = list.items.find((item) => item.id === id);
+      if (row) {
+        return row.enabled;
+      }
+    } catch {
+      // Fall through to state.
+    }
+    try {
+      const sv = await getState();
+      if (id === FEATURE_RULES_ENABLED) {
+        return sv.canonical?.spec?.rules?.enabled ?? fallback;
+      }
+      if (id === FEATURE_COMPAT) {
+        return sv.canonical?.spec?.compat?.flowREST?.enabled ?? fallback;
+      }
+    } catch {
+      // Use the caller fallback (fresh subtree or last known).
+    }
+    return fallback;
   }
 
   async function applyOp(operations: ChangeOperation[]): Promise<boolean> {
@@ -271,10 +290,10 @@ export function StatusPage() {
       intercept: tlsIntercept,
       hosts: tls.hosts ?? [],
       ports: parsed,
-      ca: { ...tls.ca },
+      ca: { ...(tls.ca ?? { mode: "generate", certFile: "", keyFile: "" }) },
       upstream: {
-        insecureSkipVerify: tls.upstream.insecureSkipVerify,
-        extraCAFiles: [...(tls.upstream.extraCAFiles ?? [])],
+        insecureSkipVerify: tls.upstream?.insecureSkipVerify ?? false,
+        extraCAFiles: [...(tls.upstream?.extraCAFiles ?? [])],
       },
     };
     await applyOp([{ op: "replaceTLS", tls: body }]);
@@ -293,7 +312,27 @@ export function StatusPage() {
         setFeatureError("httpAuth users must be a JSON array.");
         return;
       }
-      users = parsed as HTTPAuthUser[];
+      users = [];
+      for (const row of parsed) {
+        if (!row || typeof row !== "object") {
+          setFeatureError("httpAuth users must be objects with id, usernameFile, passwordFile.");
+          return;
+        }
+        const rec = row as Record<string, unknown>;
+        if (
+          typeof rec.id !== "string" ||
+          typeof rec.usernameFile !== "string" ||
+          typeof rec.passwordFile !== "string"
+        ) {
+          setFeatureError("httpAuth users must be objects with id, usernameFile, passwordFile.");
+          return;
+        }
+        users.push({
+          id: rec.id,
+          usernameFile: rec.usernameFile,
+          passwordFile: rec.passwordFile,
+        });
+      }
     } catch {
       setFeatureError("httpAuth users JSON is invalid.");
       return;
@@ -328,13 +367,7 @@ export function StatusPage() {
       setFeatureError("rules items JSON is invalid.");
       return;
     }
-    let list = features;
-    try {
-      list = await refreshFeatures();
-    } catch {
-      // Use the catalog already on the page.
-    }
-    const enabled = catalogEnabled(list, FEATURE_RULES_ENABLED, current.enabled);
+    const enabled = await liveEnabled(FEATURE_RULES_ENABLED, current.enabled);
     await applyOp([{ op: "replaceRules", rules: { enabled, items } }]);
   }
 
@@ -352,13 +385,7 @@ export function StatusPage() {
     if (!current || !canAdmin) {
       return;
     }
-    let list = features;
-    try {
-      list = await refreshFeatures();
-    } catch {
-      // Use the catalog already on the page.
-    }
-    const enabled = catalogEnabled(list, FEATURE_COMPAT, current.enabled);
+    const enabled = await liveEnabled(FEATURE_COMPAT, current.enabled);
     await applyOp([
       {
         op: "replaceCompat",
@@ -721,7 +748,10 @@ export function StatusPage() {
                   value={String(admission[key])}
                   disabled={!canAdmin || busy}
                   onChange={(e) =>
-                    setAdmission({ ...admission, [key]: Number(e.target.value) })
+                    setAdmission({
+                      ...admission,
+                      [key]: Number.parseInt(e.target.value, 10) || 0,
+                    })
                   }
                 />
               </div>

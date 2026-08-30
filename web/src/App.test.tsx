@@ -199,5 +199,7 @@ describe("operator chrome", () => {
     expect(screen.queryByText(":443 intercept only")).toBeNull();
     expect(screen.queryByText("tunnel-not-decrypt")).toBeNull();
     expect(document.querySelector("form.panel")).not.toBeNull();
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/state"))).toBe(true);
   });
 });
