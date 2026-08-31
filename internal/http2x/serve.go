@@ -35,7 +35,8 @@ var hopHeaders = map[string]bool{
 }
 
 type streamState struct {
-	body *bodyBuf
+	body        *bodyBuf
+	handlerDone bool
 }
 
 // ServeClient is request/response-only (extendedConnect off). tun is always
@@ -150,19 +151,46 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 		})
 	}
 
-	finish := func(id uint32) {
+	// finish tears down a stream. force=false keeps receiving DATA when the
+	// handler returned a response before the client END_STREAM (origin-h2
+	// early 200 / gRPC). Closing the body then would EOF writeRequestBody
+	// and RST the rest of the upload.
+	finish := func(id uint32, force bool) {
 		mu.Lock()
-		if st, ok := streams[id]; ok {
-			if st.body != nil {
-				_ = st.body.Close()
+		st, ok := streams[id]
+		if !ok {
+			mu.Unlock()
+			return
+		}
+		if !force && st.body != nil && !st.body.Closed() {
+			st.handlerDone = true
+			if !st.body.Closed() {
+				mu.Unlock()
+				return
 			}
-			delete(streams, id)
-			if open > 0 {
-				open--
-			}
+		}
+		if st.body != nil {
+			_ = st.body.Close()
+		}
+		delete(streams, id)
+		if open > 0 {
+			open--
 		}
 		mu.Unlock()
 		out.forget(id)
+	}
+	forceFinish := func(id uint32) { finish(id, true) }
+	endRequestBody := func(id uint32, st *streamState) {
+		if st != nil && st.body != nil {
+			_ = st.body.Close()
+		}
+		mu.Lock()
+		cur := streams[id]
+		need := cur != nil && cur.handlerDone
+		mu.Unlock()
+		if need {
+			finish(id, true)
+		}
 	}
 
 	for {
@@ -186,7 +214,7 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			}
 			var se http2.StreamError
 			if errors.As(err, &se) {
-				finish(se.StreamID)
+				forceFinish(se.StreamID)
 				_ = write(func() error { return fr.WriteRSTStream(se.StreamID, se.Code) })
 				continue
 			}
@@ -222,7 +250,7 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 				out.add(f.StreamID, int32(f.Increment))
 			}
 		case *http2.RSTStreamFrame:
-			finish(f.StreamID)
+			forceFinish(f.StreamID)
 		case *http2.GoAwayFrame:
 			return nil
 		case *http2.PushPromiseFrame:
@@ -238,13 +266,13 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			if payload := f.Data(); len(payload) > 0 {
 				// Non-blocking: bodyBuf.Write never waits for the handler Read.
 				if _, err := st.body.Write(append([]byte(nil), payload...)); err != nil {
-					finish(f.StreamID)
+					forceFinish(f.StreamID)
 					_ = write(func() error { return fr.WriteRSTStream(f.StreamID, http2.ErrCodeCancel) })
 					continue
 				}
 			}
 			if f.StreamEnded() {
-				_ = st.body.Close()
+				endRequestBody(f.StreamID, st)
 			}
 		case *http2.MetaHeadersFrame:
 			id := f.StreamID
@@ -256,9 +284,7 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 				st := streams[id]
 				mu.Unlock()
 				// Trailer HEADERS: not a new stream; do not start a handler.
-				if st.body != nil {
-					_ = st.body.Close()
-				}
+				endRequestBody(id, st)
 				continue
 			}
 			if id <= lastID {
@@ -284,11 +310,11 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			in := streamFromMeta(id, f, body)
 			go func() {
 				if tun != nil && isTunnelStream(in) {
-					serveTunnel(ctx, tun, in, c, fr, enc, encBuf, write, out, &mu, &closed, finish)
+					serveTunnel(ctx, tun, in, c, fr, enc, encBuf, write, out, &mu, &closed, forceFinish)
 					return
 				}
 				serveStream(ctx, h, in, func(resp *http.Response, trailers []model.Header, herr error) {
-					defer finish(id)
+					defer finish(id, herr != nil || resp == nil)
 					mu.Lock()
 					gone := closed
 					mu.Unlock()
@@ -320,11 +346,9 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 }
 
 func serveStream(ctx context.Context, h StreamHandler, in Stream, done func(*http.Response, []model.Header, error)) {
-	defer func() {
-		if in.Body != nil {
-			_ = in.Body.Close()
-		}
-	}()
+	// Do not Close in.Body here. OriginConn.writeRequestBody still reads it
+	// after the handler returns when the origin responds before END_STREAM.
+	// Client END_STREAM / RST / forceFinish close the buffer.
 	resp, trailers, err := h(ctx, in)
 	done(resp, trailers, err)
 }

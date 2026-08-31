@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- Origin-h2 intercept no longer truncates a POST/gRPC upload when the origin responds before the client sends `END_STREAM`. `http2x.ServeConn` used to close the inner request body (and drop later DATA) as soon as the stream handler returned, so `OriginConn.writeRequestBody` saw a premature EOF.
 
 ### Removed or deprecated
 

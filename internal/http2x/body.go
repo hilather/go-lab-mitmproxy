@@ -100,6 +100,15 @@ func (b *bodyBuf) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+func (b *bodyBuf) Closed() bool {
+	if b == nil {
+		return true
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.closed
+}
+
 func (b *bodyBuf) Close() error {
 	return b.CloseWithError(io.EOF)
 }

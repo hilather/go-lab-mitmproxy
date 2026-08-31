@@ -865,6 +865,120 @@ func TestInterceptHTTP2OriginH2POSTBody(t *testing.T) {
 	}
 }
 
+func TestInterceptHTTP2OriginH2KeepsUploadAfterEarlyResponse(t *testing.T) {
+	got := make(chan string, 1)
+	addr := startRawH2EarlyACKOrigin(t, originCert(t), got)
+	_, port := hostPort(t, addr)
+	spec := interceptH2OriginSpec(t, port)
+	px := startProxy(t, Options{Spec: spec, Resolver: appLabResolver()})
+	fr, _ := h2RawClientViaProxy(t, px.Addr().String(), strconv.Itoa(port), px.Authority().CertPool())
+	writeH2Headers(t, fr, 1, []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodPost},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/upload"},
+		{Name: "content-type", Value: "text/plain"},
+	}, false)
+	if err := fr.WriteData(1, false, []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	expectH2Response(t, fr, 1)
+	if err := fr.WriteData(1, true, []byte("world")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case body := <-got:
+		if body != "helloworld" {
+			t.Fatalf("origin body %q (early origin response truncated the upload)", body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("origin never saw the rest of the POST body")
+	}
+}
+
+// startRawH2EarlyACKOrigin is a duplex origin: it sends HEADERS+DATA+END_STREAM
+// after the first request DATA, then keeps reading the rest (no RST).
+func startRawH2EarlyACKOrigin(t *testing.T, cert tls.Certificate, got chan<- string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		tc := tls.Server(c, &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			NextProtos:   []string{http2x.NextProtoH2},
+			MinVersion:   tls.VersionTLS12,
+		})
+		defer func() { _ = tc.Close() }()
+		if err := tc.Handshake(); err != nil {
+			return
+		}
+		preface := make([]byte, len(http2.ClientPreface))
+		if _, err := io.ReadFull(tc, preface); err != nil {
+			return
+		}
+		fr := http2.NewFramer(tc, tc)
+		fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+		if err := fr.WriteSettings(); err != nil {
+			return
+		}
+		var (
+			buf     []byte
+			sid     uint32
+			replied bool
+		)
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			_ = tc.SetDeadline(time.Now().Add(3 * time.Second))
+			f, err := fr.ReadFrame()
+			if err != nil {
+				return
+			}
+			switch f := f.(type) {
+			case *http2.SettingsFrame:
+				if !f.IsAck() {
+					_ = fr.WriteSettingsAck()
+				}
+			case *http2.MetaHeadersFrame:
+				sid = f.StreamID
+			case *http2.DataFrame:
+				if sid == 0 {
+					sid = f.StreamID
+				}
+				buf = append(buf, f.Data()...)
+				if !replied && len(buf) >= 5 {
+					replied = true
+					var hdr bytes.Buffer
+					enc := hpack.NewEncoder(&hdr)
+					_ = enc.WriteField(hpack.HeaderField{Name: ":status", Value: "200"})
+					if err := fr.WriteHeaders(http2.HeadersFrameParam{
+						StreamID:      sid,
+						BlockFragment: hdr.Bytes(),
+						EndHeaders:    true,
+					}); err != nil {
+						return
+					}
+					if err := fr.WriteData(sid, true, []byte("early")); err != nil {
+						return
+					}
+				}
+				if f.StreamEnded() {
+					got <- string(buf)
+					return
+				}
+			}
+		}
+	}()
+	return ln.Addr().String()
+}
+
 func TestReconstructH2RequestUnknownBodyLength(t *testing.T) {
 	req := reconstructH2Request(http2x.Stream{
 		Method:    http.MethodPost,
