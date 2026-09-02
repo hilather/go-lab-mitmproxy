@@ -136,6 +136,67 @@ func TestServeClientGET(t *testing.T) {
 	}
 }
 
+func TestServeClientKeepsRequestBodyAfterHandlerReturns(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	gotBody := make(chan string, 1)
+	go func() {
+		_ = ServeClient(ctx, server, func(ctx context.Context, in Stream) (*http.Response, []model.Header, error) {
+			go func() {
+				body, _ := io.ReadAll(in.Body)
+				gotBody <- string(body)
+			}()
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil, nil
+		})
+	}()
+	if _, err := client.Write([]byte(http2.ClientPreface)); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(client, client)
+	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	ackSettings(t, fr)
+	var hdr bytes.Buffer
+	enc := hpack.NewEncoder(&hdr)
+	for _, hf := range []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodPost},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/upload"},
+	} {
+		if err := enc.WriteField(hf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fr.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: hdr.Bytes(),
+		EndHeaders:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !readH2Status(t, fr, 1, "200") {
+		t.Fatal("want :status=200 before trailing DATA")
+	}
+	if err := fr.WriteData(1, false, []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if err := fr.WriteData(1, true, []byte("world")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case body := <-gotBody:
+		if body != "helloworld" {
+			t.Fatalf("body %q (handler return must not close an open upload)", body)
+		}
+	case <-ctx.Done():
+		t.Fatal("request body never drained after early response")
+	}
+}
+
 func TestServeClientSilentCloseRSTCancel(t *testing.T) {
 	client, server := h2TLSPair(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
