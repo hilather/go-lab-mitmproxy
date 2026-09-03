@@ -14,6 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- Status `replaceTLS` now copies hidden `hosts` / `ca` / `upstream` from the same `GET /v1/state` snapshot as `expectedRevision`. The form used to stamp a fresh revision onto a stale full subtree, so a concurrent REST/MCP TLS edit was silently reverted (and generate-mode CA could rotate again) when the operator only changed intercept or ports.
 - Origin-h2 intercept no longer truncates a POST/gRPC upload when the origin responds before the client sends `END_STREAM`. `http2x.ServeConn` used to close the inner request body (and drop later DATA) as soon as the stream handler returned, so `OriginConn.writeRequestBody` saw a premature EOF.
 
 ### Removed or deprecated

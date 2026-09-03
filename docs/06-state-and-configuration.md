@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-08-30 (Status live-apply; D77; replaceCompat nest)
+Last reviewed: 2026-09-03 (Status replaceTLS OCC merge)
 Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -231,7 +231,7 @@ Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped
 |---|---|---|
 | `replaceStoreCaps` | `store`: `{maxFlows, maxBytes, maxBodyBytes, fullPolicy}` | Shrink + `reject` fails unless `force` |
 | `replaceAdmission` | `admission` object | Live on next accept for the session gate, CONNECT dial timeout, and pinned tunnel idle/session deadlines. `http.Server.IdleTimeout` / `ReadHeaderTimeout` and the process-wide cleartext `Transport` stay at Start (`Options.Spec`). |
-| `replaceTLS` | `tls` object | Recompile CA/host list; in-flight CONNECT unchanged |
+| `replaceTLS` | `tls` object | Recompile CA/host list; in-flight CONNECT unchanged. Status copies hidden `hosts`/`ca`/`upstream` from the same `GET /v1/state` snapshot as `expectedRevision` so a ports-only Apply cannot silently revert a concurrent TLS edit. |
 | `replaceRules` | `rules` object | `{}` / empty items + `enabled: false` is stock capture |
 | `replaceTargets` | `targets` object | Live on next request |
 | `replaceCompat` | `compat` object (`{ flowREST: { enabled, pathPrefix } }`) | Live on next management request. Nested `flowREST` is required; a flat `{enabled, pathPrefix}` zeros `FlowREST` and disables `/compat`. Prefix collision with restPath/mcpPath is `validation_failed`. |
