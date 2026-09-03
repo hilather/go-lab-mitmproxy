@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-08-31 (origin-h2 early-response upload)
+Last reviewed: 2026-09-03 (Status replaceTLS OCC merge)
 Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -26,7 +26,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Parity | every `PARITY_REQUIRED` capability | `make test-parity` |
 | Fuzz | YAML decode, HTTP request line/headers, buildinfo, `wsx.ReadFrame`, `grpcx.Decode` | committed `testdata/fuzz` corpora under each package |
 | Soak | accept N flows, `Wait`, `Wipe` | `internal/perf` (`-soak-n` / `LABMITM_SOAK_N`; CI default 8; local lab target 100 flows/s for 30s) |
-| Feature gates | Catalog `Load` of `spec: {}` before `CatalogFromSpec` (D22 carve default-true); `setFeature` live IDs swap without `ResetTo` / inbox wipe; orig-dest and `tls.intercept` `validation_failed`; `live_next_connection` warning; hop 403 before rules/Dial; SOCKS apply on without Restart; Status live verbs (`replaceTLS` / `replaceHTTPAuth` / `replaceRules` / `replaceAdmission` / `replaceCompat`); Status `ui.enabled` gated off-confirm (D77) | `internal/app`, `internal/proxy`, `internal/control/{rest,mcp}`, `web/src/pages/StatusPage.test.tsx` |
+| Feature gates | Catalog `Load` of `spec: {}` before `CatalogFromSpec` (D22 carve default-true); `setFeature` live IDs swap without `ResetTo` / inbox wipe; orig-dest and `tls.intercept` `validation_failed`; `live_next_connection` warning; hop 403 before rules/Dial; SOCKS apply on without Restart; Status live verbs (`replaceTLS` / `replaceHTTPAuth` / `replaceRules` / `replaceAdmission` / `replaceCompat`); Status `replaceTLS` OCC snapshot merge of hidden `hosts`/`ca`/`upstream`; Status `ui.enabled` gated off-confirm (D77) | `internal/app`, `internal/proxy`, `internal/control/{rest,mcp}`, `web/src/pages/StatusPage.test.tsx` |
 | Race | store insert/delete/wait; snapshot swap; breakpoint resume | `make test-race` |
 | Container | non-root, read-only, no caps, healthcheck, proxy smoke. **Never requires `NET_ADMIN`.** | `scripts/test-container.sh` |
 | Orig-dest overlay | D50 contract (appliance cap-less; sidecar `NET_ADMIN`; no published `8890`). Live REDIRECT **skips** without `NET_ADMIN` | `make test-container-originaldest` |
@@ -34,7 +34,7 @@ Every area has regressions. A bug fix starts with a failing test. CI has no opti
 | Config compat | `testdata/config/valid` + `invalid` | `make test-config-compat` |
 | Changelog | user-visible paths require `CHANGELOG.md` | `make test-changelog` |
 | Tag gate | notes headings + green required CI on the tag SHA | `.github/workflows/release.yml` |
-| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status, Status feature catalog (`GET /v1/features`; gated `ui.enabled` off-confirm; in-flight disable; 409 refetch stays `sha256:abc` until after the 409 apply), live intercept-ports chip from `GET /v1/state`, Status live-apply panels, compact reset-required 1.2 flags, split-pane Flows (SSE stays mounted; `flow.deleted` refresh), intercept vs tunnel-not-decrypt chips, CONNECT tunnel summary, protocol badge / stream id / trailers / SOCKS dest / original dest / Frames tab (`drop`/`block` action badges) / PUSH parent-promised ids; remaining gRPC tab when `flow.grpc` is present (`web/src/pages/FlowPage.test.tsx`, `FlowsPage.test.tsx`); remaining-page chrome (Login/Status/Audit/Reset page bodies; token/Segoe lock; `AuditPage.test.tsx`) | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
+| UI | SPA fallback, `ui.enabled: false` 404, CSRF header, no exploit/fuzzer/repeater, escaped HTML bodies, CA SPKI on status, Status feature catalog (`GET /v1/features`; gated `ui.enabled` off-confirm; in-flight disable; 409 refetch stays `sha256:abc` until after the 409 apply), live intercept-ports chip from `GET /v1/state`, Status live-apply panels (replaceTLS hidden fields from the OCC `GET /v1/state` snapshot), compact reset-required 1.2 flags, split-pane Flows (SSE stays mounted; `flow.deleted` refresh), intercept vs tunnel-not-decrypt chips, CONNECT tunnel summary, protocol badge / stream id / trailers / SOCKS dest / original dest / Frames tab (`drop`/`block` action badges) / PUSH parent-promised ids; remaining gRPC tab when `flow.grpc` is present (`web/src/pages/FlowPage.test.tsx`, `FlowsPage.test.tsx`); remaining-page chrome (Login/Status/Audit/Reset page bodies; token/Segoe lock; `AuditPage.test.tsx`) | `internal/web`, `internal/control/rest/spa_test.go`, `make web-test` |
 
 ## Required Make targets
 

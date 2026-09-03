@@ -219,7 +219,9 @@ export function StatusPage() {
   }
 
   async function applyOp(
-    operations: ChangeOperation[] | (() => Promise<ChangeOperation[]>),
+    operations:
+      | ChangeOperation[]
+      | ((fresh: StateView) => ChangeOperation[] | Promise<ChangeOperation[]>),
   ): Promise<boolean> {
     if (busyRef.current) {
       return false;
@@ -229,9 +231,12 @@ export function StatusPage() {
     setFeatureError("");
     const idempotencyKey = crypto.randomUUID();
     try {
-      const ops = typeof operations === "function" ? await operations() : operations;
+      // One GET /v1/state supplies expectedRevision and any hidden subtree
+      // fields. Building the payload from a stale liveState while stamping a
+      // fresh revision defeats OCC (replaceTLS hosts/ca/upstream).
       const fresh = await getState();
       const expectedRevision = fresh.runtimeRevision || revision;
+      const ops = typeof operations === "function" ? await operations(fresh) : operations;
       const result = await applyChanges({
         expectedRevision,
         idempotencyKey,
@@ -280,8 +285,7 @@ export function StatusPage() {
 
   async function onApplyTLS(ev: FormEvent) {
     ev.preventDefault();
-    const tls = liveState?.canonical?.spec?.tls;
-    if (!tls || !canAdmin) {
+    if (!canAdmin) {
       return;
     }
     const parsed = parsePorts(tlsPorts);
@@ -289,17 +293,23 @@ export function StatusPage() {
       setFeatureError(parsed);
       return;
     }
-    const body: TLSSpec = {
-      intercept: tlsIntercept,
-      hosts: tls.hosts ?? [],
-      ports: parsed,
-      ca: { ...(tls.ca ?? { mode: "generate", certFile: "", keyFile: "" }) },
-      upstream: {
-        insecureSkipVerify: tls.upstream?.insecureSkipVerify ?? false,
-        extraCAFiles: [...(tls.upstream?.extraCAFiles ?? [])],
-      },
-    };
-    await applyOp([{ op: "replaceTLS", tls: body }]);
+    await applyOp((fresh) => {
+      const tls = fresh.canonical?.spec?.tls;
+      if (!tls) {
+        throw new Error("TLS spec unavailable.");
+      }
+      const body: TLSSpec = {
+        intercept: tlsIntercept,
+        hosts: [...(tls.hosts ?? [])],
+        ports: parsed,
+        ca: { ...(tls.ca ?? { mode: "generate", certFile: "", keyFile: "" }) },
+        upstream: {
+          insecureSkipVerify: tls.upstream?.insecureSkipVerify ?? false,
+          extraCAFiles: [...(tls.upstream?.extraCAFiles ?? [])],
+        },
+      };
+      return [{ op: "replaceTLS", tls: body }];
+    });
   }
 
   async function onApplyHTTPAuth(ev: FormEvent) {

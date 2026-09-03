@@ -355,6 +355,66 @@ describe("StatusPage", () => {
     expect(sent.operations[0].tls.ca).toEqual({ mode: "generate", certFile: "", keyFile: "" });
   });
 
+  it("merges replaceTLS hosts/ca/upstream from the OCC getState snapshot", async () => {
+    const user = userEvent.setup();
+    let stateGets = 0;
+    const applyBodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.endsWith("/v1/status")) {
+          return json(200, sampleStatus());
+        }
+        if (url.endsWith("/v1/state") && method === "GET") {
+          stateGets += 1;
+          if (stateGets === 1) {
+            return json(200, sampleState("sha256:abc"));
+          }
+          const later = sampleState("sha256:other");
+          later.canonical!.spec!.tls = {
+            intercept: true,
+            hosts: ["app.lab"],
+            ports: [443],
+            ca: { mode: "files", certFile: "/ca.pem", keyFile: "/ca.key" },
+            upstream: { insecureSkipVerify: true, extraCAFiles: ["/extra.pem"] },
+          };
+          return json(200, later);
+        }
+        if (url.endsWith("/v1/features") && method === "GET") {
+          return json(200, sampleFeatures());
+        }
+        if (url.endsWith("/v1/changes:apply") && method === "POST") {
+          applyBodies.push(String(init?.body ?? ""));
+          return json(200, { applied: true, runtimeRevision: "sha256:next" });
+        }
+        return notFound();
+      }),
+    );
+    renderApp(<StatusPage />, { route: "/status" });
+    const ports = await screen.findByLabelText("Ports");
+    await user.clear(ports);
+    await user.type(ports, "443,8443");
+    await user.click(screen.getByRole("button", { name: /Apply TLS/i }));
+    await waitFor(() => expect(applyBodies).toHaveLength(1));
+    const sent = JSON.parse(applyBodies[0] ?? "");
+    expect(sent.expectedRevision).toBe("sha256:other");
+    expect(sent.operations[0]).toEqual({
+      op: "replaceTLS",
+      tls: {
+        intercept: true,
+        hosts: ["app.lab"],
+        ports: [443, 8443],
+        ca: { mode: "files", certFile: "/ca.pem", keyFile: "/ca.key" },
+        upstream: { insecureSkipVerify: true, extraCAFiles: ["/extra.pem"] },
+      },
+    });
+  });
+
   it("rejects invalid httpAuth users JSON without posting", async () => {
     const user = userEvent.setup();
     const { fetchMock } = stubPageFetch();
