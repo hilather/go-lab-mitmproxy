@@ -14,6 +14,8 @@
 // multiplexes inner streams on that one TCP via OriginConn (request DATA
 // is sent when Body is non-nil, including ContentLength 0; the inner
 // stream stays readable after the handler returns until client END_STREAM;
-// trailing HEADERS land on Response.Trailer; 1xx informational HEADERS are skipped);
+// trailing HEADERS land on Response.Trailer; 1xx informational HEADERS are skipped;
+// RST / forget must not let take mint a new stream window and drain the
+// connection send window);
 // PUSH_PROMISE is capture-only when CapturePush (D65). Inner EnablePush stays 0.
 package http2x

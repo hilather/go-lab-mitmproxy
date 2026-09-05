@@ -61,6 +61,84 @@ func TestFramedStreamConnReadDeadlineDoesNotTouchParent(t *testing.T) {
 	}
 }
 
+func TestOutFlowTakeAfterForgetDoesNotSpendConnWindow(t *testing.T) {
+	f := newOutFlow()
+	f.open(1)
+	f.mu.Lock()
+	before := f.conn
+	f.mu.Unlock()
+	f.forget(1)
+	n, err := f.take(1, 100)
+	if err == nil || n != 0 {
+		t.Fatalf("take after forget n=%d err=%v", n, err)
+	}
+	f.mu.Lock()
+	after := f.conn
+	_, resurrected := f.stream[1]
+	f.mu.Unlock()
+	if after != before {
+		t.Fatalf("conn window %d → %d after take on forgotten stream", before, after)
+	}
+	if resurrected {
+		t.Fatal("take must not re-open a forgotten stream")
+	}
+}
+
+func TestOutFlowForgetUnblocksTakeWithoutSpendingConnWindow(t *testing.T) {
+	f := newOutFlow()
+	f.open(1)
+	f.mu.Lock()
+	f.stream[1] = 0
+	before := f.conn
+	f.mu.Unlock()
+	done := make(chan struct {
+		n   int
+		err error
+	}, 1)
+	go func() {
+		n, err := f.take(1, 10)
+		done <- struct {
+			n   int
+			err error
+		}{n, err}
+	}()
+	select {
+	case <-done:
+		t.Fatal("take did not block on empty window")
+	case <-time.After(30 * time.Millisecond):
+	}
+	f.forget(1)
+	select {
+	case got := <-done:
+		if got.err == nil || got.n != 0 {
+			t.Fatalf("blocked take after forget n=%d err=%v", got.n, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("forget did not unblock take")
+	}
+	f.mu.Lock()
+	after := f.conn
+	_, resurrected := f.stream[1]
+	f.mu.Unlock()
+	if after != before {
+		t.Fatalf("conn window %d → %d", before, after)
+	}
+	if resurrected {
+		t.Fatal("forget+take must not re-open the stream")
+	}
+}
+
+func TestOutFlowAddAfterForgetDoesNotResurrect(t *testing.T) {
+	f := newOutFlow()
+	f.open(1)
+	f.forget(1)
+	f.add(1, 100)
+	n, err := f.take(1, 10)
+	if err == nil || n != 0 {
+		t.Fatalf("WINDOW_UPDATE after forget resurrected take n=%d err=%v", n, err)
+	}
+}
+
 func TestOutFlowTakeWaitsForWindow(t *testing.T) {
 	f := newOutFlow()
 	f.open(1)
