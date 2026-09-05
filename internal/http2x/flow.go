@@ -53,10 +53,9 @@ func (f *outFlow) add(streamID uint32, n int32) {
 	f.mu.Lock()
 	if streamID == 0 {
 		f.conn += n
-	} else {
-		if _, ok := f.stream[streamID]; !ok {
-			f.stream[streamID] = f.initStream
-		}
+	} else if _, ok := f.stream[streamID]; ok {
+		// Ignore WINDOW_UPDATE for idle/forgotten ids so take cannot
+		// resurrect a RST'd stream and spend the connection window.
 		f.stream[streamID] += n
 	}
 	f.cond.Broadcast()
@@ -130,8 +129,10 @@ func (f *outFlow) takeDeadline(id uint32, want int, deadline time.Time) (int, er
 		}
 		s, ok := f.stream[id]
 		if !ok {
-			s = f.initStream
-			f.stream[id] = s
+			// forget / never-opened: do not mint a fresh stream window.
+			// That would WriteData after RST and drain the hop-by-hop
+			// connection window until later streams stall.
+			return 0, io.ErrClosedPipe
 		}
 		avail := f.conn
 		if s < avail {

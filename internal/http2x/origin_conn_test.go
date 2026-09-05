@@ -15,6 +15,40 @@ import (
 	"golang.org/x/net/http2/hpack"
 )
 
+func TestOriginConnRSTUploadDoesNotStallNextPOST(t *testing.T) {
+	client, server := h2TLSPair(t)
+	go rstFirstPOSTThenEcho(t, server)
+	oc, err := NewOriginConn(client, OriginOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	big := bytes.Repeat([]byte("x"), 200*1024)
+	req1, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://app.lab/rst", io.NopCloser(bytes.NewReader(big)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req1.ContentLength = -1
+	if _, err := oc.RoundTrip(req1); err == nil {
+		t.Fatal("first POST must fail after origin RST_STREAM")
+	}
+	req2, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://app.lab/ok", io.NopCloser(strings.NewReader("second")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2.ContentLength = -1
+	resp, err := oc.RoundTrip(req2)
+	if err != nil {
+		t.Fatalf("second POST stalled after RST burned the connection window: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "ok" {
+		t.Fatalf("status=%d body=%q", resp.StatusCode, body)
+	}
+}
+
 func TestOriginConnPOSTBodyZeroContentLength(t *testing.T) {
 	client, server := h2TLSPair(t)
 	got := make(chan string, 1)
@@ -760,6 +794,55 @@ func writeInformationalThenTrailers(t *testing.T, server io.ReadWriter) {
 			if err := fr.WriteHeaders(http2.HeadersFrameParam{
 				StreamID: 1, BlockFragment: tr, EndHeaders: true, EndStream: true,
 			}); err != nil {
+				t.Error(err)
+			}
+			return
+		}
+	}
+}
+
+func rstFirstPOSTThenEcho(t *testing.T, server io.ReadWriter) {
+	t.Helper()
+	preface := make([]byte, len(http2.ClientPreface))
+	if _, err := io.ReadFull(server, preface); err != nil {
+		t.Error(err)
+		return
+	}
+	fr := http2.NewFramer(server, server)
+	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	if err := fr.WriteSettings(); err != nil {
+		t.Error(err)
+		return
+	}
+	rstOnce := false
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		if sc, ok := server.(interface{ SetDeadline(time.Time) error }); ok {
+			_ = sc.SetDeadline(time.Now().Add(3 * time.Second))
+		}
+		f, err := fr.ReadFrame()
+		if err != nil {
+			return
+		}
+		switch f := f.(type) {
+		case *http2.SettingsFrame:
+			if !f.IsAck() {
+				_ = fr.WriteSettingsAck()
+			}
+		case *http2.MetaHeadersFrame:
+			if !rstOnce {
+				rstOnce = true
+				_ = fr.WriteRSTStream(f.StreamID, http2.ErrCodeCancel)
+				continue
+			}
+			ok := encodeFields(t, []hpack.HeaderField{{Name: ":status", Value: "200"}})
+			if err := fr.WriteHeaders(http2.HeadersFrameParam{
+				StreamID: f.StreamID, BlockFragment: ok, EndHeaders: true,
+			}); err != nil {
+				t.Error(err)
+				return
+			}
+			if err := fr.WriteData(f.StreamID, true, []byte("ok")); err != nil {
 				t.Error(err)
 			}
 			return
