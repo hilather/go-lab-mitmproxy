@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -1041,4 +1042,68 @@ func expectRST(t *testing.T, fr *http2.Framer, id uint32, code http2.ErrCode) {
 		return
 	}
 	t.Fatal("no RST_STREAM")
+}
+
+func TestWriteHeaderBlockENDSTREAMOnContinuingHEADERS(t *testing.T) {
+	c1, c2 := net.Pipe()
+	t.Cleanup(func() {
+		_ = c1.Close()
+		_ = c2.Close()
+	})
+	var blk bytes.Buffer
+	enc := hpack.NewEncoder(&blk)
+	for i := 0; i < 400; i++ {
+		hf := hpack.HeaderField{Name: fmt.Sprintf("x-h-%04d", i), Value: strings.Repeat("a", 80)}
+		if err := enc.WriteField(hf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	block := blk.Bytes()
+	if len(block) <= maxFramePayload {
+		t.Fatalf("need HPACK block > %d so CONTINUATION is required, got %d", maxFramePayload, len(block))
+	}
+
+	errc := make(chan error, 1)
+	go func() {
+		fr := http2.NewFramer(c1, c1)
+		errc <- writeHeaderBlock(fr, 1, block, true)
+	}()
+
+	fr := http2.NewFramer(c2, c2)
+	_ = c2.SetReadDeadline(time.Now().Add(3 * time.Second))
+	first, err := fr.ReadFrame()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hf, ok := first.(*http2.HeadersFrame)
+	if !ok {
+		t.Fatalf("first frame %T", first)
+	}
+	if hf.HeadersEnded() {
+		t.Fatal("expected CONTINUATION after a >16KiB header block")
+	}
+	if !hf.StreamEnded() {
+		t.Fatal("HEADERS that starts a CONTINUATION block must still carry END_STREAM; CONTINUATION cannot")
+	}
+	ended := false
+	for i := 0; i < 16; i++ {
+		nf, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cf, ok := nf.(*http2.ContinuationFrame)
+		if !ok {
+			t.Fatalf("continuation %T", nf)
+		}
+		if cf.HeadersEnded() {
+			ended = true
+			break
+		}
+	}
+	if !ended {
+		t.Fatal("header block never set END_HEADERS")
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
 }

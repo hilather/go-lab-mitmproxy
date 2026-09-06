@@ -3,6 +3,7 @@ package http2x
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -224,6 +225,43 @@ func TestOriginConnRoundTripResponseTrailers(t *testing.T) {
 	}
 	if got := resp.Trailer.Get("Grpc-Message"); got != "ok" {
 		t.Fatalf("Grpc-Message trailer %q", got)
+	}
+}
+
+func TestOriginConnGETLargeHeadersCompletes(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ended := make(chan bool, 1)
+	go expectLargeGETHeadersENDSTREAM(t, server, ended)
+	oc, err := NewOriginConn(client, OriginOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/big", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unique names so HPACK cannot fit the block in one 16KiB HEADERS frame.
+	for i := 0; i < 400; i++ {
+		req.Header.Set(fmt.Sprintf("X-H-%04d", i), strings.Repeat("z", 80))
+	}
+	resp, err := oc.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("GET with >16KiB headers stalled (HEADERS END_STREAM dropped on CONTINUATION): %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "ok" {
+		t.Fatalf("status=%d body=%q", resp.StatusCode, body)
+	}
+	select {
+	case ok := <-ended:
+		if !ok {
+			t.Fatal("origin saw HEADERS without END_STREAM; CONTINUATION cannot carry it")
+		}
+	case <-ctx.Done():
+		t.Fatal("origin never saw the large GET HEADERS")
 	}
 }
 
@@ -843,6 +881,58 @@ func rstFirstPOSTThenEcho(t *testing.T, server io.ReadWriter) {
 				return
 			}
 			if err := fr.WriteData(f.StreamID, true, []byte("ok")); err != nil {
+				t.Error(err)
+			}
+			return
+		}
+	}
+}
+
+func expectLargeGETHeadersENDSTREAM(t *testing.T, server io.ReadWriter, ended chan<- bool) {
+	t.Helper()
+	preface := make([]byte, len(http2.ClientPreface))
+	if _, err := io.ReadFull(server, preface); err != nil {
+		t.Error(err)
+		return
+	}
+	fr := http2.NewFramer(server, server)
+	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	fr.MaxHeaderListSize = 1 << 20
+	if err := fr.WriteSettings(); err != nil {
+		t.Error(err)
+		return
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if sc, ok := server.(interface{ SetDeadline(time.Time) error }); ok {
+			_ = sc.SetDeadline(time.Now().Add(2 * time.Second))
+		}
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		switch f := f.(type) {
+		case *http2.SettingsFrame:
+			if !f.IsAck() {
+				_ = fr.WriteSettingsAck()
+			}
+		case *http2.MetaHeadersFrame:
+			if f.StreamID != 1 {
+				continue
+			}
+			select {
+			case ended <- f.StreamEnded():
+			default:
+			}
+			ok := encodeFields(t, []hpack.HeaderField{{Name: ":status", Value: "200"}})
+			if err := fr.WriteHeaders(http2.HeadersFrameParam{
+				StreamID: 1, BlockFragment: ok, EndHeaders: true,
+			}); err != nil {
+				t.Error(err)
+				return
+			}
+			if err := fr.WriteData(1, true, []byte("ok")); err != nil {
 				t.Error(err)
 			}
 			return
