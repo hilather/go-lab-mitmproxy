@@ -38,6 +38,7 @@ Patch of three Unreleased fixes after v1.6.0: Status `replaceTLS` OCC from [PR #
 - Origin-h2 intercept no longer truncates a POST/gRPC upload when the origin responds before the client sends `END_STREAM`. `http2x.ServeConn` used to close the inner request body (and drop later DATA) as soon as the stream handler returned, so `OriginConn.writeRequestBody` saw a premature EOF.
 - HTTP/2 `outFlow.take` no longer re-opens a forgotten stream after RST. That used to spend the hop-by-hop connection send window on DATA the peer would not credit, so a later stream on the same intercepted CONNECT (or origin-h2 TCP) could stall until `sessionTimeout`.
 - HTTP/2 `writeHeaderBlock` now sets `END_STREAM` on the opening `HEADERS` when the HPACK block spans `CONTINUATION` frames. CONTINUATION cannot carry `END_STREAM`, so a GET (or empty-body / trailer) block larger than 16KiB used to leave the stream open and stall the peer until `sessionTimeout`.
+- HTTP/2 `ServeConn` now `WINDOW_UPDATE`s the connection receive window for DATA that arrives after RST / forget. Those bytes still count against the hop-by-hop window (RFC 9113 §6.9); without the credit, a later POST on the same intercepted CONNECT could stall until `sessionTimeout`.
 
 ### Removed or deprecated
 
