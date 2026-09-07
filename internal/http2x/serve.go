@@ -633,7 +633,10 @@ func writeHeaderBlock(fr *http2.Framer, id uint32, block []byte, endStream bool)
 				StreamID:      id,
 				BlockFragment: chunk,
 				EndHeaders:    endHeaders,
-				EndStream:     endStream && endHeaders,
+				// END_STREAM lives on HEADERS only. CONTINUATION cannot
+				// carry it (RFC 9113 §6.2 / §6.10). Gating on endHeaders
+				// dropped the flag whenever the HPACK block spanned frames.
+				EndStream: endStream,
 			}); err != nil {
 				return err
 			}
