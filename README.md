@@ -454,6 +454,7 @@ Cross-file links below are absolute.
 | [docs/13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md) | Image, compose, CLI |
 | [docs/14-integration-lab.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/14-integration-lab.md) | Overlay BOM for mcp-integration-lab |
 | [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) | 1.0 defaults + 1.2 residuals |
+| [docs/releases/v1.6.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.1.md) | 1.6.1 tag notes (replaceTLS OCC + origin-h2 early response + h2 RST window) |
 | [docs/releases/v1.6.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.0.md) | 1.6.0 tag notes (Status live-apply + D77 + origin-h2 DATA/trailers) |
 | [docs/releases/v1.5.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.5.0.md) | 1.5.0 tag notes (operator SPA split-pane + leftover Login/Status/Audit/Reset chrome) |
 | [docs/releases/v1.4.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.4.0.md) | 1.4.0 tag notes (issue #52 QA knobs) |
