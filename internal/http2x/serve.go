@@ -150,6 +150,16 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			return fr.WriteWindowUpdate(0, uint32(n))
 		})
 	}
+	// DATA after RST / forget still counts against the hop-by-hop connection
+	// receive window (RFC 9113 §6.9). Stream WINDOW_UPDATE is unused.
+	creditConn := func(n int) {
+		if n <= 0 {
+			return
+		}
+		_ = write(func() error {
+			return fr.WriteWindowUpdate(0, uint32(n))
+		})
+	}
 
 	// finish tears down a stream. force=false keeps receiving DATA when the
 	// handler returned a response before the client END_STREAM (origin-h2
@@ -260,12 +270,14 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			st := streams[f.StreamID]
 			mu.Unlock()
 			if st == nil || st.body == nil {
+				creditConn(dataFrameWindow(f))
 				_ = write(func() error { return fr.WriteRSTStream(f.StreamID, http2.ErrCodeStreamClosed) })
 				continue
 			}
 			if payload := f.Data(); len(payload) > 0 {
 				// Non-blocking: bodyBuf.Write never waits for the handler Read.
 				if _, err := st.body.Write(append([]byte(nil), payload...)); err != nil {
+					creditConn(dataFrameWindow(f))
 					forceFinish(f.StreamID)
 					_ = write(func() error { return fr.WriteRSTStream(f.StreamID, http2.ErrCodeCancel) })
 					continue
@@ -457,6 +469,16 @@ func closeWriteConn(c net.Conn) {
 	if c != nil {
 		_ = c.Close()
 	}
+}
+
+func dataFrameWindow(f *http2.DataFrame) int {
+	if f == nil {
+		return 0
+	}
+	if f.Length > 0 {
+		return int(f.Length)
+	}
+	return len(f.Data())
 }
 
 func writeStatus(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, write func(func() error) error, id uint32, status int, endStream bool, headers []model.Header) error {

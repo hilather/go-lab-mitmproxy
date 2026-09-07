@@ -16,7 +16,8 @@
 // stream stays readable after the handler returns until client END_STREAM;
 // trailing HEADERS land on Response.Trailer; 1xx informational HEADERS are skipped;
 // RST / forget must not let take mint a new stream window and drain the
-// connection send window; HPACK blocks that span CONTINUATION still set
+// connection send window; DATA after RST still WINDOW_UPDATE the connection
+// receive window; HPACK blocks that span CONTINUATION still set
 // END_STREAM on the opening HEADERS);
 // PUSH_PROMISE is capture-only when CapturePush (D65). Inner EnablePush stays 0.
 package http2x
