@@ -10,14 +10,15 @@ import (
 // bodyBuf is a request-body pipe whose Write never blocks the Framer loop.
 // WINDOW_UPDATE is issued after the handler Read consumes bytes.
 type bodyBuf struct {
-	mu       sync.Mutex
-	cond     *sync.Cond
-	buf      []byte
-	closed   bool
-	err      error
-	onRead   func(n int)
-	deadline time.Time
-	timer    *time.Timer
+	mu           sync.Mutex
+	cond         *sync.Cond
+	buf          []byte
+	closed       bool
+	connReleased bool
+	err          error
+	onRead       func(n int)
+	deadline     time.Time
+	timer        *time.Timer
 }
 
 func newBodyBuf(onRead func(n int)) *bodyBuf {
@@ -93,8 +94,9 @@ func (b *bodyBuf) Read(p []byte) (int, error) {
 	n := copy(p, b.buf)
 	b.buf = append([]byte(nil), b.buf[n:]...)
 	onRead := b.onRead
+	released := b.connReleased
 	b.mu.Unlock()
-	if n > 0 && onRead != nil {
+	if n > 0 && onRead != nil && !released {
 		onRead(n)
 	}
 	return n, nil
@@ -130,4 +132,21 @@ func (b *bodyBuf) CloseWithError(err error) error {
 	}
 	b.cond.Broadcast()
 	return nil
+}
+
+// releaseConnWindow returns unread bytes that have not yet been onRead-
+// credited and marks them so a later Read does not WINDOW_UPDATE twice.
+// The buffer is left intact for a consumer still draining after teardown
+// (early 200 / gRPC). Safe on a nil receiver; a second call returns 0.
+func (b *bodyBuf) releaseConnWindow() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.connReleased {
+		return 0
+	}
+	b.connReleased = true
+	return len(b.buf)
 }

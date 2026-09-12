@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: TLS, Proxy, Security
-Last reviewed: 2026-09-07 (h2 receive-window after RST; h2 HEADERS END_STREAM on CONTINUATION)
+Last reviewed: 2026-09-12 (h2 receive-window for unread DATA on RST)
 Related ADRs: 0002, 0009, 0012, 0013, 0018
 
 Package `internal/tlsmitm`. Only this package and `internal/proxy` touch `crypto/tls` on the data plane. Management TLS (optional) lives in `internal/control/rest` like LabMail. `internal/tlsmitm` must **not** Dial.
