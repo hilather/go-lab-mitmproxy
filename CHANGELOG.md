@@ -20,6 +20,27 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 - None.
 
+## 1.6.2 - 2026-09-14
+
+Patch of two Unreleased fixes after v1.6.1: HTTP/2 CONTINUATION `END_STREAM` from [PR #75](https://github.com/hilather/go-lab-mitmproxy/pull/75); HTTP/2 post-RST receive-window credit from [PR #76](https://github.com/hilather/go-lab-mitmproxy/pull/76). Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. No new capability IDs or apply verbs. No fuzzer. Management stays bearer. **D7 stands.** Notes: [docs/releases/v1.6.2.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.6.2/docs/releases/v1.6.2.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.6.2/docs/known-limitations.md).
+
+### Added
+
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- HTTP/2 `writeHeaderBlock` now sets `END_STREAM` on the opening `HEADERS` when the HPACK block spans `CONTINUATION` frames. CONTINUATION cannot carry `END_STREAM`, so a GET (or empty-body / trailer) block larger than 16KiB used to leave the stream open and stall the peer until `sessionTimeout`.
+- HTTP/2 `ServeConn` now `WINDOW_UPDATE`s the connection receive window for DATA that arrives after RST / forget. Those bytes still count against the hop-by-hop window (RFC 9113 §6.9); without the credit, a later POST on the same intercepted CONNECT could stall until `sessionTimeout`.
+
+### Removed or deprecated
+
+- None.
+
 ## 1.6.1 - 2026-09-07
 
 Patch of three Unreleased fixes after v1.6.0: Status `replaceTLS` OCC from [PR #73](https://github.com/hilather/go-lab-mitmproxy/pull/73); origin-h2 early-response upload from [PR #72](https://github.com/hilather/go-lab-mitmproxy/pull/72); HTTP/2 RST window from [PR #74](https://github.com/hilather/go-lab-mitmproxy/pull/74). Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. No new capability IDs or apply verbs. No fuzzer. Management stays bearer. **D7 stands.** Notes: [docs/releases/v1.6.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.6.1/docs/releases/v1.6.1.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.6.1/docs/known-limitations.md).
@@ -37,8 +58,6 @@ Patch of three Unreleased fixes after v1.6.0: Status `replaceTLS` OCC from [PR #
 - Status `replaceTLS` now copies hidden `hosts` / `ca` / `upstream` from the same `GET /v1/state` snapshot as `expectedRevision`. The form used to stamp a fresh revision onto a stale full subtree, so a concurrent REST/MCP TLS edit was silently reverted (and generate-mode CA could rotate again) when the operator only changed intercept or ports.
 - Origin-h2 intercept no longer truncates a POST/gRPC upload when the origin responds before the client sends `END_STREAM`. `http2x.ServeConn` used to close the inner request body (and drop later DATA) as soon as the stream handler returned, so `OriginConn.writeRequestBody` saw a premature EOF.
 - HTTP/2 `outFlow.take` no longer re-opens a forgotten stream after RST. That used to spend the hop-by-hop connection send window on DATA the peer would not credit, so a later stream on the same intercepted CONNECT (or origin-h2 TCP) could stall until `sessionTimeout`.
-- HTTP/2 `writeHeaderBlock` now sets `END_STREAM` on the opening `HEADERS` when the HPACK block spans `CONTINUATION` frames. CONTINUATION cannot carry `END_STREAM`, so a GET (or empty-body / trailer) block larger than 16KiB used to leave the stream open and stall the peer until `sessionTimeout`.
-- HTTP/2 `ServeConn` now `WINDOW_UPDATE`s the connection receive window for DATA that arrives after RST / forget. Those bytes still count against the hop-by-hop window (RFC 9113 §6.9); without the credit, a later POST on the same intercepted CONNECT could stall until `sessionTimeout`.
 
 ### Removed or deprecated
 
