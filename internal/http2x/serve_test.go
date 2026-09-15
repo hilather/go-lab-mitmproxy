@@ -244,6 +244,68 @@ func TestServeClientDATAAfterRSTCreditsConnWindow(t *testing.T) {
 	}
 }
 
+func TestServeClientUnreadDATAOnRSTCreditsConnWindow(t *testing.T) {
+	client, server := h2TLSPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_ = ServeClient(ctx, server, func(context.Context, Stream) (*http.Response, []model.Header, error) {
+			close(started)
+			<-release
+			return nil, nil, ErrSilentClose
+		})
+	}()
+	if _, err := client.Write([]byte(http2.ClientPreface)); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(client, client)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	ackSettings(t, fr)
+	var hdr bytes.Buffer
+	enc := hpack.NewEncoder(&hdr)
+	for _, hf := range []hpack.HeaderField{
+		{Name: ":method", Value: http.MethodPost},
+		{Name: ":scheme", Value: "https"},
+		{Name: ":authority", Value: "app.lab"},
+		{Name: ":path", Value: "/upload"},
+	} {
+		if err := enc.WriteField(hf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fr.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: hdr.Bytes(),
+		EndHeaders:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("handler did not start")
+	}
+	payload := bytes.Repeat([]byte("x"), 16*1024)
+	if err := fr.WriteData(1, false, payload); err != nil {
+		t.Fatal(err)
+	}
+	var ping [8]byte
+	copy(ping[:], "unread!!")
+	if err := fr.WritePing(false, ping); err != nil {
+		t.Fatal(err)
+	}
+	expectPingAck(t, fr, ping)
+	close(release)
+	expectRST(t, fr, 1, http2.ErrCodeCancel)
+	if !readConnWindowUpdate(t, fr, len(payload)) {
+		t.Fatal("unread DATA discarded on RST must WINDOW_UPDATE the connection window")
+	}
+}
+
 func TestServeClientSilentCloseRSTCancel(t *testing.T) {
 	client, server := h2TLSPair(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1068,6 +1130,26 @@ func readH2Data(t *testing.T, fr *http2.Framer, id uint32) []byte {
 	}
 	t.Fatal("no DATA")
 	return nil
+}
+
+func expectPingAck(t *testing.T, fr *http2.Framer, data [8]byte) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		pf, ok := f.(*http2.PingFrame)
+		if !ok || !pf.IsAck() {
+			continue
+		}
+		if pf.Data != data {
+			t.Fatalf("PING ACK %q want %q", pf.Data, data)
+		}
+		return
+	}
+	t.Fatal("no PING ACK")
 }
 
 func readConnWindowUpdate(t *testing.T, fr *http2.Framer, min int) bool {

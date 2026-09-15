@@ -58,6 +58,37 @@ func TestBodyBufReadDeadline(t *testing.T) {
 	}
 }
 
+func TestBodyBufReleaseConnWindowLeavesBuffer(t *testing.T) {
+	var credited int
+	b := newBodyBuf(func(n int) { credited += n })
+	if _, err := b.Write([]byte("hello-world")); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, 5)
+	n, err := b.Read(got)
+	if err != nil || n != 5 || string(got) != "hello" {
+		t.Fatalf("read n=%d err=%v got=%q", n, err, got[:n])
+	}
+	unread := b.releaseConnWindow()
+	if unread != 6 {
+		t.Fatalf("unread=%d want 6", unread)
+	}
+	if credited != 5 {
+		t.Fatalf("onRead credited %d want 5", credited)
+	}
+	if b.releaseConnWindow() != 0 {
+		t.Fatal("second releaseConnWindow must be 0")
+	}
+	_ = b.Close()
+	rest, err := io.ReadAll(b)
+	if err != nil || string(rest) != "-world" {
+		t.Fatalf("rest %q err=%v (teardown must not wipe unread DATA)", rest, err)
+	}
+	if credited != 5 {
+		t.Fatalf("onRead after release credited %d (double connection credit)", credited)
+	}
+}
+
 func isTimeout(err error) bool {
 	return errors.Is(err, os.ErrDeadlineExceeded)
 }

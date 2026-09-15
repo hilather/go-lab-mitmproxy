@@ -16,6 +16,33 @@ import (
 	"golang.org/x/net/http2/hpack"
 )
 
+func TestOriginConnUnreadResponseOnRSTCreditsConnWindow(t *testing.T) {
+	client, server := h2TLSPair(t)
+	payload := bytes.Repeat([]byte("x"), 16*1024)
+	credited := make(chan struct{}, 1)
+	go writeOriginUnreadThenRST(t, server, payload, credited)
+	oc, err := NewOriginConn(client, OriginOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/rst", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := oc.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	select {
+	case <-credited:
+	case <-ctx.Done():
+		t.Fatal("unread origin DATA on RST must WINDOW_UPDATE the connection window")
+	}
+}
+
 func TestOriginConnRSTUploadDoesNotStallNextPOST(t *testing.T) {
 	client, server := h2TLSPair(t)
 	go rstFirstPOSTThenEcho(t, server)
@@ -835,6 +862,72 @@ func writeInformationalThenTrailers(t *testing.T, server io.ReadWriter) {
 				t.Error(err)
 			}
 			return
+		}
+	}
+}
+
+func writeOriginUnreadThenRST(t *testing.T, server io.ReadWriter, payload []byte, credited chan<- struct{}) {
+	t.Helper()
+	preface := make([]byte, len(http2.ClientPreface))
+	if _, err := io.ReadFull(server, preface); err != nil {
+		t.Error(err)
+		return
+	}
+	fr := http2.NewFramer(server, server)
+	fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	if err := fr.WriteSettings(); err != nil {
+		t.Error(err)
+		return
+	}
+	sawGET := false
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		if sc, ok := server.(interface{ SetDeadline(time.Time) error }); ok {
+			_ = sc.SetDeadline(time.Now().Add(3 * time.Second))
+		}
+		f, err := fr.ReadFrame()
+		if err != nil {
+			if !sawGET {
+				t.Error(err)
+			}
+			return
+		}
+		switch f := f.(type) {
+		case *http2.SettingsFrame:
+			if !f.IsAck() {
+				_ = fr.WriteSettingsAck()
+			}
+		case *http2.MetaHeadersFrame:
+			if f.StreamID != 1 {
+				continue
+			}
+			sawGET = true
+			ok := encodeFields(t, []hpack.HeaderField{{Name: ":status", Value: "200"}})
+			if err := fr.WriteHeaders(http2.HeadersFrameParam{
+				StreamID: 1, BlockFragment: ok, EndHeaders: true,
+			}); err != nil {
+				t.Error(err)
+				return
+			}
+			if err := fr.WriteData(1, false, payload); err != nil {
+				t.Error(err)
+				return
+			}
+			if err := fr.WriteRSTStream(1, http2.ErrCodeCancel); err != nil {
+				t.Error(err)
+				return
+			}
+		case *http2.WindowUpdateFrame:
+			if !sawGET || f.StreamID != 0 {
+				continue
+			}
+			if f.Increment == uint32(len(payload)) {
+				select {
+				case credited <- struct{}{}:
+				default:
+				}
+				return
+			}
 		}
 	}
 }

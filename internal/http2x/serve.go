@@ -179,7 +179,14 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 				return
 			}
 		}
+		// DATA already in bodyBuf was counted against the connection
+		// receive window. onRead only credits after a handler Read, so
+		// teardown must restore unread bytes or a later stream stalls.
+		// Leave the buffer readable: finish(false) + END_STREAM still
+		// has a consumer draining an early-response upload.
+		unread := 0
 		if st.body != nil {
+			unread = st.body.releaseConnWindow()
 			_ = st.body.Close()
 		}
 		delete(streams, id)
@@ -187,6 +194,7 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			open--
 		}
 		mu.Unlock()
+		creditConn(unread)
 		out.forget(id)
 	}
 	forceFinish := func(id uint32) { finish(id, true) }

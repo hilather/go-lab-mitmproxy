@@ -353,15 +353,18 @@ func (o *OriginConn) reset(id uint32, code http2.ErrCode) {
 }
 
 func (o *OriginConn) forget(id uint32) {
+	unread := 0
 	o.mu.Lock()
 	if st, ok := o.streams[id]; ok {
 		delete(o.streams, id)
-		if st.body != nil && !st.closed.Load() {
+		if st.body != nil {
+			unread = st.body.releaseConnWindow()
 			_ = st.body.Close()
 		}
 	}
 	delete(o.pushes, id)
 	o.mu.Unlock()
+	o.creditConn(unread)
 	o.out.forget(id)
 }
 
@@ -440,15 +443,18 @@ func (o *OriginConn) failStream(id uint32, err error) {
 	delete(o.streams, id)
 	delete(o.pushes, id)
 	o.mu.Unlock()
+	unread := 0
 	if st != nil {
 		select {
 		case st.fail <- err:
 		default:
 		}
 		if st.body != nil {
+			unread = st.body.releaseConnWindow()
 			_ = st.body.CloseWithError(err)
 		}
 	}
+	o.creditConn(unread)
 	o.out.forget(id)
 }
 
@@ -507,6 +513,7 @@ func (o *OriginConn) handleData(f *http2.DataFrame) {
 	if st != nil && st.body != nil {
 		if len(payload) > 0 {
 			if _, err := st.body.Write(payload); err != nil {
+				o.creditConn(len(payload))
 				o.reset(id, http2.ErrCodeCancel)
 				o.failStream(id, err)
 				return

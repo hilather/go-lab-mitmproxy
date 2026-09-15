@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- HTTP/2 `ServeConn` / `OriginConn` now `WINDOW_UPDATE` the connection receive window for DATA that was already buffered when a stream is aborted (silent/hang RST, handler error, origin `RST_STREAM`). Those bytes were counted against the hop-by-hop window and were never `onRead`-credited; without the restore, a later POST on the same intercepted CONNECT could stall until `sessionTimeout`.
 
 ### Removed or deprecated
 
