@@ -83,3 +83,28 @@ Patch of three Unreleased fixes after v1.6.0: Status `replaceTLS` OCC from [PR #
 
 - None.
 
+## 1.6.0 - 2026-08-30
+
+Operator SPA live-apply from [PR #70](https://github.com/hilather/go-lab-mitmproxy/pull/70): Status panels for `replaceTLS`, `replaceHTTPAuth`, `replaceRules`, `replaceAdmission`, and nested `replaceCompat`; compact `status.features` `httpAuth` badge plus Reset-required 1.2 flags; ADR [0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77 gated `ui.enabled` off-confirm; live intercept chip from `GET /v1/state` `canonical.spec.tls.ports`; Frames tab `drop`/`block` badges. Origin-h2 `OriginConn` DATA + trailer completeness from [PR #69](https://github.com/hilather/go-lab-mitmproxy/pull/69). Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. No new capability IDs or apply verbs. No fuzzer. Management stays bearer. **D7 stands.** Notes: [docs/releases/v1.6.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.6.0/docs/releases/v1.6.0.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.6.0/docs/known-limitations.md).
+
+### Added
+
+- Operator Status live-apply panels for `replaceTLS`, `replaceHTTPAuth` (407 file-ref users), `replaceRules`, `replaceAdmission`, and nested `replaceCompat` `{ compat: { flowREST } }`.
+- Status compact `status.features` panel: `httpAuth` badge plus Reset-required 1.2 flags as muted text (one catalog `Reset required` link).
+- Status gated `ui.enabled` off-confirm (D77 / ADR 0018). Recovery is REST/MCP.
+- Header intercept-ports chip from live `GET /v1/state` `canonical.spec.tls.ports` (not hardcoded `:443 intercept only`).
+- Inspector Frames tab badges `drop` / `block` from GET-by-id `frames[].action`.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- Origin h2 (`protocols.http2.origin`) now forwards inner POST/PUT/PATCH/gRPC request DATA. `http2x.OriginConn` treated `ContentLength == 0` as no body, so reconstructed inner streams (h2 often omits content-length) sent HEADERS with END_STREAM and dropped the payload.
+- Origin-h2 `http2x.OriginConn` now surfaces trailing HEADERS on `Response.Trailer` (and skips 1xx informational HEADERS). Live intercept with `protocols.http2.origin` forwards gRPC `grpc-status` / other response trailers to the inner client and stores them on the flow instead of dropping the second HEADERS block.
+
+### Removed or deprecated
+
+- None.
+
