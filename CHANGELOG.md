@@ -1,1 +1,1 @@
-@/tmp/cl_content_only.txt
+file:///tmp/cl_content_only.txt
