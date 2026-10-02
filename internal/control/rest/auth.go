@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
@@ -53,13 +54,16 @@ func (s *Server) authenticate(r *http.Request, skip bool) (app.Actor, error) {
 				Result:    "ok",
 			})
 		}
+		*r = *r.WithContext(context.WithValue(r.Context(), sessionPrincipalKey{}, p))
 		return actorOf(p, "rest"), nil
 	}
 
 	if c, err := r.Cookie(auth.CookieName); err == nil && c.Value != "" && s.cfg.Sessions != nil {
 		sess, _, ok := s.cfg.Sessions.Lookup(c.Value)
 		if ok {
-			return actorOf(auth.PrincipalFromSession(sess), "rest"), nil
+			p := auth.PrincipalFromSession(sess)
+			*r = *r.WithContext(context.WithValue(r.Context(), sessionPrincipalKey{}, p))
+			return actorOf(p, "rest"), nil
 		}
 		// Stale/unknown cookie must not block dev-loopback-unauth.
 	}
@@ -77,6 +81,7 @@ func (s *Server) authenticate(r *http.Request, skip bool) (app.Actor, error) {
 			Result:    "ok",
 		})
 	}
+	*r = *r.WithContext(context.WithValue(r.Context(), sessionPrincipalKey{}, p))
 	return actorOf(p, "rest"), nil
 }
 
@@ -198,3 +203,5 @@ func (l *limiter) evictIdleLocked(now time.Time) {
 		}
 	}
 }
+
+type sessionPrincipalKey struct{}

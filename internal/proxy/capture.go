@@ -96,12 +96,15 @@ func itoa(n uint64) string {
 const streamSlack = 64 << 10
 
 type cappedWriter struct {
+	mu        sync.Mutex
 	buf       []byte
 	max       int
 	truncated bool
 }
 
 func (c *cappedWriter) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.max <= 0 {
 		c.max = int(1 << 20)
 	}
@@ -150,4 +153,15 @@ func headersFrom(h map[string][]string) []model.Header {
 		}
 	}
 	return out
+}
+
+// snapshot copies capture bytes while an early-response request upload may
+// still be writing, so stored flows never alias the mutable capture buffer.
+func (c *cappedWriter) snapshot() *cappedWriter {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return &cappedWriter{buf: append([]byte(nil), c.buf...), max: c.max, truncated: c.truncated}
 }

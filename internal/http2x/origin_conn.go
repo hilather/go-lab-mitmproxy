@@ -2,6 +2,7 @@ package http2x
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -41,14 +42,19 @@ type Pushed struct {
 }
 
 type originStream struct {
-	id       uint32
-	body     *bodyBuf
-	hdr      chan []hpack.HeaderField
-	fail     chan error
-	closed   atomic.Bool
-	gotResp  atomic.Bool
-	trailers []hpack.HeaderField
-	trMu     sync.Mutex
+	id            uint32
+	body          *bodyBuf
+	requestBody   io.ReadCloser
+	hdr           chan []hpack.HeaderField
+	fail          chan error
+	closed        atomic.Bool
+	aborted       atomic.Bool
+	uploadStopped atomic.Bool
+	gotResp       atomic.Bool
+	uploadDone    atomic.Bool
+	responseDone  atomic.Bool
+	trailers      []hpack.HeaderField
+	trMu          sync.Mutex
 }
 
 func (st *originStream) storeTrailers(fields []hpack.HeaderField) {
@@ -76,10 +82,14 @@ type trailerBody struct {
 	st   *originStream
 	dest *http.Header
 	once sync.Once
+	done func()
 }
 
 func (b *trailerBody) promote() {
 	b.once.Do(func() {
+		if b.done != nil {
+			defer b.done()
+		}
 		if b.dest == nil {
 			return
 		}
@@ -130,12 +140,13 @@ type OriginConn struct {
 	c    net.Conn
 	opts OriginOpts
 
-	fr     *http2.Framer
-	dec    *hpack.Decoder
-	enc    *hpack.Encoder
-	encBuf *bytes.Buffer
-	write  func(func() error) error
-	out    *outFlow
+	fr      *http2.Framer
+	dec     *hpack.Decoder
+	enc     *hpack.Encoder
+	encBuf  *bytes.Buffer
+	write   func(func() error) error
+	out     *outFlow
+	inbound *inFlow
 
 	mu      sync.Mutex
 	nextID  uint32
@@ -168,6 +179,7 @@ func NewOriginConn(up net.Conn, opts OriginOpts) (*OriginConn, error) {
 		enc:     enc,
 		encBuf:  encBuf,
 		out:     newOutFlow(),
+		inbound: newInFlow(),
 		nextID:  1,
 		streams: make(map[uint32]*originStream),
 		pushes:  make(map[uint32]*pushStream),
@@ -223,11 +235,13 @@ func (o *OriginConn) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	o.nextID += 2
 	st := &originStream{
-		id:   id,
-		body: newBodyBuf(func(n int) { o.credit(id, n) }),
-		hdr:  make(chan []hpack.HeaderField, 1),
-		fail: make(chan error, 1),
+		id:          id,
+		requestBody: req.Body,
+		body:        newBodyBuf(func(n int) { o.credit(id, n) }),
+		hdr:         make(chan []hpack.HeaderField, 1),
+		fail:        make(chan error, 1),
 	}
+	o.inbound.open(id)
 	o.streams[id] = st
 	o.mu.Unlock()
 	o.out.open(id)
@@ -245,6 +259,8 @@ func (o *OriginConn) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	if hasBody {
 		go o.writeRequestBody(id, req.Body)
+	} else {
+		st.uploadDone.Store(true)
 	}
 
 	ctx := req.Context()
@@ -266,7 +282,15 @@ func (o *OriginConn) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		resp := responseFromFields(fields, st.body)
 		resp.Trailer = make(http.Header)
-		resp.Body = &trailerBody{ReadCloser: resp.Body, st: st, dest: &resp.Trailer}
+		resp.Body = &trailerBody{ReadCloser: resp.Body, st: st, dest: &resp.Trailer, done: func() {
+			st.responseDone.Store(true)
+			if !st.closed.Load() {
+				o.reset(st.id, http2.ErrCodeCancel)
+				o.failStream(st.id, io.ErrClosedPipe)
+				return
+			}
+			o.retire(st)
+		}}
 		return resp, nil
 	}
 }
@@ -283,10 +307,28 @@ func requestHasBody(req *http.Request) bool {
 }
 
 func (o *OriginConn) writeRequestBody(id uint32, body io.ReadCloser) {
+	o.mu.Lock()
+	st := o.streams[id]
+	o.mu.Unlock()
+	if st == nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return
+	}
 	if body == nil {
 		return
 	}
-	defer func() { _ = body.Close() }()
+	defer func() {
+		_ = body.Close()
+		o.mu.Lock()
+		st := o.streams[id]
+		o.mu.Unlock()
+		if st != nil {
+			st.uploadDone.Store(true)
+			o.retire(st)
+		}
+	}()
 	chunk := make([]byte, maxFramePayload)
 	sawEnd := false
 	for {
@@ -296,14 +338,25 @@ func (o *OriginConn) writeRequestBody(id uint32, body io.ReadCloser) {
 			for off < n {
 				take, werr := o.out.take(id, n-off)
 				if werr != nil {
+					if st.uploadStopped.Load() {
+						return
+					}
 					o.reset(id, http2.ErrCodeCancel)
+					o.failStream(id, werr)
 					return
 				}
 				end := err == io.EOF && off+take == n
 				payload := append([]byte(nil), chunk[off:off+take]...)
 				if werr := o.write(func() error {
+					if st.aborted.Load() {
+						return io.ErrClosedPipe
+					}
 					return o.fr.WriteData(id, end, payload)
 				}); werr != nil {
+					if st.uploadStopped.Load() {
+						return
+					}
+					o.failStream(id, werr)
 					return
 				}
 				if end {
@@ -314,12 +367,21 @@ func (o *OriginConn) writeRequestBody(id uint32, body io.ReadCloser) {
 		}
 		if err == io.EOF {
 			if !sawEnd {
-				_ = o.write(func() error { return o.fr.WriteData(id, true, nil) })
+				_ = o.write(func() error {
+					if st.aborted.Load() {
+						return io.ErrClosedPipe
+					}
+					return o.fr.WriteData(id, true, nil)
+				})
 			}
 			return
 		}
 		if err != nil {
+			if st.uploadStopped.Load() {
+				return
+			}
 			o.reset(id, http2.ErrCodeCancel)
+			o.failStream(id, err)
 			return
 		}
 	}
@@ -329,6 +391,7 @@ func (o *OriginConn) credit(id uint32, n int) {
 	if n <= 0 {
 		return
 	}
+	o.inbound.credit(id, n)
 	_ = o.write(func() error {
 		if err := o.fr.WriteWindowUpdate(id, uint32(n)); err != nil {
 			return err
@@ -343,20 +406,28 @@ func (o *OriginConn) creditConn(n int) {
 	if n <= 0 {
 		return
 	}
+	o.inbound.credit(0, n)
 	_ = o.write(func() error {
 		return o.fr.WriteWindowUpdate(0, uint32(n))
 	})
 }
 
 func (o *OriginConn) reset(id uint32, code http2.ErrCode) {
+	o.mu.Lock()
+	if st := o.streams[id]; st != nil {
+		st.aborted.Store(true)
+	}
+	o.mu.Unlock()
 	_ = o.write(func() error { return o.fr.WriteRSTStream(id, code) })
 }
 
 func (o *OriginConn) forget(id uint32) {
 	unread := 0
+	var uploadBody io.ReadCloser
 	o.mu.Lock()
 	if st, ok := o.streams[id]; ok {
 		delete(o.streams, id)
+		uploadBody = st.requestBody
 		if st.body != nil {
 			unread = st.body.releaseConnWindow()
 			_ = st.body.Close()
@@ -364,7 +435,11 @@ func (o *OriginConn) forget(id uint32) {
 	}
 	delete(o.pushes, id)
 	o.mu.Unlock()
+	if uploadBody != nil {
+		_ = uploadBody.Close()
+	}
 	o.creditConn(unread)
+	o.inbound.forget(id)
 	o.out.forget(id)
 }
 
@@ -374,9 +449,18 @@ func (o *OriginConn) failAll(err error) {
 	}
 	o.out.close()
 	o.mu.Lock()
+	if o.closed {
+		o.mu.Unlock()
+		return
+	}
 	o.closed = true
 	o.err = err
+	var uploadBodies []io.ReadCloser
 	for id, st := range o.streams {
+		st.aborted.Store(true)
+		if st.requestBody != nil {
+			uploadBodies = append(uploadBodies, st.requestBody)
+		}
 		select {
 		case st.fail <- err:
 		default:
@@ -385,9 +469,18 @@ func (o *OriginConn) failAll(err error) {
 			_ = st.body.CloseWithError(err)
 		}
 		delete(o.streams, id)
+		o.inbound.forget(id)
+		o.out.forget(id)
+	}
+	for id := range o.pushes {
+		o.inbound.forget(id)
+		o.out.forget(id)
 	}
 	o.pushes = map[uint32]*pushStream{}
 	o.mu.Unlock()
+	for _, body := range uploadBodies {
+		_ = body.Close()
+	}
 }
 
 func (o *OriginConn) readLoop() {
@@ -423,6 +516,9 @@ func (o *OriginConn) readLoop() {
 		case *http2.GoAwayFrame:
 			return
 		case *http2.RSTStreamFrame:
+			if f.ErrCode == http2.ErrCodeNo && o.stopCompletedUpload(f.StreamID) {
+				continue
+			}
 			o.failStream(f.StreamID, fmt.Errorf("http2x: RST_STREAM %v", f.ErrCode))
 		case *http2.PushPromiseFrame:
 			o.handlePushPromise(f)
@@ -440,9 +536,15 @@ func (o *OriginConn) readLoop() {
 func (o *OriginConn) failStream(id uint32, err error) {
 	o.mu.Lock()
 	st := o.streams[id]
+	if st != nil {
+		st.aborted.Store(true)
+	}
 	delete(o.streams, id)
 	delete(o.pushes, id)
 	o.mu.Unlock()
+	if st != nil && st.requestBody != nil {
+		_ = st.requestBody.Close()
+	}
 	unread := 0
 	if st != nil {
 		select {
@@ -455,6 +557,7 @@ func (o *OriginConn) failStream(id uint32, err error) {
 		}
 	}
 	o.creditConn(unread)
+	o.inbound.forget(id)
 	o.out.forget(id)
 }
 
@@ -484,8 +587,8 @@ func (o *OriginConn) handleHeaders(f *http2.MetaHeadersFrame) {
 			}
 		}
 		if f.StreamEnded() && st.body != nil {
-			_ = st.body.Close()
 			st.closed.Store(true)
+			_ = st.body.Close()
 		}
 		return
 	}
@@ -505,6 +608,18 @@ func (o *OriginConn) handleHeaders(f *http2.MetaHeadersFrame) {
 
 func (o *OriginConn) handleData(f *http2.DataFrame) {
 	id := f.StreamID
+	if err := o.inbound.take(id, dataFrameWindow(f)); err != nil {
+		var se http2.StreamError
+		if errors.As(err, &se) {
+			o.creditConn(dataFrameWindow(f))
+			o.reset(id, se.Code)
+			o.failStream(id, err)
+		} else {
+			o.failAll(err)
+			_ = o.c.Close()
+		}
+		return
+	}
 	payload := append([]byte(nil), f.Data()...)
 	o.mu.Lock()
 	st := o.streams[id]
@@ -513,15 +628,16 @@ func (o *OriginConn) handleData(f *http2.DataFrame) {
 	if st != nil && st.body != nil {
 		if len(payload) > 0 {
 			if _, err := st.body.Write(payload); err != nil {
-				o.creditConn(len(payload))
+				o.creditConn(dataFrameWindow(f))
 				o.reset(id, http2.ErrCodeCancel)
 				o.failStream(id, err)
 				return
 			}
 		}
+		o.credit(id, dataFrameWindow(f)-len(payload))
 		if f.StreamEnded() {
-			_ = st.body.Close()
 			st.closed.Store(true)
+			_ = st.body.Close()
 		}
 		return
 	}
@@ -534,25 +650,21 @@ func (o *OriginConn) handleData(f *http2.DataFrame) {
 					ps.body = append(ps.body, payload[:keep]...)
 				}
 				ps.trunc = true
-				o.creditConn(len(payload))
+				o.creditConn(dataFrameWindow(f))
 				o.finishPush(ps, false)
 				return
 			}
 			ps.body = append(ps.body, payload...)
 		}
 		if f.StreamEnded() {
-			o.creditConn(len(payload))
+			o.creditConn(dataFrameWindow(f))
 			o.finishPush(ps, true)
 			return
 		}
-		if len(payload) > 0 {
-			o.credit(id, len(payload))
-		}
+		o.credit(id, dataFrameWindow(f))
 		return
 	}
-	if len(payload) > 0 {
-		o.credit(id, len(payload))
-	}
+	o.creditConn(dataFrameWindow(f))
 	o.reset(id, http2.ErrCodeStreamClosed)
 }
 
@@ -606,6 +718,7 @@ func (o *OriginConn) handlePushPromise(f *http2.PushPromiseFrame) {
 		path:      pseudoValue(fields, ":path"),
 	}
 	o.mu.Lock()
+	o.inbound.open(promised)
 	o.pushes[promised] = ps
 	o.mu.Unlock()
 	o.out.open(promised)
@@ -625,6 +738,7 @@ func (o *OriginConn) finishPush(ps *pushStream, ended bool) {
 	if !ended {
 		o.reset(ps.id, http2.ErrCodeCancel)
 	}
+	o.inbound.forget(ps.id)
 	o.out.forget(ps.id)
 	if o.opts.OnPush == nil {
 		return
@@ -786,4 +900,31 @@ func decodeHPACK(dec *hpack.Decoder, frag []byte) ([]hpack.HeaderField, error) {
 		return nil, err
 	}
 	return fields, nil
+}
+
+func (o *OriginConn) retire(st *originStream) {
+	if st.uploadDone.Load() && st.responseDone.Load() {
+		o.forget(st.id)
+	}
+}
+
+// NO_ERROR after END_STREAM ends an unused request upload, not the already
+// complete response. Preserve headers/data until RoundTrip and its reader
+// consume them instead of racing fail against the buffered headers channel.
+func (o *OriginConn) stopCompletedUpload(id uint32) bool {
+	o.mu.Lock()
+	st := o.streams[id]
+	if st == nil || !st.gotResp.Load() || !st.closed.Load() {
+		o.mu.Unlock()
+		return false
+	}
+	st.uploadStopped.Store(true)
+	st.aborted.Store(true)
+	body := st.requestBody
+	o.mu.Unlock()
+	o.out.forget(id)
+	if body != nil {
+		_ = body.Close()
+	}
+	return true
 }

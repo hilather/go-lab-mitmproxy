@@ -48,6 +48,11 @@ func Listen(addr string, reg *Registry) (*Listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ListenOn(ln, reg), nil
+}
+
+// ListenOn starts the scrape server on a listener already reserved by the runtime.
+func ListenOn(ln net.Listener, reg *Registry) *Listener {
 	mux := http.NewServeMux()
 	h := Handler(reg)
 	mux.Handle("/metrics", h)
@@ -60,7 +65,7 @@ func Listen(addr string, reg *Registry) (*Listener, error) {
 	}
 	l := &Listener{srv: s, ln: ln}
 	go func() { _ = s.Serve(ln) }()
-	return l, nil
+	return l
 }
 
 // Addr is the bound address, or "" if disabled / not started.
@@ -97,4 +102,17 @@ func (l *Listener) Shutdown(ctx context.Context) error {
 		return ln.Close()
 	}
 	return nil
+}
+
+// StopAccepting retires a scrape bind immediately while existing requests drain.
+func (l *Listener) StopAccepting() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	ln := l.ln
+	l.mu.Unlock()
+	if ln != nil {
+		_ = ln.Close()
+	}
 }

@@ -60,7 +60,6 @@ func (s *Server) decodeJSONBody(w http.ResponseWriter, r *http.Request, instance
 func (s *Server) decodeBytes(w http.ResponseWriter, r *http.Request, instance string, body []byte, dst any) bool {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
-	dec.DisallowUnknownFields()
 	var tree any
 	if err := dec.Decode(&tree); err != nil {
 		s.writeProblem(w, r, instance, decodeError(err))
@@ -71,16 +70,29 @@ func (s *Server) decodeBytes(w http.ResponseWriter, r *http.Request, instance st
 			domainerr.FieldViolation{Path: "", Code: "invalid_value", Message: "trailing JSON is not allowed"}))
 		return false
 	}
+	// Candidate state has its own strict config decoder and unit coercion.
+	// Keep it raw here while coercing the operation/envelope fields once.
+	var candidate any
+	object, hasObject := tree.(map[string]any)
+	if _, isChange := dst.(*changeRequest); isChange && hasObject {
+		candidate = object["state"]
+		delete(object, "state")
+	}
 	if vs := config.CoerceWireTree(tree); len(vs) > 0 {
 		s.writeProblem(w, r, instance, domainerr.ValidationFailed("invalid request body", vs...))
 		return false
+	}
+	if candidate != nil {
+		object["state"] = candidate
 	}
 	rewritten, err := json.Marshal(tree)
 	if err != nil {
 		s.writeProblem(w, r, instance, domainerr.Internal("internal error"))
 		return false
 	}
-	if err := json.Unmarshal(rewritten, dst); err != nil {
+	typed := json.NewDecoder(bytes.NewReader(rewritten))
+	typed.DisallowUnknownFields()
+	if err := typed.Decode(dst); err != nil {
 		s.writeProblem(w, r, instance, decodeError(err))
 		return false
 	}

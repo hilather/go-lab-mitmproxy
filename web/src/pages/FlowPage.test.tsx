@@ -2,7 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { json, renderApp, resetClientState, sessionView } from "../test/render";
+import { json, renderAppReady, resetClientState, sessionView } from "../test/render";
 import { FlowPage } from "./FlowPage";
 
 const flow = {
@@ -74,7 +74,7 @@ describe("FlowPage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    renderApp(
+    await renderAppReady(
       <Routes>
         <Route path="/flows/:id" element={<FlowPage />} />
       </Routes>,
@@ -102,8 +102,8 @@ describe("FlowPage", () => {
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/flows/01JTEST/response"))).toBe(true);
     });
-    expect(createObjectURL).toHaveBeenCalled();
-    expect(revokeObjectURL).toHaveBeenCalled();
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalled());
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/v1/flows/01JTEST"))).toBe(true);
     });
@@ -152,7 +152,7 @@ describe("FlowPage", () => {
       }),
     );
 
-    renderApp(
+    await renderAppReady(
       <Routes>
         <Route path="/flows/:id" element={<FlowPage />} />
       </Routes>,
@@ -222,7 +222,7 @@ describe("FlowPage", () => {
       }),
     );
 
-    renderApp(
+    await renderAppReady(
       <Routes>
         <Route path="/flows/:id" element={<FlowPage />} />
       </Routes>,
@@ -307,7 +307,7 @@ describe("FlowPage", () => {
       }),
     );
 
-    renderApp(
+    await renderAppReady(
       <Routes>
         <Route path="/flows/:id" element={<FlowPage />} />
       </Routes>,
@@ -356,7 +356,7 @@ describe("FlowPage", () => {
       }),
     );
 
-    renderApp(
+    await renderAppReady(
       <Routes>
         <Route path="/flows/:id" element={<FlowPage />} />
       </Routes>,
@@ -400,7 +400,7 @@ describe("FlowPage", () => {
       }),
     );
 
-    renderApp(
+    await renderAppReady(
       <Routes>
         <Route path="/flows/:id" element={<FlowPage />} />
       </Routes>,
@@ -453,7 +453,7 @@ describe("FlowPage", () => {
         });
       }),
     );
-    renderApp(
+    await renderAppReady(
       <Routes>
         <Route path="/flows/:id" element={<FlowPage />} />
       </Routes>,
@@ -502,7 +502,7 @@ describe("FlowPage", () => {
         });
       }),
     );
-    renderApp(
+    await renderAppReady(
       <Routes>
         <Route path="/flows/:id" element={<FlowPage />} />
       </Routes>,

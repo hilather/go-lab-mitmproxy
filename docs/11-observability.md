@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Observability, Proxy, Control Plane
-Last reviewed: 2026-08-28 (D69 rule action labels; D73 action=block; reason=proxy_auth)
+Last reviewed: 2026-10-02 (transactional metrics listener Reset)
 Related ADRs: 0001, 0014, 0015, 0016, 0017
 
 ## Logs (`log/slog` JSON)
@@ -24,6 +24,8 @@ Fields: `timestamp`, `level`, `event`, `component`, `request_id`, `flow_id`, `ho
 ## Metrics (hand-rolled OpenMetrics)
 
 Same exposition style as LabDNS / LabMail `internal/observability`: write OpenMetrics text; **do not** import `github.com/prometheus/*`. Go source of truth: `internal/observability`. `make generate` / `make verify-generated` keep [`api/metrics/v1alpha1.json`](https://github.com/hilather/go-lab-mitmproxy/blob/main/api/metrics/v1alpha1.json) current. `spec.observability.metrics.listen` default `127.0.0.1:9090` (empty disables). A lab overlay that needs compose scraping sets `listen: ":9090"` (or `0.0.0.0:9090`). `publicPath: true` exposes authenticated `GET /v1/metrics` on the management listener; default `false`. The scrape listener serves `/metrics` unauthenticated (bind loopback unless the overlay needs compose scraping).
+
+Reset prebinds a changed scrape address before wiping flows or committing state. A successful Reset activates that listener and stops accepts on the old address; an empty `metrics.listen` disables it. A failed bind leaves the existing scrape endpoint intact.
 
 Bounded labels only.
 

@@ -10,11 +10,20 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- None.
+- HTTP/2 and h2c responses forward incrementally with bounded capture. An oversized response paused on the shared HTTP/1.1 origin connection retains that connection until its unread body is consumed or closed; small paused responses still allow other streams to proceed. See [ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md). No new configuration, persistence, REST capabilities, or MCP tools.
+- REST request envelopes reject unknown fields, including nested apply operations. Clients must remove misspelled or extra fields. Candidate-state byte-size values are coerced once by the strict configuration decoder.
 
 ### Fixed
 
-- None.
+- Management listeners honor configured TLS, require TLS 1.2 or newer, and reject plaintext when enabled. Startup validates certificate/key files before opening listeners. Operators with TLS configured must use HTTPS, including management health probes.
+- Reset preflights proxy, original-destination, management, and metrics listener changes, then applies them with the new snapshot. Failed binds or invalid management TLS leave the old listeners, state, and flows intact. Existing CLI address overrides remain authoritative; accepted sessions and the Reset response can finish.
+- Bearer rotation invalidates browser sessions atomically through credential generations, including a session-create request authenticated just before rotation. Failed credential reloads preserve existing sessions.
+- Cached interception certificates are renewed when outside their validity interval instead of serving expired leaves; the lab CA is retained.
+- HTTP/2 receive windows are enforced for connection and stream DATA, including padding, with credit restored when consumed or discarded. Invalid stream headers no longer tear down unrelated streams, and completed origin-stream bookkeeping is released after both directions finish. Stream cancellation unblocks stalled origin responses and upload readers. A normal origin reset after a complete response ends its unused upload without discarding the response. Slow-response pacing preserves bounded buffering and origin ownership.
+- Resume of spilled bodies stages replacement before committing, preserving old files, flows, counters, and eviction candidates on failure. Explicit empty header/body edits remain distinct from omitted edits. Resuming an untouched truncated response preserves its unread tail.
+- Status live-apply works when `crypto.randomUUID` is unavailable on a remote HTTP origin, using secure random bytes for idempotency keys. Key-generation errors restore the form controls.
+- CI test pipelines propagate failures through `tee` and retain stderr in artifacts. Regression harnesses synchronize MCP recordings, HTTP/2 pool reads, and UI effects; silent-reset tests accept the reset on either socket write or read while still requiring a real reset.
+- Container smoke origins run on an isolated Docker network, avoiding dependence on host firewall exceptions. They signal readiness after bind/TLS setup, with bounded startup and failure diagnostics before cleanup.
 
 ### Removed or deprecated
 

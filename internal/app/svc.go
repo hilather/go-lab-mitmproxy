@@ -44,6 +44,7 @@ type App struct {
 	idemp         *idempCache
 	audit         *audit.Fanout
 	resetHooks    []func()
+	resetRuntime  ResetRuntime
 	applyHooks    []func()
 	replay        ReplayFunc
 	metrics       *observability.Registry

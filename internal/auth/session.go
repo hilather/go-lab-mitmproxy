@@ -36,12 +36,14 @@ func DefaultSessionConfig() SessionConfig {
 
 // Session is the public, non-secret view of an in-memory session.
 type Session struct {
-	ID        string
-	TokenID   string
-	Role      string
-	Scopes    []string
-	CreatedAt time.Time
-	LastSeen  time.Time
+	ID         string
+	TokenID    string
+	Role       string
+	Scopes     []string
+	CreatedAt  time.Time
+	LastSeen   time.Time
+	verifier   *Verifier
+	generation uint64
 }
 
 // Store is a process-local session table. Cookie values and CSRF secrets
@@ -93,6 +95,13 @@ func (s *Store) Create(p Principal) (cookieValue, csrf string, sess Session, err
 	if s == nil {
 		return "", "", Session{}, domainerr.Internal("session store unavailable")
 	}
+	if p.verifier != nil {
+		p.verifier.mu.RLock()
+		defer p.verifier.mu.RUnlock()
+		if p.generation != p.verifier.generation.Load() {
+			return "", "", Session{}, domainerr.Unauthenticated("credentials changed; authenticate again")
+		}
+	}
 	cookieValue, err = randomHex(MinTokenBytes)
 	if err != nil {
 		return "", "", Session{}, err
@@ -108,12 +117,14 @@ func (s *Store) Create(p Principal) (cookieValue, csrf string, sess Session, err
 	now := s.now()
 	rec := &record{
 		public: Session{
-			ID:        publicID,
-			TokenID:   p.ID,
-			Role:      p.Role,
-			Scopes:    append([]string(nil), p.Scopes...),
-			CreatedAt: now,
-			LastSeen:  now,
+			ID:         publicID,
+			verifier:   p.verifier,
+			generation: p.generation,
+			TokenID:    p.ID,
+			Role:       p.Role,
+			Scopes:     append([]string(nil), p.Scopes...),
+			CreatedAt:  now,
+			LastSeen:   now,
 		},
 		csrf:      csrf,
 		createdAt: now,
@@ -138,7 +149,7 @@ func (s *Store) Lookup(cookieValue string) (Session, string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, ok := s.sessions[cookieValue]
-	if !ok || s.expiredLocked(rec, now) {
+	if !ok || s.revokedLocked(rec) || s.expiredLocked(rec, now) {
 		if ok {
 			delete(s.sessions, cookieValue)
 		}
@@ -177,7 +188,7 @@ func (s *Store) ValidCSRF(cookieValue, presented string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, ok := s.sessions[cookieValue]
-	if !ok || s.expiredLocked(rec, s.now()) {
+	if !ok || s.revokedLocked(rec) || s.expiredLocked(rec, s.now()) {
 		if ok {
 			delete(s.sessions, cookieValue)
 		}
@@ -287,9 +298,15 @@ func UnsafeMethod(method string) bool {
 // PrincipalFromSession copies the token principal off a cookie session.
 func PrincipalFromSession(sess Session) Principal {
 	return Principal{
-		ID:     sess.TokenID,
-		Class:  ClassToken,
-		Role:   sess.Role,
-		Scopes: append([]string(nil), sess.Scopes...),
+		ID:         sess.TokenID,
+		verifier:   sess.verifier,
+		generation: sess.generation,
+		Class:      ClassToken,
+		Role:       sess.Role,
+		Scopes:     append([]string(nil), sess.Scopes...),
 	}
+}
+
+func (s *Store) revokedLocked(rec *record) bool {
+	return rec.public.verifier != nil && rec.public.generation != rec.public.verifier.generation.Load()
 }

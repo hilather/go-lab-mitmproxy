@@ -29,6 +29,10 @@ env:
   GOTOOLCHAIN: local
   GOPROXY: https://proxy.golang.org,direct
 
+defaults:
+  run:
+    shell: bash --noprofile --norc -e -o pipefail {0}
+
 jobs:
   format:
     name: format
@@ -66,7 +70,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Unit tests
-        run: make test | tee unit.log
+        run: make test 2>&1 | tee unit.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
@@ -84,7 +88,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Race tests
-        run: make test-race | tee race.log
+        run: make test-race 2>&1 | tee race.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
@@ -102,7 +106,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Fuzz smoke
-        run: make test-fuzz-smoke | tee fuzz-smoke.log
+        run: make test-fuzz-smoke 2>&1 | tee fuzz-smoke.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:

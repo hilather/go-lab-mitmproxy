@@ -121,17 +121,28 @@ func (s *Server) roundTripH2C(ctx context.Context, in http2x.Stream, pinned *rul
 		return rw.response(), nil, nil
 	}
 
+	pipe, streamCtx := newResponseStream(ctx)
+	inner = inner.WithContext(streamCtx)
 	rw := newCaptureRW()
-	var result ruleResult
-	if tagged {
-		result = s.serveOrigDestHTTP(rw, inner, dest, sess)
-	} else {
-		result = s.serveAbsolute(rw, inner, sess)
-	}
-	if result == ruleSilentClose {
-		return nil, nil, http2x.ErrSilentClose
-	}
-	return s.paceReturnedResponse(ctx, sess, rw.response()), nil, nil
+	rw.stream = pipe
+	go func() {
+		var result ruleResult
+		if tagged {
+			result = s.serveOrigDestHTTP(rw, inner, dest, sess)
+		} else {
+			result = s.serveAbsolute(rw, inner, sess)
+		}
+		if result == ruleSilentClose {
+			pipe.finish(http2x.ErrSilentClose)
+			return
+		}
+		if !rw.wroteHeader {
+			rw.WriteHeader(http.StatusInternalServerError)
+		}
+		pipe.finish(nil)
+	}()
+	resp, err := pipe.response()
+	return s.paceReturnedResponse(ctx, sess, resp), nil, err
 }
 
 // responseWriterIsClient is false for captureRW: that buffer is not the
@@ -393,12 +404,13 @@ func h2cForbidden(in http2x.Stream) bool {
 type captureRW struct {
 	h           http.Header
 	code        int
-	body        bytes.Buffer
+	body        cappedWriter
+	stream      *responseStream
 	wroteHeader bool
 }
 
 func newCaptureRW() *captureRW {
-	return &captureRW{h: make(http.Header)}
+	return &captureRW{h: make(http.Header), body: cappedWriter{max: 1 << 20}}
 }
 
 func (c *captureRW) Header() http.Header {
@@ -414,6 +426,9 @@ func (c *captureRW) WriteHeader(code int) {
 	}
 	c.wroteHeader = true
 	c.code = code
+	if c.stream != nil {
+		c.stream.publish(&http.Response{StatusCode: code, Header: c.h, Proto: "HTTP/2.0", ProtoMajor: 2, ContentLength: -1})
+	}
 }
 
 func (c *captureRW) Write(p []byte) (int, error) {
@@ -422,6 +437,9 @@ func (c *captureRW) Write(p []byte) (int, error) {
 	}
 	if !c.wroteHeader {
 		c.WriteHeader(http.StatusOK)
+	}
+	if c.stream != nil {
+		return c.stream.writer.Write(p)
 	}
 	return c.body.Write(p)
 }
@@ -440,7 +458,7 @@ func (c *captureRW) response() *http.Response {
 	if !c.wroteHeader {
 		code = http.StatusInternalServerError
 	}
-	body := c.body.Bytes()
+	body := c.body.buf
 	var r io.ReadCloser = http.NoBody
 	if len(body) > 0 {
 		r = io.NopCloser(bytes.NewReader(body))
@@ -452,5 +470,14 @@ func (c *captureRW) response() *http.Response {
 		ContentLength: int64(len(body)),
 		Proto:         "HTTP/2.0",
 		ProtoMajor:    2,
+	}
+}
+
+func (c *captureRW) Flush() {}
+func (c *captureRW) setTrailers(h http.Header) {
+	if c.stream != nil && c.stream.resp != nil {
+		for k, vs := range h {
+			c.stream.resp.Trailer[k] = append([]string(nil), vs...)
+		}
 	}
 }

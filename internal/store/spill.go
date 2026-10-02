@@ -76,20 +76,17 @@ func wsConcat(ws *model.WebSocketInfo) []byte {
 	return out
 }
 
-func writeSideSpill(dir string, threshold int64, id, side string, body []byte) (string, error) {
+// stageSideSpill leaves the live filename untouched until Resume commits.
+func stageSideSpill(dir string, threshold int64, id, side string, body []byte) (string, string, error) {
 	if dir == "" || threshold <= 0 || int64(len(body)) < threshold {
-		return "", nil
+		return "", "", nil
 	}
 	tmp := filepath.Join(dir, id+"-"+side+".body.tmp")
 	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return "", fmt.Errorf("%w: %s: %v", ErrSpill, side, err)
-	}
-	final := filepath.Join(dir, id+"-"+side+".body")
-	if err := os.Rename(tmp, final); err != nil {
 		_ = os.Remove(tmp)
-		return "", fmt.Errorf("%w: rename %s: %v", ErrSpill, side, err)
+		return "", "", fmt.Errorf("%w: %s: %v", ErrSpill, side, err)
 	}
-	return final, nil
+	return tmp, filepath.Join(dir, id+"-"+side+".body"), nil
 }
 
 func commitSpill(rec *record, job *spillJob) error {

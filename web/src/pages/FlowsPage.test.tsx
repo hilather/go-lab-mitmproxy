@@ -1,8 +1,8 @@
-import { screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../App";
-import { json, renderApp, resetClientState, sessionView } from "../test/render";
+import { json, renderAppReady, resetClientState, sessionView } from "../test/render";
 import { portsOnlyState } from "../test/state";
 
 const httpFlow = {
@@ -114,6 +114,16 @@ function mockAPI() {
   });
 }
 
+function flowLink(method: string, id: string) {
+  const link = screen.getByText(method).closest("a");
+  expect(link).not.toBeNull();
+  expect(link).toHaveAttribute("href", `/flows/${id}`);
+  expect(link).toHaveAccessibleName(new RegExp(method));
+  expect(link).toBeVisible();
+  expect(link!.closest('[aria-hidden="true"]')).toBeNull();
+  return link!;
+}
+
 describe("FlowsWorkspace", () => {
   afterEach(() => {
     resetClientState();
@@ -122,49 +132,56 @@ describe("FlowsWorkspace", () => {
     RecordingEventSource.instances = [];
   });
 
-  it("keeps the live list mounted and drives the inspector from selection", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal("EventSource", RecordingEventSource);
-    vi.stubGlobal("fetch", mockAPI());
+  describe("live list selection", () => {
+    let getLink: HTMLElement;
+    let connLink: HTMLElement;
+    beforeEach(async () => {
+      vi.stubGlobal("EventSource", RecordingEventSource);
+      vi.stubGlobal("fetch", mockAPI());
+      await renderAppReady(<AppRoutes />, { route: "/" });
+      getLink = flowLink("GET", "01JH2LIST");
+      connLink = flowLink("CONN", "01JCONN");
+    });
 
-    renderApp(<AppRoutes />, { route: "/" });
+    it("keeps the live list mounted and drives the inspector from selection", async () => {
 
-    expect(await screen.findByText("app.lab.test")).toBeInTheDocument();
-    expect(screen.getByText("GET")).toHaveClass("method-http");
-    expect(screen.getByText("4ms")).toBeInTheDocument();
-    expect(screen.getByText("200")).toHaveClass("status-ok");
-    expect(screen.getByText("CONN")).toHaveClass("method-tunnel");
-    expect(screen.getByText("-")).toBeInTheDocument();
-    expect(screen.getByText("tunnel")).toHaveClass("status-tunnel");
-    expect(screen.getByPlaceholderText("Host, method, or status")).toBeInTheDocument();
-    expect(screen.getByText(/CONNECT to LDAPS\/TacLab TLS is tunnel-not-decrypt/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
-    expect(RecordingEventSource.instances).toHaveLength(1);
+      expect(await screen.findByText("app.lab.test")).toBeInTheDocument();
+      expect(screen.getByText("GET")).toHaveClass("method-http");
+      expect(screen.getByText("4ms")).toBeInTheDocument();
+      expect(screen.getByText("200")).toHaveClass("status-ok");
+      expect(screen.getByText("CONN")).toHaveClass("method-tunnel");
+      expect(screen.getByText("-")).toBeInTheDocument();
+      expect(screen.getByText("tunnel")).toHaveClass("status-tunnel");
+      expect(screen.getByPlaceholderText("Host, method, or status")).toBeInTheDocument();
+      expect(screen.getByText(/CONNECT to LDAPS\/TacLab TLS is tunnel-not-decrypt/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
+      expect(RecordingEventSource.instances).toHaveLength(1);
 
-    await user.click(screen.getByRole("link", { name: /GET/i }));
-    expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
-    expect(screen.getByText("h2")).toHaveClass("badge");
-    expect(screen.getByText("stream 7")).toHaveClass("badge");
-    expect(screen.getByText("SOCKS dest")).toBeInTheDocument();
-    expect(screen.getByText("app.lab.test:443")).toBeInTheDocument();
-    expect(screen.getByText("Original dest")).toBeInTheDocument();
-    expect(screen.getByText("192.0.2.10:443")).toBeInTheDocument();
-    expect(screen.getByText("intercepted")).toBeInTheDocument();
-    expect(RecordingEventSource.instances).toHaveLength(1);
-    expect(RecordingEventSource.instances[0]?.closed).toBe(false);
+      await act(async () => { fireEvent.click(getLink); });
+      expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
+      expect(screen.getByText("h2")).toHaveClass("badge");
+      expect(screen.getByText("stream 7")).toHaveClass("badge");
+      expect(screen.getByText("SOCKS dest")).toBeInTheDocument();
+      expect(screen.getByText("app.lab.test:443")).toBeInTheDocument();
+      expect(screen.getByText("Original dest")).toBeInTheDocument();
+      expect(screen.getByText("192.0.2.10:443")).toBeInTheDocument();
+      expect(screen.getByText("intercepted")).toBeInTheDocument();
+      expect(RecordingEventSource.instances).toHaveLength(1);
+      expect(RecordingEventSource.instances[0]?.closed).toBe(false);
 
-    await user.click(screen.getByRole("link", { name: /CONN/i }));
-    expect(await screen.findByText("Tunnel-not-decrypt")).toBeInTheDocument();
-    expect(screen.getByText(/why not decrypted: port not in tls.ports:\[443\]/)).toBeInTheDocument();
-    expect(screen.queryByText("No headers.")).toBeNull();
-    expect(RecordingEventSource.instances).toHaveLength(1);
+      await act(async () => { fireEvent.click(connLink); });
+      expect(await screen.findByText("Tunnel-not-decrypt")).toBeInTheDocument();
+      expect(screen.getByText(/why not decrypted: port not in tls.ports:\[443\]/)).toBeInTheDocument();
+      expect(screen.queryByText("No headers.")).toBeNull();
+      expect(RecordingEventSource.instances).toHaveLength(1);
+    });
   });
 
   it("filters the list by CONN and tunnel without reconnecting EventSource", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("EventSource", RecordingEventSource);
     vi.stubGlobal("fetch", mockAPI());
-    renderApp(<AppRoutes />, { route: "/" });
+    await renderAppReady(<AppRoutes />, { route: "/" });
     expect(await screen.findByText("app.lab.test")).toBeInTheDocument();
     await user.type(screen.getByPlaceholderText("Host, method, or status"), "tunnel");
     expect(screen.getByText("CONN")).toBeInTheDocument();
@@ -208,7 +225,7 @@ describe("FlowsWorkspace", () => {
         });
       }),
     );
-    renderApp(<AppRoutes />, { route: "/flows/01JH2LIST" });
+    await renderAppReady(<AppRoutes />, { route: "/flows/01JH2LIST" });
     expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
     expect(RecordingEventSource.instances).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /Clear flows/i }));
@@ -247,11 +264,11 @@ describe("FlowsWorkspace", () => {
         });
       }),
     );
-    renderApp(<AppRoutes />, { route: "/flows/01JH2LIST" });
+    await renderAppReady(<AppRoutes />, { route: "/flows/01JH2LIST" });
     expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
     expect(RecordingEventSource.instances).toHaveLength(1);
     gone = true;
-    RecordingEventSource.instances[0]?.dispatch("flow.deleted");
+    await act(async () => { RecordingEventSource.instances[0]?.dispatch("flow.deleted"); });
     expect(await screen.findByText("Select a captured flow.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeNull();
     expect(RecordingEventSource.instances).toHaveLength(1);

@@ -66,6 +66,10 @@ func (a *Authority) Mint(host string) (*tls.Certificate, error) {
 }
 
 func (a *Authority) leafFor(host string) (*tls.Certificate, error) {
+	return a.leafForAt(host, time.Now())
+}
+
+func (a *Authority) leafForAt(host string, now time.Time) (*tls.Certificate, error) {
 	if a == nil || a.caCert == nil || a.caKey == nil {
 		return nil, errorsMint("CA is not initialized")
 	}
@@ -75,10 +79,10 @@ func (a *Authority) leafFor(host string) (*tls.Certificate, error) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if cert := a.cache.get(host); cert != nil {
+	if cert := a.cache.get(host); cert != nil && cert.Leaf != nil && !now.Before(cert.Leaf.NotBefore) && now.Before(cert.Leaf.NotAfter) {
 		return cert, nil
 	}
-	cert, err := a.mintLocked(host)
+	cert, err := a.mintLocked(host, now)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +94,7 @@ func errorsMint(msg string) error {
 	return fmt.Errorf("tlsmitm: mint: %s", msg)
 }
 
-func (a *Authority) mintLocked(host string) (*tls.Certificate, error) {
+func (a *Authority) mintLocked(host string, now time.Time) (*tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("tlsmitm: leaf key: %w", err)
@@ -99,7 +103,6 @@ func (a *Authority) mintLocked(host string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{

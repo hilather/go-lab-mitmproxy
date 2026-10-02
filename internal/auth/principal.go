@@ -13,10 +13,12 @@ const (
 
 // Principal is the non-secret actor after authentication.
 type Principal struct {
-	ID     string
-	Class  string
-	Role   string
-	Scopes []string
+	ID         string
+	Class      string
+	Role       string
+	Scopes     []string
+	verifier   *Verifier
+	generation uint64
 }
 
 // HasScope reports whether p grants want. mitm.admin satisfies every scope.

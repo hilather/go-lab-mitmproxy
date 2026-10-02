@@ -165,10 +165,17 @@ func TestResetBadSpillLeavesFlowsAndSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.bootstrapPath = cfg
+	rolledBack := false
+	svc.SetResetRuntime(func(context.Context, model.Spec) (func(), func(), error) {
+		return func() { t.Error("store failure committed staged runtime") }, func() { rolledBack = true }, nil
+	})
 
 	_, err := svc.Reset(ctx, actor(), ResetIn{Reason: "bad spill"})
 	if err == nil {
 		t.Fatal("expected reset to fail on unwritable spill")
+	}
+	if !rolledBack {
+		t.Fatal("store failure did not roll back runtime preflight")
 	}
 	if svc.Active() != live {
 		t.Fatal("failed reset swapped snapshot")
@@ -210,4 +217,86 @@ func isNotFound(err error) bool {
 
 func isStale(err error) bool {
 	return err != nil && err == store.ErrStaleEpoch
+}
+
+func TestResetRuntimePreflightFailureLeavesStateAndStore(t *testing.T) {
+	svc, _ := mustBoot(t)
+	before := svc.Active()
+	id := insertRaw(t, svc, "preserved.lab")
+	epoch := svc.Inbox().Epoch()
+	svc.SetResetRuntime(func(context.Context, model.Spec) (func(), func(), error) {
+		return nil, nil, domainerr.Internal("listener bind failed")
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "bind fails"}); err == nil {
+		t.Fatal("Reset ignored runtime preflight failure")
+	}
+	if svc.Active() != before || svc.Inbox().Epoch() != epoch {
+		t.Fatal("preflight failure changed state or store epoch")
+	}
+	if _, err := svc.Inbox().Get(id); err != nil {
+		t.Fatalf("preflight failure lost flow: %v", err)
+	}
+}
+
+func TestResetRuntimeCommitSeesNewSnapshot(t *testing.T) {
+	svc, _ := mustBoot(t)
+	before := svc.Active()
+	var commits, rollbacks int
+	svc.SetResetRuntime(func(context.Context, model.Spec) (func(), func(), error) {
+		committed := false
+		return func() {
+				if svc.Active() == before {
+					t.Error("runtime commit preceded snapshot swap")
+				}
+				commits++
+				committed = true
+			}, func() {
+				if !committed {
+					rollbacks++
+				}
+			}, nil
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "commit"}); err != nil {
+		t.Fatal(err)
+	}
+	if commits != 1 || rollbacks != 0 {
+		t.Fatalf("commit=%d rollback=%d", commits, rollbacks)
+	}
+}
+
+func TestResetRuntimePreflightSerializesConcurrentApply(t *testing.T) {
+	svc, boot := mustBoot(t)
+	changed, err := svc.Apply(context.Background(), actor(), ChangeIn{ExpectedRevision: boot.Revision, IdempotencyKey: "before-concurrent-reset", Reason: "rules", Operations: []model.Operation{enableRules()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	svc.SetResetRuntime(func(context.Context, model.Spec) (func(), func(), error) {
+		close(entered)
+		<-release
+		return func() {}, func() {}, nil
+	})
+	resetDone := make(chan error, 1)
+	go func() {
+		_, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "concurrent"})
+		resetDone <- err
+	}()
+	<-entered
+	applyDone := make(chan error, 1)
+	go func() {
+		_, err := svc.Apply(context.Background(), actor(), ChangeIn{ExpectedRevision: changed.RuntimeRevision, IdempotencyKey: "during-reset", Reason: "stale", Operations: []model.Operation{enableRules()}})
+		applyDone <- err
+	}()
+	close(release)
+	if err := <-resetDone; err != nil {
+		t.Fatal(err)
+	}
+	err = <-applyDone
+	de, ok := domainerr.As(err)
+	if !ok || de.Code != "revision_conflict" {
+		t.Fatalf("concurrent stale Apply should conflict after Reset: %v", err)
+	}
+	if svc.Active().Revision != boot.Revision {
+		t.Fatal("concurrent Apply replaced Reset snapshot")
+	}
 }

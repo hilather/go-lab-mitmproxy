@@ -36,6 +36,7 @@ var hopHeaders = map[string]bool{
 
 type streamState struct {
 	body        *bodyBuf
+	cancel      context.CancelFunc
 	handlerDone bool
 }
 
@@ -137,12 +138,30 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 	)
 	streams := make(map[uint32]*streamState)
 	out := newOutFlow()
+	inbound := newInFlow()
 	defer out.close()
+	defer func() {
+		mu.Lock()
+		closed = true
+		for id, st := range streams {
+			if st.cancel != nil {
+				st.cancel()
+			}
+			if st.body != nil {
+				_ = st.body.CloseWithError(io.EOF)
+			}
+			delete(streams, id)
+			inbound.forget(id)
+			out.forget(id)
+		}
+		mu.Unlock()
+	}()
 
 	credit := func(id uint32, n int) {
 		if n <= 0 {
 			return
 		}
+		inbound.credit(id, n)
 		_ = write(func() error {
 			if err := fr.WriteWindowUpdate(id, uint32(n)); err != nil {
 				return err
@@ -156,6 +175,7 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 		if n <= 0 {
 			return
 		}
+		inbound.credit(0, n)
 		_ = write(func() error {
 			return fr.WriteWindowUpdate(0, uint32(n))
 		})
@@ -189,7 +209,11 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			unread = st.body.releaseConnWindow()
 			_ = st.body.Close()
 		}
+		if st.cancel != nil {
+			st.cancel()
+		}
 		delete(streams, id)
+		inbound.forget(id)
 		if open > 0 {
 			open--
 		}
@@ -214,27 +238,17 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 	for {
 		f, err := fr.ReadFrame()
 		if err != nil {
-			out.close()
-			mu.Lock()
-			closed = true
-			for id, st := range streams {
-				if st.body != nil {
-					_ = st.body.CloseWithError(io.EOF)
-				}
-				delete(streams, id)
-			}
-			mu.Unlock()
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || isClosedConn(err) {
-				return nil
-			}
 			var se http2.StreamError
 			if errors.As(err, &se) {
 				forceFinish(se.StreamID)
 				_ = write(func() error { return fr.WriteRSTStream(se.StreamID, se.Code) })
 				continue
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || isClosedConn(err) {
+				return nil
 			}
 			return err
 		}
@@ -274,6 +288,16 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 		case *http2.PushPromiseFrame:
 			_ = write(func() error { return fr.WriteRSTStream(f.PromiseID, http2.ErrCodeProtocol) })
 		case *http2.DataFrame:
+			if err := inbound.take(f.StreamID, dataFrameWindow(f)); err != nil {
+				var se http2.StreamError
+				if errors.As(err, &se) {
+					creditConn(dataFrameWindow(f))
+					forceFinish(f.StreamID)
+					_ = write(func() error { return fr.WriteRSTStream(se.StreamID, se.Code) })
+					continue
+				}
+				return err
+			}
 			mu.Lock()
 			st := streams[f.StreamID]
 			mu.Unlock()
@@ -291,6 +315,7 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 					continue
 				}
 			}
+			credit(f.StreamID, dataFrameWindow(f)-len(f.Data()))
 			if f.StreamEnded() {
 				endRequestBody(f.StreamID, st)
 			}
@@ -323,17 +348,19 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 			if f.StreamEnded() {
 				_ = body.Close()
 			}
-			streams[id] = &streamState{body: body}
+			inbound.open(id)
+			streamCtx, streamCancel := context.WithCancel(ctx)
+			streams[id] = &streamState{body: body, cancel: streamCancel}
 			mu.Unlock()
 			out.open(id)
 
 			in := streamFromMeta(id, f, body)
 			go func() {
 				if tun != nil && isTunnelStream(in) {
-					serveTunnel(ctx, tun, in, c, fr, enc, encBuf, write, out, &mu, &closed, forceFinish)
+					serveTunnel(streamCtx, tun, in, c, fr, enc, encBuf, write, out, &mu, &closed, forceFinish)
 					return
 				}
-				serveStream(ctx, h, in, func(resp *http.Response, trailers []model.Header, herr error) {
+				serveStream(streamCtx, h, in, func(resp *http.Response, trailers []model.Header, herr error) {
 					defer finish(id, herr != nil || resp == nil)
 					mu.Lock()
 					gone := closed
@@ -358,7 +385,14 @@ func ServeConn(ctx context.Context, c net.Conn, leftover *bufio.ReadWriter, opts
 						_ = write(func() error { return fr.WriteRSTStream(id, code) })
 						return
 					}
-					_ = writeResponse(fr, enc, encBuf, write, out, id, resp, trailers)
+					if err := writeResponse(fr, enc, encBuf, write, out, id, resp, trailers); err != nil {
+						code := http2.ErrCodeInternal
+						if streamCtx.Err() != nil {
+							code = http2.ErrCodeCancel
+						}
+						forceFinish(id)
+						_ = write(func() error { return fr.WriteRSTStream(id, code) })
+					}
 				})
 			}()
 		}
@@ -558,7 +592,7 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, writ
 		status = http.StatusOK
 	}
 	hasBody := resp.Body != nil
-	hasTrailers := len(trailers) > 0
+	hasTrailers := len(trailers) > 0 || resp.Trailer != nil
 	if err := write(func() error {
 		buf.Reset()
 		if err := enc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)}); err != nil {
@@ -622,6 +656,7 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, writ
 		}
 	}
 	if hasTrailers {
+		trailers = append(trailers, headersFromHTTP(resp.Trailer)...)
 		return write(func() error {
 			buf.Reset()
 			for _, th := range trailers {
@@ -712,4 +747,17 @@ func prefaceReader(c net.Conn, leftover *bufio.ReadWriter, mode PrefaceMode) (io
 		return nil, fmt.Errorf("http2x: bad client preface")
 	}
 	return r, nil
+}
+
+func headersFromHTTP(h http.Header) []model.Header {
+	var out []model.Header
+	for name, vs := range h {
+		if strings.HasPrefix(name, ":") || hopHeaders[strings.ToLower(name)] {
+			continue
+		}
+		for _, v := range vs {
+			out = append(out, model.Header{Name: name, Value: v})
+		}
+	}
+	return out
 }

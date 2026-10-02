@@ -43,13 +43,21 @@ func isConnReset(err error) bool {
 
 func readSilentClose(t *testing.T, r io.Reader, wantRST bool) {
 	t.Helper()
+	readSilentCloseAfterWrite(t, r, wantRST, nil)
+}
+
+func readSilentCloseAfterWrite(t *testing.T, r io.Reader, wantRST bool, writeErr error) {
+	t.Helper()
+	if writeErr != nil && (!wantRST || !isConnReset(writeErr)) {
+		t.Fatalf("unexpected request write failure: %v", writeErr)
+	}
 	buf := make([]byte, 128)
 	n, err := r.Read(buf)
 	if n > 0 && bytes.Contains(buf[:n], []byte("HTTP/")) {
 		t.Fatalf("unexpected HTTP bytes %q", buf[:n])
 	}
 	if wantRST {
-		if !isConnReset(err) {
+		if !isConnReset(err) && !isConnReset(writeErr) {
 			t.Fatalf("want RST, got n=%d err=%v data=%q", n, err, buf[:n])
 		}
 		return
@@ -86,6 +94,15 @@ func assertInterceptSilentCapture(t *testing.T, got *model.Flow, path string) {
 
 func writeAbsolute(t *testing.T, proxyAddr, originURL, method, path, body string) *proxytest.Client {
 	t.Helper()
+	c, err := writeAbsoluteWithError(t, proxyAddr, originURL, method, path, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func writeAbsoluteWithError(t *testing.T, proxyAddr, originURL, method, path, body string) (*proxytest.Client, error) {
+	t.Helper()
 	c, err := proxytest.Dial(proxyAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -97,14 +114,14 @@ func writeAbsolute(t *testing.T, proxyAddr, originURL, method, path, body string
 		lines = append(lines, "Content-Length: "+strconv.Itoa(len(body)))
 	}
 	if err := c.WriteRequest(lines...); err != nil {
-		t.Fatal(err)
+		return c, err
 	}
 	if body != "" {
 		if err := c.WriteRaw([]byte(body)); err != nil {
-			t.Fatal(err)
+			return c, err
 		}
 	}
-	return c
+	return c, nil
 }
 
 func TestRequestSilentRST(t *testing.T) {
@@ -128,8 +145,10 @@ func TestRequestSilentRST(t *testing.T) {
 	if !bytes.Contains(raw, []byte("POST")) || bytes.Contains(raw, []byte("S:")) {
 		t.Fatal("silent rst transcript must be client-only")
 	}
-	c := writeAbsolute(t, px.Addr().String(), originURL, http.MethodPost, "/login", "pw")
-	readSilentClose(t, c.Reader(), true)
+	// The header-matched rule may reset before the separate body write.
+	// Either write or read can consume ECONNRESET; still inspect the read for HTTP.
+	c, writeErr := writeAbsoluteWithError(t, px.Addr().String(), originURL, http.MethodPost, "/login", "pw")
+	readSilentCloseAfterWrite(t, c.Reader(), true, writeErr)
 	if originHits != 0 {
 		t.Fatal("silent must not dial")
 	}
@@ -739,4 +758,10 @@ func TestInterceptHTTP2ExtendedCONNECTSilent(t *testing.T) {
 	if got.State != model.FlowStateCompleted || got.Error != rules.FlowErrorSilent {
 		t.Fatalf("flow %+v", got)
 	}
+}
+
+func TestSilentResetObservedByBodyWrite(t *testing.T) {
+	// Reading after Write consumed the socket's reset may yield EOF. The client
+	// still observed the required reset, and the read must contain no HTTP bytes.
+	readSilentCloseAfterWrite(t, strings.NewReader(""), true, syscall.ECONNRESET)
 }

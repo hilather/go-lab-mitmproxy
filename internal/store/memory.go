@@ -402,30 +402,6 @@ func (m *Memory) evictUntilFitsLocked(candidate int64) error {
 	return nil
 }
 
-// evictOthersUntilFitsLocked frees extra bytes without removing keepID.
-func (m *Memory) evictOthersUntilFitsLocked(keepID string, extra int64) error {
-	if extra < 0 {
-		extra = 0
-	}
-	for m.bytes+extra > m.maxBytes {
-		victim := ""
-		for _, id := range m.order {
-			if id != keepID {
-				victim = id
-				break
-			}
-		}
-		if victim == "" {
-			break
-		}
-		m.removeLocked(victim, true)
-	}
-	if m.bytes+extra > m.maxBytes {
-		return ErrFull
-	}
-	return nil
-}
-
 func (m *Memory) occupancyOKLocked() bool {
 	return len(m.byID) <= m.maxFlows && m.bytes <= m.maxBytes
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/app"
@@ -72,8 +74,11 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	} else {
 		_, _ = fmt.Fprintf(stdout, "labmitm management listen=%s\n", rt.http.Addr())
 	}
-	if rt.metrics != nil && rt.metrics.Addr() != "" {
-		_, _ = fmt.Fprintf(stdout, "labmitm metrics listen=%s\n", rt.metrics.Addr())
+	rt.mu.Lock()
+	metrics := rt.metrics
+	rt.mu.Unlock()
+	if metrics != nil && metrics.Addr() != "" {
+		_, _ = fmt.Fprintf(stdout, "labmitm metrics listen=%s\n", metrics.Addr())
 	}
 	<-ctx.Done()
 	deadline := flags.ShutdownTimeout
@@ -88,13 +93,20 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 }
 
 type serveRuntime struct {
-	proxy    *proxy.Server
-	http     *rest.Server
-	mcp      *mcp.Server
-	svc      *app.App
-	metrics  *observability.Listener
-	stopLogs context.CancelFunc
-	pidPath  string
+	mu             sync.Mutex
+	shutting       bool
+	management     *resetListener
+	flags          serveFlags
+	reg            *observability.Registry
+	mgmtAddress    string
+	metricsAddress string
+	proxy          *proxy.Server
+	http           *rest.Server
+	mcp            *mcp.Server
+	svc            *app.App
+	metrics        *observability.Listener
+	stopLogs       context.CancelFunc
+	pidPath        string
 }
 
 func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, error) {
@@ -122,6 +134,11 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 		svc.Close()
 		return nil, fmt.Errorf("compile %s: no snapshot", flags.Config)
 	}
+	if _, err := managementTLS(snap.Spec()); err != nil {
+		stopLogs()
+		svc.Close()
+		return nil, err
+	}
 	addr := snap.Canonical.Spec.Listeners.Proxy.Address
 	if flags.ProxyListen != "" {
 		addr = flags.ProxyListen
@@ -147,18 +164,22 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 		return nil, err
 	}
 	svc.SetReplay(srv.Replay)
-	rt := &serveRuntime{proxy: srv, svc: svc, stopLogs: stopLogs, pidPath: flags.PIDFile}
+	rt := &serveRuntime{proxy: srv, svc: svc, stopLogs: stopLogs, pidPath: flags.PIDFile, flags: flags, reg: reg, metricsAddress: snap.Spec().Observability.Metrics.Listen}
 	mgmt, unbound := managementListen(flags.ManagementListen, snap.Canonical.Spec.Listeners.Management.Address)
 	if !unbound {
-		hs, mcpSrv, err := startManagement(svc, mgmt, snap.Canonical.Spec, reg, log)
+		hs, mcpSrv, ln, err := startManagementListener(svc, mgmt, snap.Canonical.Spec, reg, log)
 		if err != nil {
 			_ = rt.shutdown(context.Background())
 			return nil, err
 		}
+		rt.management = ln
+		rt.mgmtAddress = mgmt
 		rt.http = hs
 		rt.mcp = mcpSrv
 	}
 	svc.SetHealth(func() observability.Facts {
+		rt.mu.Lock()
+		defer rt.mu.Unlock()
 		origOff := true
 		if live := svc.Active(); live != nil {
 			origOff = !live.Spec().Listeners.OriginalDestination.Enabled
@@ -178,6 +199,7 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 		return nil, fmt.Errorf("metrics listen: %w", err)
 	}
 	rt.metrics = ml
+	svc.SetResetRuntime(rt.prepareReset)
 	if err := writePIDFile(flags.PIDFile); err != nil {
 		_ = rt.shutdown(context.Background())
 		return nil, fmt.Errorf("pid-file: %w", err)
@@ -185,22 +207,27 @@ func serveFromConfig(ctx context.Context, flags serveFlags) (*serveRuntime, erro
 	return rt, nil
 }
 
-func startManagement(svc *app.App, addr string, spec model.Spec, reg *observability.Registry, log *observability.Logger) (*rest.Server, *mcp.Server, error) {
+func startManagementListener(svc *app.App, addr string, spec model.Spec, reg *observability.Registry, log *observability.Logger) (*rest.Server, *mcp.Server, *resetListener, error) {
 	if addr == "" {
 		addr = rest.DefaultAddr
 	}
 	verifier, err := auth.FromSpec(spec.Management.Auth)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := verifier.RequireListen(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	sessions := auth.NewStore(auth.DefaultSessionConfig())
-	ln, err := net.Listen("tcp", addr)
+	cfg, err := managementTLS(spec)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+	raw, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ln := &resetListener{raw: raw, tlsConfig: cfg}
 	mcpPath := spec.Listeners.Management.MCPPath
 	if mcpPath == "" {
 		mcpPath = mcp.DefaultPath
@@ -217,7 +244,7 @@ func startManagement(svc *app.App, addr string, spec model.Spec, reg *observabil
 	})
 	if err != nil {
 		_ = ln.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	ready := func() bool {
 		return observability.Evaluate(svc.HealthFacts()).Ready
@@ -236,7 +263,7 @@ func startManagement(svc *app.App, addr string, spec model.Spec, reg *observabil
 		Ready:          ready,
 		Auth:           verifier,
 		Sessions:       sessions,
-		CookieSecure:   spec.Listeners.Management.TLS.Enabled,
+		CookieSecure:   false, // The actual request TLS connection determines Secure.
 		UI:             web.NewHandler(nil),
 		UIEnabled: func() bool {
 			snap := svc.Active()
@@ -250,11 +277,11 @@ func startManagement(svc *app.App, addr string, spec model.Spec, reg *observabil
 	if err != nil {
 		mcpSrv.Close()
 		_ = ln.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	hs.Attach(ln)
 	go func() { _ = hs.Serve(ln) }()
-	return hs, mcpSrv, nil
+	return hs, mcpSrv, ln, nil
 }
 
 func managementListen(flagAddr, yamlAddr string) (addr string, unbound bool) {
@@ -275,6 +302,10 @@ func (r *serveRuntime) shutdown(ctx context.Context) error {
 	if r == nil {
 		return nil
 	}
+	r.mu.Lock()
+	r.shutting = true
+	metrics := r.metrics
+	r.mu.Unlock()
 	var first error
 	if r.mcp != nil {
 		r.mcp.Close()
@@ -288,8 +319,8 @@ func (r *serveRuntime) shutdown(ctx context.Context) error {
 			first = err
 		}
 	}
-	if r.metrics != nil {
-		if err := r.metrics.Shutdown(ctx); err != nil && first == nil {
+	if metrics != nil {
+		if err := metrics.Shutdown(ctx); err != nil && first == nil {
 			first = err
 		}
 	}
@@ -322,4 +353,106 @@ func writePIDFile(path string) error {
 		return err
 	}
 	return nil
+}
+
+func managementTLS(spec model.Spec) (*tls.Config, error) {
+	cfg := spec.Listeners.Management.TLS
+	if !cfg.Enabled {
+		return nil, nil
+	}
+	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("management TLS: %w", err)
+	}
+	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}}, nil
+}
+
+func (r *serveRuntime) prepareReset(ctx context.Context, spec model.Spec) (func(), func(), error) {
+	r.mu.Lock()
+	if r.shutting {
+		r.mu.Unlock()
+		return nil, nil, fmt.Errorf("runtime is shutting down")
+	}
+	committed := false
+	var mgmt net.Listener
+	var metrics net.Listener
+	var proxyCommit, proxyRollback func()
+	cleanup := func() {
+		if !committed {
+			if mgmt != nil {
+				_ = mgmt.Close()
+			}
+			if metrics != nil {
+				_ = metrics.Close()
+			}
+			if proxyRollback != nil {
+				proxyRollback()
+			}
+		}
+		r.mu.Unlock()
+	}
+	fail := func(err error) (func(), func(), error) { cleanup(); return nil, nil, err }
+	cfg, err := managementTLS(spec)
+	if err != nil {
+		return fail(err)
+	}
+	addr, off := managementListen(r.flags.ManagementListen, spec.Listeners.Management.Address)
+	if !off {
+		verifier, err := auth.FromSpec(spec.Management.Auth)
+		if err != nil {
+			return fail(err)
+		}
+		if err := verifier.RequireListen(); err != nil {
+			return fail(err)
+		}
+		if addr != r.mgmtAddress {
+			mgmt, err = net.Listen("tcp", addr)
+			if err != nil {
+				return fail(fmt.Errorf("management listen: %w", err))
+			}
+		}
+	}
+	metricsChanged := spec.Observability.Metrics.Listen != r.metricsAddress
+	if metricsChanged {
+		if spec.Observability.Metrics.Listen != "" {
+			metrics, err = net.Listen("tcp", spec.Observability.Metrics.Listen)
+		}
+		if err != nil {
+			return fail(fmt.Errorf("metrics listen: %w", err))
+		}
+	}
+	proxyCommit, proxyRollback, err = r.proxy.PrepareListeners(spec, r.flags.ProxyListen)
+	if err != nil {
+		return fail(err)
+	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return fail(err)
+		}
+	}
+	commit := func() {
+		proxyCommit()
+		if !off {
+			r.management.replace(mgmt, cfg)
+			r.mgmtAddress = addr
+		}
+		if metricsChanged {
+			old := r.metrics
+			r.metrics = nil
+			if metrics != nil {
+				r.metrics = observability.ListenOn(metrics, r.reg)
+			}
+			r.metricsAddress = spec.Observability.Metrics.Listen
+			if old != nil {
+				old.StopAccepting()
+				go func() {
+					deadline, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					_ = old.Shutdown(deadline)
+				}()
+			}
+		}
+		committed = true
+	}
+	return commit, cleanup, nil
 }

@@ -372,7 +372,7 @@ func TestServeOrigDestOffFollowsLiveSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	enabled := strings.Replace(string(raw), "spec:\n",
-		"spec:\n  listeners:\n    originalDestination:\n      enabled: true\n", 1)
+		"spec:\n  listeners:\n    originalDestination:\n      enabled: true\n      address: "+freeAddress(t)+"\n", 1)
 	if enabled == string(raw) {
 		t.Fatal("could not inject originalDestination.enabled")
 	}
@@ -386,11 +386,11 @@ func TestServeOrigDestOffFollowsLiveSpec(t *testing.T) {
 	if after.OrigDestOff {
 		t.Fatalf("Reset-to-enable must not keep OrigDestOff: %+v", after)
 	}
-	if after.OrigDestBound {
-		t.Fatal("Reset must not rebind orig-dest")
+	if !after.OrigDestBound {
+		t.Fatal("Reset must bind enabled orig-dest (ADR 0013 D51')")
 	}
-	if observability.Evaluate(after).Ready {
-		t.Fatalf("enabled unbound must be unready: %+v", after)
+	if !observability.Evaluate(after).Ready {
+		t.Fatalf("Reset enabled and bound orig-dest must be ready: %+v", after)
 	}
 }
 

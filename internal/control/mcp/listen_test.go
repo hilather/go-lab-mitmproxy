@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -35,7 +36,7 @@ func TestListenAcknowledgesFlowsURI(t *testing.T) {
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set(headerMethod, methodListen)
 	req.Header.Set(headerProtocolVersion, ProtocolVersion)
-	rec := httptest.NewRecorder()
+	rec := newListenRecorder()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -44,27 +45,27 @@ func TestListenAcknowledgesFlowsURI(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), "notifications/subscriptions/acknowledged") {
+		if strings.Contains(rec.bodyString(), "notifications/subscriptions/acknowledged") {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(rec.Body.String(), "labmitm://flows") {
-		t.Fatalf("ack missing uri: %s", rec.Body.String())
+	if !strings.Contains(rec.bodyString(), "labmitm://flows") {
+		t.Fatalf("ack missing uri: %s", rec.bodyString())
 	}
 
 	insertFlow(t, svc, "listen.lab")
 	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), "notifications/resources/updated") {
+		if strings.Contains(rec.bodyString(), "notifications/resources/updated") {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(rec.Body.String(), `"uri":"labmitm://flows"`) {
-		t.Fatalf("missing URI-only notify: %s", rec.Body.String())
+	if !strings.Contains(rec.bodyString(), `"uri":"labmitm://flows"`) {
+		t.Fatalf("missing URI-only notify: %s", rec.bodyString())
 	}
-	if strings.Contains(rec.Body.String(), `"host":"listen.lab"`) {
+	if strings.Contains(rec.bodyString(), `"host":"listen.lab"`) {
 		t.Fatal("listen must not include flow bodies")
 	}
 	cancel()
@@ -134,7 +135,7 @@ func TestListenPinWithLegacyClients(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set(headerMethod, methodListen)
-	rec := httptest.NewRecorder()
+	rec := newListenRecorder()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -142,19 +143,19 @@ func TestListenPinWithLegacyClients(t *testing.T) {
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if rec.Code == http.StatusBadRequest {
-			t.Fatalf("listen with only _meta pin rejected: %s", rec.Body.String())
+		if rec.statusCode() == http.StatusBadRequest {
+			t.Fatalf("listen with only _meta pin rejected: %s", rec.bodyString())
 		}
-		if strings.Contains(rec.Body.String(), "notifications/subscriptions/acknowledged") {
+		if strings.Contains(rec.bodyString(), "notifications/subscriptions/acknowledged") {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if rec.Code == http.StatusBadRequest {
-		t.Fatalf("listen with only _meta pin rejected: %s", rec.Body.String())
+	if rec.statusCode() == http.StatusBadRequest {
+		t.Fatalf("listen with only _meta pin rejected: %s", rec.bodyString())
 	}
-	if !strings.Contains(rec.Body.String(), "notifications/subscriptions/acknowledged") {
-		t.Fatalf("listen with only _meta pin did not ack: status=%d body=%s", rec.Code, rec.Body.String())
+	if !strings.Contains(rec.bodyString(), "notifications/subscriptions/acknowledged") {
+		t.Fatalf("listen with only _meta pin did not ack: status=%d body=%s", rec.statusCode(), rec.bodyString())
 	}
 	cancel()
 	select {
@@ -162,4 +163,45 @@ func TestListenPinWithLegacyClients(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("meta-pin listen did not return")
 	}
+}
+
+// listenRecorder serializes streaming writes and observation. ResponseRecorder's
+// buffer and status are not safe to read while the SDK writes an SSE response.
+type listenRecorder struct {
+	*httptest.ResponseRecorder
+	mu sync.Mutex
+}
+
+func newListenRecorder() *listenRecorder {
+	return &listenRecorder{ResponseRecorder: httptest.NewRecorder()}
+}
+
+func (r *listenRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ResponseRecorder.Write(p)
+}
+
+func (r *listenRecorder) WriteHeader(code int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ResponseRecorder.WriteHeader(code)
+}
+
+func (r *listenRecorder) Flush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ResponseRecorder.Flush()
+}
+
+func (r *listenRecorder) bodyString() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.Body.String()
+}
+
+func (r *listenRecorder) statusCode() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.Code
 }

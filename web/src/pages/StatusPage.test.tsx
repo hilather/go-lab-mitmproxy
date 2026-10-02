@@ -1,9 +1,9 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CSRF_HEADER } from "../api/client";
-import type { Feature, FeatureList } from "../api/types";
-import { json, renderApp, resetClientState, sessionView } from "../test/render";
+import type { Feature, FeatureList, StateView } from "../api/types";
+import { json, renderAppReady, resetClientState, sessionView } from "../test/render";
 import { portsOnlyState, sampleState, sampleStatus } from "../test/state";
 import { FORBIDDEN_CONTROL_LABELS } from "../ui/forbidden";
 import { StatusPage } from "./StatusPage";
@@ -59,6 +59,7 @@ function notFound(): Response {
 
 function stubPageFetch(opts?: {
   scopes?: string[];
+  state?: StateView;
   features?: FeatureList;
   apply?: (body: string, init?: RequestInit) => Promise<Response> | Response;
 }) {
@@ -73,7 +74,7 @@ function stubPageFetch(opts?: {
       return json(200, sampleStatus());
     }
     if (url.endsWith("/v1/state") && method === "GET") {
-      return json(200, sampleState(catalog.runtimeRevision));
+      return json(200, opts?.state ?? sampleState(catalog.runtimeRevision));
     }
     if (url.endsWith("/v1/features") && method === "GET") {
       return json(200, catalog);
@@ -90,6 +91,33 @@ function stubPageFetch(opts?: {
   return { fetchMock, catalog };
 }
 
+// Narrow to the labeled input before checking its role and visibility. A
+// full-document role query computes styles for every feature switch in jsdom.
+async function findSwitch(name: string) {
+  const input = await screen.findByLabelText(name, { selector: "input" });
+  expect(input).toHaveAttribute("role", "switch");
+  expect(input.closest('[aria-hidden="true"]')).toBeNull();
+  expect(input).toBeVisible();
+  return input;
+}
+
+function getSwitch(name: string) {
+  const input = screen.getByLabelText(name, { selector: "input" });
+  expect(input).toHaveAttribute("role", "switch");
+  expect(input.closest('[aria-hidden="true"]')).toBeNull();
+  expect(input).toBeVisible();
+  return input;
+}
+
+function applyButton(name: string) {
+  const button = screen.getByText(name, { selector: "button" });
+  expect(button).not.toHaveAttribute("role");
+  expect(button.closest('[aria-hidden="true"]')).toBeNull();
+  expect(button).toHaveAccessibleName(name);
+  expect(button).toBeVisible();
+  return button;
+}
+
 describe("StatusPage", () => {
   afterEach(() => {
     resetClientState();
@@ -97,9 +125,57 @@ describe("StatusPage", () => {
     vi.restoreAllMocks();
   });
 
+  describe("HTTP UUID issuance", () => {
+    async function uuidFixture() {
+      const getRandomValues = vi.fn((bytes: Uint8Array) => bytes.fill(0xab));
+      vi.stubGlobal("crypto", { getRandomValues });
+      const catalog = sampleFeatures();
+      const { fetchMock } = stubPageFetch({
+        features: { ...catalog, items: catalog.items.slice(0, 1) },
+        state: portsOnlyState(catalog.runtimeRevision, [443]),
+      });
+      await renderAppReady(<StatusPage />, { route: "/status" });
+      const toggle = await findSwitch("Toggle protocols.http2");
+      return { getRandomValues, fetchMock, toggle };
+    }
+
+    let fixture: Awaited<ReturnType<typeof uuidFixture>>;
+    beforeEach(async () => {
+      fixture = await uuidFixture();
+    });
+
+    it("applies on HTTP when randomUUID is unavailable", async () => {
+      const { getRandomValues, fetchMock, toggle } = fixture;
+      await act(async () => { fireEvent.click(toggle); });
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/v1/changes:apply"))).toBe(true);
+      });
+      const call = fetchMock.mock.calls.find((call) => String(call[0]).endsWith("/v1/changes:apply"));
+      const sent = JSON.parse(String(call?.[1]?.body));
+      expect(sent.idempotencyKey).toBe("abababab-abab-4bab-abab-abababababab");
+      expect(getRandomValues).toHaveBeenCalledOnce();
+      await waitFor(() => expect(toggle).toBeEnabled());
+    });
+
+    it("restores apply controls after entropy generation fails", async () => {
+      const { getRandomValues, fetchMock, toggle } = fixture;
+      getRandomValues.mockImplementation(() => { throw new Error("entropy unavailable"); });
+      await act(async () => { fireEvent.click(toggle); });
+      expect(await screen.findByRole("alert")).toHaveTextContent("Could not apply change.");
+      await waitFor(() => expect(toggle).toBeEnabled());
+      expect(fetchMock.mock.calls.every((call) => !String(call[0]).endsWith("/v1/changes:apply"))).toBe(true);
+      vi.stubGlobal("crypto", { randomUUID: () => "recovered-key" });
+      await act(async () => { fireEvent.click(toggle); });
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/v1/changes:apply"))).toBe(true);
+      });
+      await waitFor(() => expect(toggle).toBeEnabled());
+    });
+  });
+
   it("shows ca.spkiSha256 and a cert-only CA download", async () => {
     stubPageFetch();
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     expect(await screen.findByText("deadbeef")).toBeInTheDocument();
     expect(screen.getByText("generate")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Download lab CA certificate/i });
@@ -110,7 +186,7 @@ describe("StatusPage", () => {
 
   it("renders the feature catalog with on/off and live/reset", async () => {
     stubPageFetch();
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     expect(await screen.findByRole("heading", { name: "Features" })).toBeInTheDocument();
     expect(screen.getByText("protocols.websocket")).toBeInTheDocument();
     expect(screen.getByText("listeners.originalDestination")).toBeInTheDocument();
@@ -125,9 +201,9 @@ describe("StatusPage", () => {
 
   it("offers a Status toggle for ui.enabled but not tls.intercept", async () => {
     stubPageFetch();
-    renderApp(<StatusPage />, { route: "/status" });
-    expect(await screen.findByRole("switch", { name: "Toggle protocols.websocket" })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Toggle ui.enabled" })).toBeInTheDocument();
+    await renderAppReady(<StatusPage />, { route: "/status" });
+    expect(await findSwitch("Toggle protocols.websocket")).toBeInTheDocument();
+    expect(getSwitch("Toggle ui.enabled")).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "Toggle tls.intercept" })).toBeNull();
     expect(screen.queryByText(/change via REST\/MCP/)).toBeNull();
   });
@@ -136,8 +212,8 @@ describe("StatusPage", () => {
     const user = userEvent.setup();
     const { fetchMock } = stubPageFetch();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    renderApp(<StatusPage />, { route: "/status" });
-    const toggle = await screen.findByRole("switch", { name: "Toggle ui.enabled" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
+    const toggle = await findSwitch("Toggle ui.enabled");
     await user.click(toggle);
     expect(confirm).toHaveBeenCalled();
     expect(String(confirm.mock.calls[0]?.[0])).toMatch(/404/);
@@ -153,8 +229,8 @@ describe("StatusPage", () => {
     const user = userEvent.setup();
     const { fetchMock } = stubPageFetch({ features: catalog });
     const confirm = vi.spyOn(window, "confirm");
-    renderApp(<StatusPage />, { route: "/status" });
-    await user.click(await screen.findByRole("switch", { name: "Toggle ui.enabled" }));
+    await renderAppReady(<StatusPage />, { route: "/status" });
+    await user.click(await findSwitch("Toggle ui.enabled"));
     expect(confirm).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
@@ -169,8 +245,8 @@ describe("StatusPage", () => {
     const { fetchMock } = stubPageFetch();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(crypto, "randomUUID").mockReturnValue("11111111-1111-4111-8111-111111111111");
-    renderApp(<StatusPage />, { route: "/status" });
-    await user.click(await screen.findByRole("switch", { name: "Toggle ui.enabled" }));
+    await renderAppReady(<StatusPage />, { route: "/status" });
+    await user.click(await findSwitch("Toggle ui.enabled"));
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     });
@@ -181,7 +257,7 @@ describe("StatusPage", () => {
 
   it("hides toggles from viewers", async () => {
     stubPageFetch({ scopes: ["mitm.read"] });
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     expect(await screen.findByText("protocols.websocket")).toBeInTheDocument();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByLabelText(/Reason/i)).toBeNull();
@@ -191,7 +267,7 @@ describe("StatusPage", () => {
 
   it("has no exploit or SSL-strip labels", async () => {
     stubPageFetch();
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     expect(await screen.findByRole("heading", { name: "Features" })).toBeInTheDocument();
     for (const label of FORBIDDEN_CONTROL_LABELS) {
       expect(screen.queryByText(label, { exact: true })).toBeNull();
@@ -226,12 +302,12 @@ describe("StatusPage", () => {
     });
     vi.spyOn(crypto, "randomUUID").mockReturnValue("11111111-1111-4111-8111-111111111111");
 
-    renderApp(<StatusPage />, { route: "/status" });
-    const toggle = await screen.findByRole("switch", { name: "Toggle protocols.websocket" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
+    const toggle = await findSwitch("Toggle protocols.websocket");
     expect(toggle).toBeChecked();
     await user.click(toggle);
     await waitFor(() => expect(toggle).toBeDisabled());
-    expect(screen.getByRole("switch", { name: "Toggle protocols.http2" })).toBeDisabled();
+    expect(getSwitch("Toggle protocols.http2")).toBeDisabled();
     release();
     await waitFor(() => expect(toggle).toBeEnabled());
     await waitFor(() => expect(toggle).not.toBeChecked());
@@ -301,8 +377,8 @@ describe("StatusPage", () => {
       }),
     );
 
-    renderApp(<StatusPage />, { route: "/status" });
-    const toggle = await screen.findByRole("switch", { name: "Toggle protocols.http2" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
+    const toggle = await findSwitch("Toggle protocols.http2");
     await user.click(toggle);
     expect(await screen.findByRole("alert")).toHaveTextContent("revision has changed");
     await waitFor(() => expect(toggle).toBeEnabled());
@@ -323,7 +399,7 @@ describe("StatusPage", () => {
 
   it("renders compact httpAuth and reset-required 1.2 flags without extra Reset links", async () => {
     stubPageFetch();
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     expect(await screen.findByRole("heading", { name: "Runtime flags" })).toBeInTheDocument();
     expect(screen.getByText(/httpAuth:/)).toBeInTheDocument();
     expect(screen.getByText("inspectWebSocketFrames")).toBeInTheDocument();
@@ -334,17 +410,18 @@ describe("StatusPage", () => {
   });
 
   it("posts replaceTLS with the full tls subtree and rejects blank ports", async () => {
-    const user = userEvent.setup();
     const { fetchMock } = stubPageFetch();
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     const ports = await screen.findByLabelText("Ports");
-    await user.clear(ports);
-    await user.click(screen.getByRole("button", { name: /Apply TLS/i }));
+    fireEvent.change(ports, { target: { value: "" } });
+    expect(applyButton("Apply TLS")).toBeEnabled();
+    fireEvent.click(applyButton("Apply TLS"));
     expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     expect(await screen.findByRole("alert")).toHaveTextContent(/ports are required/);
 
-    await user.type(ports, "443,8443");
-    await user.click(screen.getByRole("button", { name: /Apply TLS/i }));
+    fireEvent.change(ports, { target: { value: "443,8443" } });
+    expect(applyButton("Apply TLS")).toBeEnabled();
+    fireEvent.click(applyButton("Apply TLS"));
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     });
@@ -395,11 +472,11 @@ describe("StatusPage", () => {
         return notFound();
       }),
     );
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     const ports = await screen.findByLabelText("Ports");
     await user.clear(ports);
     await user.type(ports, "443,8443");
-    await user.click(screen.getByRole("button", { name: /Apply TLS/i }));
+    await user.click(applyButton("Apply TLS"));
     await waitFor(() => expect(applyBodies).toHaveLength(1));
     const sent = JSON.parse(applyBodies[0] ?? "");
     expect(sent.expectedRevision).toBe("sha256:other");
@@ -418,10 +495,10 @@ describe("StatusPage", () => {
   it("rejects invalid httpAuth users JSON without posting", async () => {
     const user = userEvent.setup();
     const { fetchMock } = stubPageFetch();
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     const box = await screen.findByLabelText("Users (file refs)");
     fireEvent.change(box, { target: { value: "{not-json" } });
-    await user.click(screen.getByRole("button", { name: /Apply HTTP auth/i }));
+    await user.click(applyButton("Apply HTTP auth"));
     expect(await screen.findByRole("alert")).toHaveTextContent(/invalid/);
     expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
   });
@@ -447,7 +524,7 @@ describe("StatusPage", () => {
         return notFound();
       }),
     );
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     expect(await screen.findByRole("button", { name: /Apply TLS/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Apply HTTP auth/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Apply rules/i })).toBeNull();
@@ -497,49 +574,66 @@ describe("StatusPage", () => {
         return notFound();
       }),
     );
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     expect(await screen.findByText("deadbeef")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /Apply TLS/i }));
     expect(await screen.findByText("cafebabe")).toBeInTheDocument();
     expect(screen.getByText(/Intercept:/)).toHaveTextContent(/off/);
   });
 
-  it("posts replaceHTTPAuth file-ref users and refuses enabled+empty users", async () => {
-    const user = userEvent.setup();
-    const { fetchMock } = stubPageFetch();
-    renderApp(<StatusPage />, { route: "/status" });
-    await screen.findByLabelText("Users (file refs)");
-    await user.click(screen.getByRole("checkbox", { name: /httpAuth enabled/i }));
-    await user.click(screen.getByRole("button", { name: /Apply HTTP auth/i }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/users is required/);
-    expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+  describe("HTTP auth form", () => {
+    async function authFixture() {
+      const { fetchMock } = stubPageFetch();
+      await renderAppReady(<StatusPage />, { route: "/status" });
+      await screen.findByLabelText("Users (file refs)");
+      const enabled = screen.getByLabelText("httpAuth enabled", { selector: "input" });
+      const apply = applyButton("Apply HTTP auth");
+      expect(enabled).toHaveAttribute("type", "checkbox");
+      expect(enabled).toBeVisible();
+      return { fetchMock, enabled, apply };
+    }
+    let fixture: Awaited<ReturnType<typeof authFixture>>;
+    beforeEach(async () => { fixture = await authFixture(); });
 
-    fireEvent.change(screen.getByLabelText("Users (file refs)"), {
-      target: { value: '[{"id":"lab-proxy","usernameFile":"/etc/u","passwordFile":"/etc/p"}]' },
+    it("posts replaceHTTPAuth file-ref users and refuses enabled+empty users", async () => {
+      const { fetchMock, enabled, apply } = fixture;
+      expect(enabled).toBeEnabled();
+      await act(async () => { fireEvent.click(enabled); });
+      expect(apply).toBeEnabled();
+      await act(async () => { fireEvent.click(apply); });
+      expect(await screen.findByRole("alert")).toHaveTextContent(/users is required/);
+      expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+
+      fireEvent.change(screen.getByLabelText("Users (file refs)"), {
+        target: { value: '[{"id":"lab-proxy","usernameFile":"/etc/u","passwordFile":"/etc/p"}]' },
+      });
+      expect(apply).toBeEnabled();
+      await act(async () => { fireEvent.click(apply); });
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
+      });
+      const applyCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/v1/changes:apply"));
+      const sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
+      expect(sent.operations[0]).toEqual({
+        op: "replaceHTTPAuth",
+        httpAuth: {
+          enabled: true,
+          realm: "labmitm-proxy",
+          users: [{ id: "lab-proxy", usernameFile: "/etc/u", passwordFile: "/etc/p" }],
+        },
+      });
+      expect(JSON.stringify(sent)).not.toContain("labpass");
     });
-    await user.click(screen.getByRole("button", { name: /Apply HTTP auth/i }));
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
-    });
-    const applyCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/v1/changes:apply"));
-    const sent = JSON.parse(String(applyCall?.[1]?.body ?? ""));
-    expect(sent.operations[0]).toEqual({
-      op: "replaceHTTPAuth",
-      httpAuth: {
-        enabled: true,
-        realm: "labmitm-proxy",
-        users: [{ id: "lab-proxy", usernameFile: "/etc/u", passwordFile: "/etc/p" }],
-      },
-    });
-    expect(JSON.stringify(sent)).not.toContain("labpass");
   });
 
   it("posts replaceRules, replaceAdmission, and nested replaceCompat", async () => {
-    const user = userEvent.setup();
     const catalog = sampleFeatures();
     const { fetchMock } = stubPageFetch({ features: catalog });
-    renderApp(<StatusPage />, { route: "/status" });
+    await renderAppReady(<StatusPage />, { route: "/status" });
     await screen.findByLabelText("Items JSON");
+    const rulesButton = applyButton("Apply rules");
+    const admissionButton = applyButton("Apply admission");
+    const compatButton = applyButton("Apply compat");
     const rulesRow = catalog.items.find((item) => item.id === "rules.enabled");
     const compatRow = catalog.items.find((item) => item.id === "compat.flowREST");
     if (rulesRow) {
@@ -553,7 +647,8 @@ describe("StatusPage", () => {
         value: '[{"id":"drop-all","enabled":true,"phase":"request","action":{"type":"drop"}}]',
       },
     });
-    await user.click(screen.getByRole("button", { name: /Apply rules/i }));
+    expect(rulesButton).toBeEnabled();
+    await act(async () => { fireEvent.click(rulesButton); });
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     });
@@ -563,7 +658,9 @@ describe("StatusPage", () => {
     expect(sent.operations[0].rules.enabled).toBe(true);
     expect(sent.operations[0].rules.items[0].id).toBe("drop-all");
 
-    await user.click(screen.getByRole("button", { name: /Apply admission/i }));
+    await waitFor(() => expect(admissionButton).toBeEnabled());
+    expect(admissionButton).toBeEnabled();
+    await act(async () => { fireEvent.click(admissionButton); });
     await waitFor(() => {
       expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply"))).toHaveLength(2);
     });
@@ -583,9 +680,10 @@ describe("StatusPage", () => {
       maxConcurrentStreams: 100,
     });
 
-    await user.clear(screen.getByLabelText("pathPrefix"));
-    await user.type(screen.getByLabelText("pathPrefix"), "/compat-qa");
-    await user.click(screen.getByRole("button", { name: /Apply compat/i }));
+    await waitFor(() => expect(screen.getByLabelText("pathPrefix")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("pathPrefix"), { target: { value: "/compat-qa" } });
+    expect(compatButton).toBeEnabled();
+    await act(async () => { fireEvent.click(compatButton); });
     await waitFor(() => {
       expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply"))).toHaveLength(3);
     });

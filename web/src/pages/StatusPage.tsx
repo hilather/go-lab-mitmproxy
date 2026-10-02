@@ -229,8 +229,8 @@ export function StatusPage() {
     busyRef.current = true;
     setBusy(true);
     setFeatureError("");
-    const idempotencyKey = crypto.randomUUID();
     try {
+      const idempotencyKey = newIdempotencyKey();
       // One GET /v1/state supplies expectedRevision and any hidden subtree
       // fields. Building the payload from a stale liveState while stamping a
       // fresh revision defeats OCC (replaceTLS hosts/ca/upstream).
@@ -841,4 +841,17 @@ export function StatusPage() {
       </section>
     </main>
   );
+}
+
+// randomUUID requires a secure context; getRandomValues also works on the
+// explicitly supported HTTP management listener.
+function newIdempotencyKey(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

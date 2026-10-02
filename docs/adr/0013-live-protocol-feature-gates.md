@@ -36,7 +36,7 @@ Empty `spec: {}` hop behavior is unchanged: HTTP/1.1 + SOCKS-close + no orig-des
 | `protocols.absoluteForm` | `spec.protocols.absoluteForm.enabled` | `true` | **live** | **next absolute-form request** (`beginSession`). Orig-dest origin-form is **not** this flag (D31) | `setFeature` |
 | `listeners.proxy.acceptSOCKS5` | `spec.listeners.proxy.acceptSOCKS5` | `false` | **live** | **next peek** (`dispatchConn` `liveSpec()`) | `setFeature` |
 | `listeners.proxy.acceptSOCKS4` | `spec.listeners.proxy.acceptSOCKS4` | `false` | **live** | **next peek** | `setFeature` |
-| `listeners.originalDestination` | `spec.listeners.originalDestination.enabled` | `false` | **reset** | n/a — `Start` binds `origLn` | `reset` |
+| `listeners.originalDestination` | `spec.listeners.originalDestination.enabled` | `false` | **reset** | n/a — startup and Reset reconcile `origLn` | `reset` |
 | `compat.flowREST` | `spec.compat.flowREST.enabled` | `false` | **live** | **next management request** (`compatEnabled()` / `liveFlowREST`) | `setFeature` |
 | `tls.intercept` | `spec.tls.intercept` | `false` | **live** | **next CONNECT** | `replaceTLS` |
 | `rules.enabled` | `spec.rules.enabled` | `false` | **live** | **next request / CONNECT** (engine pointer on `ruleSession`) | `setFeature` |
