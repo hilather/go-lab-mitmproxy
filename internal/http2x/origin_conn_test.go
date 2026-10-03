@@ -20,13 +20,14 @@ func TestOriginConnUnreadResponseOnRSTCreditsConnWindow(t *testing.T) {
 	client, server := h2TLSPair(t)
 	payload := bytes.Repeat([]byte("x"), 16*1024)
 	credited := make(chan struct{}, 1)
-	go writeOriginUnreadThenRST(t, server, payload, credited)
+	responseAccepted := make(chan struct{})
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	go writeOriginUnreadThenRST(t, ctx, server, payload, responseAccepted, credited)
 	oc, err := NewOriginConn(client, OriginOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/rst", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +36,11 @@ func TestOriginConnUnreadResponseOnRSTCreditsConnWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
+	// Hand response headers to the caller before the origin sends DATA/RST.
+	// Leave the body unread and unclosed until RST credits the connection;
+	// closing it first could satisfy the assertion through the forget path.
+	close(responseAccepted)
 	select {
 	case <-credited:
 	case <-ctx.Done():
@@ -866,7 +871,7 @@ func writeInformationalThenTrailers(t *testing.T, server io.ReadWriter) {
 	}
 }
 
-func writeOriginUnreadThenRST(t *testing.T, server io.ReadWriter, payload []byte, credited chan<- struct{}) {
+func writeOriginUnreadThenRST(t *testing.T, ctx context.Context, server io.ReadWriter, payload []byte, responseAccepted <-chan struct{}, credited chan<- struct{}) {
 	t.Helper()
 	preface := make([]byte, len(http2.ClientPreface))
 	if _, err := io.ReadFull(server, preface); err != nil {
@@ -907,6 +912,14 @@ func writeOriginUnreadThenRST(t *testing.T, server io.ReadWriter, payload []byte
 				StreamID: 1, BlockFragment: ok, EndHeaders: true,
 			}); err != nil {
 				t.Error(err)
+				return
+			}
+			// RoundTrip may return either response headers or an immediate RST
+			// when both are ready. This fixture specifically tests unread
+			// response DATA released by RST after headers reach the caller.
+			select {
+			case <-responseAccepted:
+			case <-ctx.Done():
 				return
 			}
 			if err := fr.WriteData(1, false, payload); err != nil {
