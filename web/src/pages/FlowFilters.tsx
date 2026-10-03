@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { waitFlow } from "../api/client";
+import { errorMessage, waitFlow } from "../api/client";
 import type { FlowListQuery, WaitFilter } from "../api/types";
 
 const shared = [
@@ -56,7 +56,7 @@ export function FlowFilters({
       }
     } catch (err) {
       if (!current.signal.aborted) {
-        setMessage(err instanceof Error ? err.message : "Wait failed.");
+        setMessage(errorMessage(err, "Wait failed.", true));
       }
     } finally {
       if (controller.current === current) {

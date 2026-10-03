@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { APIError, getState } from "../api/client";
+import { APIError, errorMessage, getState } from "../api/client";
 import {
   applyConfiguration,
   configurationKey,
@@ -81,6 +81,19 @@ export function operationFromState(
   return { op, [key ?? ""]: value ?? {} };
 }
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
+/** conflictLabel explains a 409 by its error code instead of assuming a revision change. */
+function conflictLabel(code: string, automaticKey: boolean): string {
+  switch (code) {
+    case "revision_conflict":
+      return "Runtime changed. Review your edits and plan again against the refreshed revision.";
+    case "idempotency_conflict":
+      return automaticKey
+        ? "This idempotency key was already used for a different request. Plan again; a new automatic key will be used."
+        : "This idempotency key was already used for a different request. Change the idempotency key, then plan again.";
+    default:
+      return `Conflict (${code}). Review the details above and plan again.`;
+  }
+}
 export function ConfigurationPage() {
   const { hasScope } = useAuth();
   const canAdmin = hasScope(SCOPE_ADMIN);
@@ -119,9 +132,7 @@ export function ConfigurationPage() {
       })
       .catch((err: unknown) => {
         if (!cancelled)
-          setError(
-            err instanceof Error ? err.message : "Could not load state.",
-          );
+          setError(errorMessage(err, "Could not load state.", true));
       });
     return () => {
       cancelled = true;
@@ -150,9 +161,7 @@ export function ConfigurationPage() {
         } catch {
           /* Preserve conflict detail. */
         }
-        setError(
-          `${pretty(err.problem)}\nRuntime changed. Review your edits and plan again against the refreshed revision.`,
-        );
+        setError(`${pretty(err.problem)}\n${conflictLabel(err.problem.code, automaticKey)}`);
       }
     } finally {
       busyRef.current = false;

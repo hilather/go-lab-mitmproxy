@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  APIError,
   deleteFlow,
+  errorMessage,
   downloadFlowBody,
   flowBodyFilename,
   getFlow,
@@ -349,7 +349,7 @@ export function FlowInspector({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof APIError ? err.message : "Flow not found.");
+          setError(errorMessage(err, "Flow not found."));
         }
       }
     })();
@@ -370,7 +370,7 @@ export function FlowInspector({
       }
       void navigate("/", { replace: true });
     } catch (err) {
-      if (activeID.current === id) setError(err instanceof APIError ? err.message : "Delete failed.");
+      if (activeID.current === id) setError(errorMessage(err, "Delete failed."));
     }
   }
 
@@ -378,7 +378,7 @@ export function FlowInspector({
     try {
       await downloadFlowBody(id, side);
     } catch (err) {
-      if (activeID.current === id) setError(err instanceof APIError ? err.message : "Download failed.");
+      if (activeID.current === id) setError(errorMessage(err, "Download failed."));
     }
   }
 

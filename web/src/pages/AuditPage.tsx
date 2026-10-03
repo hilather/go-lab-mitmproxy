@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { errorMessage } from "../api/client";
 import { getAudit, queryAudit, type FullAuditEvent } from "../api/diagnostics";
 import type { AuditEvent } from "../api/types";
 export function AuditPage() {
@@ -27,7 +28,7 @@ export function AuditPage() {
       if (mine === generation.current) setEvents(list.events ?? []);
     } catch (err) {
       if (mine === generation.current)
-        setError(err instanceof Error ? err.message : "Could not load audit.");
+        setError(errorMessage(err, "Could not load audit.", true));
     } finally {
       if (mine === generation.current) setLoading(false);
     }
@@ -44,7 +45,7 @@ export function AuditPage() {
     } catch (err) {
       if (mine === detailGeneration.current)
         setDetailError(
-          err instanceof Error ? err.message : "Could not load audit event.",
+          errorMessage(err, "Could not load audit event.", true),
         );
     } finally {
       if (mine === detailGeneration.current) setDetailLoading(false);

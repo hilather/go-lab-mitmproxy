@@ -26,6 +26,29 @@ export class APIError extends Error {
   }
 }
 
+/**
+ * problemMessage renders a problem+json error as one operator-facing line:
+ * the detail, then every field violation, then remediation when present.
+ */
+export function problemMessage(problem: Problem): string {
+  let text = problem.detail || problem.title || "request failed";
+  const violations = problem.fieldViolations ?? [];
+  if (violations.length > 0) {
+    text += ` (${violations
+      .map((v) => `${v.path || "(body)"}: ${v.message} [${v.code}]`)
+      .join("; ")})`;
+  }
+  if (problem.remediation) text += ` Remediation: ${problem.remediation}`;
+  return text;
+}
+
+/** errorMessage prefers the full problem text for API errors. */
+export function errorMessage(err: unknown, fallback: string, anyError = false): string {
+  if (err instanceof APIError) return problemMessage(err.problem);
+  if (anyError && err instanceof Error) return err.message;
+  return fallback;
+}
+
 let memoryCSRF = "";
 
 export function setMemoryCSRF(value: string): void {

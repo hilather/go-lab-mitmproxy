@@ -716,3 +716,42 @@ describe("StatusPage", () => {
     });
   });
 });
+
+describe("StatusPage apply errors", () => {
+  afterEach(() => {
+    resetClientState();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+  it("shows apply field violations instead of only the detail", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/v1/changes:plan"))
+          return json(200, { previousRevision: "sha256:abc", candidateRevision: "sha256:next", drifted: true, diff: [], warnings: [] });
+        if (url.endsWith("/v1/session")) return json(200, sessionView());
+        if (url.endsWith("/v1/status")) return json(200, sampleStatus());
+        if (url.endsWith("/v1/state") && method === "GET") return json(200, sampleState("sha256:abc"));
+        if (url.endsWith("/v1/features") && method === "GET") return json(200, sampleFeatures("sha256:abc"));
+        if (url.endsWith("/v1/changes:apply") && method === "POST") return json(400, {
+          status: 400,
+          title: "Validation failed",
+          detail: "unknown fields",
+          code: "validation_failed",
+          fieldViolations: [
+            { path: "reason", code: "unknown_field", message: 'unknown field "reason"' },
+          ],
+          remediation: "Remove the field.",
+        });
+        return notFound();
+      }),
+    );
+    await renderAppReady(<StatusPage />, { route: "/status" });
+    await user.click(await findSwitch("Toggle protocols.http2"));
+    expect(await screen.findByRole("alert")).toHaveTextContent('reason: unknown field "reason" [unknown_field]');
+  });
+});

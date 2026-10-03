@@ -101,3 +101,31 @@ it("rejects invalid wait status instead of broadening the filter", async () => {
   );
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it("shows wait field violations instead of only the detail", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/v1/session"
+        ? json(200, sessionView())
+        : json(400, {
+          status: 400,
+          title: "Validation failed",
+          detail: "unknown fields",
+          code: "validation_failed",
+          fieldViolations: [
+            { path: "reason", code: "unknown_field", message: 'unknown field "reason"' },
+          ],
+          remediation: "Remove the field.",
+        }),
+    ),
+  );
+  const user = userEvent.setup();
+  await renderAppReady(<FlowFilters onFilter={vi.fn()} />);
+  await user.click(screen.getByText("Server filters and wait"));
+  await user.click(screen.getByRole("button", { name: "Wait for flow" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status")).toHaveTextContent('reason: unknown field "reason" [unknown_field]'),
+  );
+  expect(screen.getByRole("status")).toHaveTextContent("Remediation: Remove the field.");
+});

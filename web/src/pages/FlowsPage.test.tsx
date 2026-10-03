@@ -311,3 +311,35 @@ it("refreshes selected pause actions on SSE without losing replay results", asyn
   RecordingEventSource.instances = [];
   resetClientState();
 });
+
+describe("flow list errors", () => {
+  afterEach(() => {
+    resetClientState();
+    vi.unstubAllGlobals();
+    RecordingEventSource.instances = [];
+  });
+  it("shows list filter field violations instead of only the detail", async () => {
+    vi.stubGlobal("EventSource", RecordingEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) return json(200, sessionView());
+        if (url.endsWith("/v1/state")) return json(200, portsOnlyState("sha256:abc", [8443]));
+        if (url.includes("/v1/flows"))
+          return json(400, {
+            status: 400,
+            title: "Validation failed",
+            detail: "invalid status",
+            code: "validation_failed",
+            fieldViolations: [{ path: "status", code: "invalid_value", message: "status must be an integer" }],
+          });
+        return json(404, { code: "not_found", detail: "not found" });
+      }),
+    );
+    await renderAppReady(<AppRoutes />, { route: "/" });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "invalid status (status: status must be an integer [invalid_value])",
+    );
+  });
+});

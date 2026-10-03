@@ -232,3 +232,25 @@ it("clears detail loading and stale responses when audit permission is revoked a
   });
   expect(screen.queryByText(/stale detail/)).toBeNull();
 });
+
+it("shows audit query field violations instead of only the detail", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/v1/session")
+        ? json(200, sessionView())
+        : json(400, {
+          status: 400,
+          title: "Validation failed",
+          detail: "unknown fields",
+          code: "validation_failed",
+          fieldViolations: [
+            { path: "reason", code: "unknown_field", message: 'unknown field "reason"' },
+          ],
+          remediation: "Remove the field.",
+        }),
+    ),
+  );
+  await renderAppReady(<AuditPage />, { route: "/audit" });
+  expect(await screen.findByRole("alert")).toHaveTextContent('reason: unknown field "reason" [unknown_field]');
+});

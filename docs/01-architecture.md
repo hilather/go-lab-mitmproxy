@@ -57,7 +57,7 @@ Family container-internal binds that must not collide:
 1. Single-process Go appliance that accepts HTTP/1.1 absolute-form and CONNECT, optionally intercepts TLS with a lab CA, captures flows, and never wraps or execs Python mitmproxy.
 2. Versioned, fail-closed YAML bootstrap; runtime flows ephemeral; reset rereads bootstrap and wipes the flow store.
 3. Same authorized flow and state operations on REST `/v1` and MCP `POST /mcp` (parity).
-4. Embedded operator UI (React/TS + Vite, Node **22.14.0**) that calls REST only. D79 ([ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md)) requires it to expose every operator-facing capability with equivalent inputs, results, and authorization; that work (UI-PARITY-001) has not landed, and the current baseline is in [Embedded operator UI](#embedded-operator-ui).
+4. Embedded operator UI (React/TS + Vite, Node **22.14.0**) that calls REST only. D79 ([ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md)) requires it to expose every operator-facing capability with equivalent inputs, results, and authorization. UI-PARITY-001 implements this; see [Embedded operator UI](#embedded-operator-ui) and the [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md).
 5. Hardened container: non-root UID 65532, scratch/static, read-only root, `cap_drop: ALL`, no-new-privileges, tmpfs `/tmp`.
 6. In-tree proxy + TLS intercept using stdlib `net/http`, `crypto/tls`, `crypto/x509` only.
 7. Bounded flow store (count + bytes + per-body cap) with fail-closed `fullPolicy`.

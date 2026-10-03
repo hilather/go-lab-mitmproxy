@@ -21,7 +21,7 @@ const plan = {
   ],
   warnings: [{ code: "live_next_connection", message: "New sessions only" }],
 };
-function fixture(scopes?: string[], conflict = false) {
+function fixture(scopes?: string[], conflict = false, conflictCode = "revision_conflict") {
   let revision = "sha256:abc";
   const state = sampleState();
   const canonical = state.canonical! as unknown as Record<string, unknown>;
@@ -53,7 +53,7 @@ function fixture(scopes?: string[], conflict = false) {
         return conflict
           ? json(409, {
               status: 409,
-              code: "revision_conflict",
+              code: conflictCode,
               detail: "Revision changed",
               fields: [{ path: "expectedRevision", message: "stale" }],
             })
@@ -366,6 +366,7 @@ describe("ConfigurationPage", () => {
     await click("Plan changes");
     await click("Apply reviewed changes");
     expect(screen.getByRole("alert")).toHaveTextContent("plan again");
+    expect(screen.getByRole("alert")).toHaveTextContent("Runtime changed");
     expect(
       screen.queryByRole("button", { name: "Apply reviewed changes" }),
     ).toBeNull();
@@ -595,5 +596,38 @@ describe("ConfigurationPage", () => {
         (call) => (call[1]?.method ?? "GET") === "GET",
       ),
     ).toBe(true);
+  });
+});
+
+describe("ConfigurationPage conflict labels", () => {
+  afterEach(() => {
+    resetClientState();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+  it("labels idempotency conflicts by code and issues a new automatic key", async () => {
+    const { fetchMock } = fixture(undefined, true, "idempotency_conflict");
+    await renderAppReady(<ConfigurationPage />);
+    await click("Plan changes");
+    const first = body(fetchMock, "/v1/changes:plan").idempotencyKey;
+    await click("Apply reviewed changes");
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("idempotency key was already used for a different request");
+    expect(alert).toHaveTextContent("a new automatic key will be used");
+    expect(alert).not.toHaveTextContent("Runtime changed");
+    await click("Plan changes");
+    const plans = fetchMock.mock.calls.filter(
+      (call) => String(call[0]) === "/v1/changes:plan",
+    );
+    expect(JSON.parse(String(plans.at(-1)?.[1]?.body)).idempotencyKey).not.toBe(first);
+  });
+  it("names other conflict codes without claiming a revision change", async () => {
+    fixture(undefined, true, "store_full");
+    await renderAppReady(<ConfigurationPage />);
+    await click("Plan changes");
+    await click("Apply reviewed changes");
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Conflict (store_full)");
+    expect(alert).not.toHaveTextContent("Runtime changed");
   });
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useMatch, useNavigate } from "react-router-dom";
-import { APIError, clearFlows, listAllFlows } from "../api/client";
+import { clearFlows, errorMessage, listAllFlows } from "../api/client";
 import type { Flow, FlowListQuery } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE, formatBytes } from "../auth/scopes";
@@ -53,7 +53,7 @@ export function FlowsWorkspace() {
           navigateRef.current("/", { replace: true });
         }
       } catch (err) {
-        if (version === requestVersion.current) setError(err instanceof Error ? err.message : "Could not load flows.");
+        if (version === requestVersion.current) setError(errorMessage(err, "Could not load flows.", true));
       }
     })();
   }, []);
@@ -74,7 +74,7 @@ export function FlowsWorkspace() {
       navigate("/", { replace: true });
       refresh();
     } catch (err) {
-      setError(err instanceof APIError ? err.message : "Clear failed.");
+      setError(errorMessage(err, "Clear failed."));
     }
   }
 

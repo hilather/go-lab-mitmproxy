@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { errorMessage } from "../api/client";
 import {
   diagnosticReads,
   getDiagnostic,
@@ -21,7 +22,7 @@ function DiagnosticPanel({ read }: { read: DiagnosticRead }) {
     } catch (err) {
       if (generation.current === mine)
         setError(
-          err instanceof Error ? err.message : "Could not load diagnostics.",
+          errorMessage(err, "Could not load diagnostics.", true),
         );
     } finally {
       if (generation.current === mine) setLoading(false);

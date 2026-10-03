@@ -19,7 +19,7 @@ Captured-flow replay is the existing guarded `flows.replay` operation. A single 
 
 Every central registry capability must have an explicit frontend disposition. Operator capabilities map to reachable UI workflows and behavioral regression coverage. Transport-only entries may map to the existing session, live-update, or download machinery, or to a documented protocol-only exemption. Compatibility aliases do not require duplicate screens. Exemptions must identify the actual protocol reason and cannot conceal an unimplemented operator capability.
 
-UI-PARITY-001 introduces a mandatory automated frontend parity check that compares the registry and operation schema against frontend coverage, failing for new or unclassified capabilities, missing operations, invalid routes, and missing behavioral evidence. UI behavioral tests verify the calls and outcomes. Once it lands, run this check alongside REST/MCP parity and the frontend test/build jobs; `make test-parity` checks REST and MCP only, not the UI. New API capabilities and inputs must update their UI and tests in the same change.
+UI-PARITY-001 introduces a mandatory automated frontend parity check that compares the registry and operation schema against frontend coverage, failing for new or unclassified capabilities, missing operations, invalid routes, and missing behavioral evidence. UI behavioral tests verify the calls and outcomes. Run this check alongside REST/MCP parity and the frontend test/build jobs; `make test-parity` runs it through `make test-ui-parity`. New API capabilities and inputs must update their UI and tests in the same change.
 
 ## Implementation rollout
 

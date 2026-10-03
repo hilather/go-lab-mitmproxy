@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { APIError, getState } from "./client";
+import { errorMessage, getState } from "./client";
 import type { StateView } from "./types";
 
 export type LiveSpecValue = {
@@ -48,7 +48,7 @@ export function LiveSpecProvider({ children }: { children: ReactNode }) {
       setState(next);
       setError("");
     } catch (err) {
-      setError(err instanceof APIError ? err.message : "Could not load state.");
+      setError(errorMessage(err, "Could not load state."));
     }
   }, []);
 

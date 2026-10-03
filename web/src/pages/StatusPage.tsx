@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { APIError, applyChanges, CA_DOWNLOAD_URL, getFeatures, getState, getStatus } from "../api/client";
+import { APIError, applyChanges, CA_DOWNLOAD_URL, errorMessage, getFeatures, getState, getStatus } from "../api/client";
 import { planConfiguration } from "../api/configuration";
 import { useLiveSpec } from "../api/liveSpec";
 import type {
@@ -94,7 +94,7 @@ export function StatusPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof APIError ? err.message : "Could not load status.");
+          setError(errorMessage(err, "Could not load status."));
         }
       }
     })();
@@ -107,7 +107,7 @@ export function StatusPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setFeatureError(err instanceof APIError ? err.message : "Could not load features.");
+          setFeatureError(errorMessage(err, "Could not load features."));
         }
       }
     })();
@@ -120,7 +120,7 @@ export function StatusPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setStateError(err instanceof APIError ? err.message : "Could not load state.");
+          setStateError(errorMessage(err, "Could not load state."));
         }
       }
     })();
@@ -255,7 +255,7 @@ export function StatusPage() {
       return true;
     } catch (err) {
       const detail =
-        err instanceof APIError ? err.problem.detail || err.message : "Could not apply change.";
+        errorMessage(err, "Could not apply change.");
       setFeatureError(detail);
       if (err instanceof APIError && err.problem.status === 409) {
         try {

@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { APIError, resetState } from "../api/client";
+import { errorMessage, resetState } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_ADMIN } from "../auth/scopes";
 import { RESET_PHRASE, canSubmitReset } from "../ui/forbidden";
@@ -29,7 +29,7 @@ export function ResetPage() {
       setPhrase("");
       setConfirmed(false);
     } catch (err) {
-      setError(err instanceof APIError ? err.message : "Reset failed.");
+      setError(errorMessage(err, "Reset failed."));
     } finally {
       setBusy(false);
     }

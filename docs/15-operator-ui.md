@@ -2,7 +2,7 @@
 
 Status: Implemented
 Owners: Frontend, Control Plane
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-03 (field-violation display and conflict labels)
 Related ADRs: 0004, 0005, 0018, 0020
 
 The embedded UI uses the authenticated native REST API. [ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md) requires parity with all operator-facing REST/MCP capabilities. The capability registry remains 31 entries and the live mutation catalog remains eight verbs.
@@ -38,7 +38,7 @@ Configuration exposes complete canonical state and a JSON operation editor with 
 
 Edit the selected operation or add several operations to its array for one atomic change. Byte sizes use IEC strings; durations use Go duration strings. Replacement subtrees follow the same defaults and validation as REST/MCP. File references remain references; the browser never reads private keys or credential files.
 
-**Validate operations**, **Validate candidate state**, and **Validate candidate with operations** are separate read-only checks. Candidate JSON can include bootstrap-only settings, but validation does not apply or save it. **Plan changes** displays the exact request, diff and warnings. **Apply reviewed changes** submits that same revision, idempotency key, reason, force and payload. Editing any reviewed input invalidates the plan. Automatically generated keys change for new drafts; a network failure retains the exact request for an idempotent retry. A revision conflict refreshes state and requires another explicit plan. User-supplied keys remain deliberate overrides and must not be reused for a different payload.
+**Validate operations**, **Validate candidate state**, and **Validate candidate with operations** are separate read-only checks. Candidate JSON can include bootstrap-only settings, but validation does not apply or save it. **Plan changes** displays the exact request, diff and warnings. **Apply reviewed changes** submits that same revision, idempotency key, reason, force and payload. Editing any reviewed input invalidates the plan. Automatically generated keys change for new drafts; a network failure retains the exact request for an idempotent retry. Any `409` refreshes state and requires another explicit plan; the message follows the error code: `revision_conflict` reports a runtime revision change, `idempotency_conflict` reports a key reused for a different request, and other conflicts name their code. Error messages outside sign-in include field violations (`path: message [code]`) and remediation when the server returns them. User-supplied keys remain deliberate overrides and must not be reused for a different payload.
 
 Disabling the UI and forcing store eviction require additional confirmation. YAML/JSON export shows the document, revision, bootstrap revision, drift and human diff. YAML revision headers are checked against metadata so a concurrent state change cannot mislabel the exported document.
 

@@ -75,3 +75,28 @@ describe("DiagnosticsPage", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+it("shows diagnostic field violations instead of only the detail", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/v1/session"
+        ? json(200, sessionView())
+        : String(input) === "/v1/version"
+          ? json(400, {
+            status: 400,
+            title: "Validation failed",
+            detail: "unknown fields",
+            code: "validation_failed",
+            fieldViolations: [
+              { path: "reason", code: "unknown_field", message: 'unknown field "reason"' },
+            ],
+            remediation: "Remove the field.",
+          })
+          : json(200, {}),
+    ),
+  );
+  await renderAppReady(<DiagnosticsPage />);
+  const region = screen.getByRole("region", { name: "Version" });
+  expect(await within(region).findByRole("alert")).toHaveTextContent('reason: unknown field "reason" [unknown_field]');
+});
