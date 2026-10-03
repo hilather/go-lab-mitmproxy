@@ -1,5 +1,7 @@
 # Repository Instructions for Agents
 
+Last reviewed: 2026-10-03 (frontend parity supported inputs and rollout)
+
 These instructions apply to every human or AI agent working in this repository. More specific `AGENTS.md` files may add stricter rules but may not weaken this file.
 
 ## Required reading
@@ -86,14 +88,17 @@ The numbered pack is the source of truth after FND-001. Do not invent paths, typ
 - Do not change an architectural invariant without an ADR.
 - Cross-file links in README and `docs/` use absolute HTTPS URLs (`https://github.com/hilather/go-lab-mitmproxy/blob/main/...`).
 
-## REST and MCP parity
+## Frontend, REST, and MCP parity
 
 - Every public REST control capability must have an MCP equivalent except rows marked `REST_ONLY_PROTOCOL`.
 - Every state-changing MCP tool must have a REST equivalent.
 - Parameterized MCP read tools must have REST equivalents; MCP resources may mirror REST GET representations.
 - Both adapters must use the same input and output domain types and the same authorization decision.
-- Every mutation must support validation, dry-run planning, optimistic concurrency, idempotency, actor identity, reason, deterministic errors, audit emission, and an atomic commit.
-- Run parity verification whenever REST, MCP, schemas, authorization, or application commands change.
+- State/configuration workflows must preserve each native capability’s supported validation, dry-run planning, optimistic concurrency, idempotency, actor identity, reason, deterministic errors, audit emission, and atomic commit semantics. Flow controls expose their existing supported inputs and preconditions; do not invent unsupported fields in the UI.
+- The frontend must expose every operator-facing REST/MCP capability with equivalent supported inputs, outputs, filtering, pagination, optional and explicit-empty edits, scope restrictions, errors, concurrency preconditions, and idempotency and reasons where the native capability supports them (ADR 0020 / D79).
+- Every capability needs a reachable browser workflow and behavioral regression coverage. Hidden API helpers and coverage declarations alone do not establish parity. Transport-only bindings need a documented browser equivalent or an ADR-backed exemption; compatibility aliases need no duplicate screen.
+- All live configuration verbs and editable fields must be available, with validation, plan review, and canonical export. Preserve bootstrap ownership and Reset-only boundaries. A single guarded replay of a captured flow is permitted; scanning and attack automation remain out of scope.
+- New or changed API capabilities and inputs must include frontend changes and tests in the same PR. Run existing REST/MCP parity verification and web test/build checks whenever REST, MCP, UI, schemas, authorization, or application commands change. UI-PARITY-001 will introduce the mandatory frontend parity gate with the remaining workflows; once that task lands, run the frontend gate alongside those checks. It must fail for missing capabilities, operations, routes, contract review, or passing behavioral evidence. This policy change does not provide that gate.
 
 ## Dial isolation and intercept correctness
 

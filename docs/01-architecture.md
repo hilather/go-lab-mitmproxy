@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-10-02 (bounded responses and runtime listener reconciliation)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019
+Last reviewed: 2026-10-03 (frontend parity policy and current UI baseline; D78/D79)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020
 
 ## Problem statement
 
@@ -57,7 +57,7 @@ Family container-internal binds that must not collide:
 1. Single-process Go appliance that accepts HTTP/1.1 absolute-form and CONNECT, optionally intercepts TLS with a lab CA, captures flows, and never wraps or execs Python mitmproxy.
 2. Versioned, fail-closed YAML bootstrap; runtime flows ephemeral; reset rereads bootstrap and wipes the flow store.
 3. Same authorized flow and state operations on REST `/v1` and MCP `POST /mcp` (parity).
-4. Embedded operator flow-inspector UI (React/TS + Vite, Node **22.14.0**) that calls REST only.
+4. Embedded operator UI (React/TS + Vite, Node **22.14.0**) that calls REST only. D79 ([ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md)) requires it to expose every operator-facing capability with equivalent inputs, results, and authorization; that work (UI-PARITY-001) has not landed, and the current baseline is in [Embedded operator UI](#embedded-operator-ui).
 5. Hardened container: non-root UID 65532, scratch/static, read-only root, `cap_drop: ALL`, no-new-privileges, tmpfs `/tmp`.
 6. In-tree proxy + TLS intercept using stdlib `net/http`, `crypto/tls`, `crypto/x509` only.
 7. Bounded flow store (count + bytes + per-body cap) with fail-closed `fullPolicy`.
@@ -117,7 +117,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D10** | **Default proxy bind is `127.0.0.1:8888`. Default management bind is `127.0.0.1:8088`.** Explicit LabMail deviation (LabMail defaults are all-interfaces). | An intercepting proxy is an open-proxy loaded gun. |
 | **D11** | **Store is memory-first with stacked caps.** Default `fullPolicy: reject`. Store-full **still forwards**. | Prevents OOM. Capture is best-effort. |
 | **D12** | **No chaos engine in 1.0.** `spec.rules` is deterministic, default-off, first-match-wins. | A capture appliance’s job is explainable behavior. |
-| **D13** | **Embedded flow-inspector UI ships in 1.0.** React + TypeScript + Vite, Node **22.14.0**. Frozen table: [Embedded operator UI](#embedded-operator-ui). | Family replacement contract. GA is not done without PR 13. |
+| **D13** | **Embedded flow-inspector UI ships in 1.0.** React + TypeScript + Vite, Node **22.14.0**. Current baseline: [Embedded operator UI](#embedded-operator-ui); D79 requires the follow-on parity workflows. | Family replacement contract. GA is not done without PR 13. |
 | **D14** | **Go 1.26, official MCP SDK `v1.7.0`, protocol `2026-07-28`, Apache-2.0.** `KnownFields(true)`. CI pin `GO_VERSION=1.26.6`. | Family pins. |
 | **D15** | **`allowLegacyClients` default false; lab overlay sets true.** `subscriptions/listen` stays 2026-07-28. | So MCPJungle can register without a LabMITM patch. |
 | **D16** | **Data-plane Dial is required, isolated, and resolve-then-guard.** Dial only in `internal/proxy`. | Hostname-only guards miss CNAME→IMDS. |
@@ -133,6 +133,8 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D73** | **Websocket-phase `drop` omits one frame; `block` closes both TCP sides.** `labmitm_ws_frames_total` counts forwarded frames only. | ADR 0015 |
 | **D74** | **`inspectFrames` stays Reset-only (D51').** Live path is `replaceRules` / `setFeature rules.enabled` on the STA-001 pin (next request / next CONNECT / next h2c PRI; open inspect sockets never reload). Catalog stays 31. | ADR 0015 |
 | **D75** | **Rules may include `action.type: throttle`.** The winning item paces that phase’s **body** at `bytesPerSecond` (256 B/s–64 MiB/s). Live `replaceRules`. No daemon, no jitter, no new capability. See [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md). | Issue #52 QA bandwidth without collapsing into `delay`. ADR 0015 is websocket frame rules (D72–D74); ADR 0017 / D76 is HTTP proxy 407. |
+| **D78** | **HTTP/2 responses stream with bounded capture.** Oversized response breakpoints on a shared HTTP/1.1 origin retain its reservation through pause and unread-tail forwarding; bounded response breakpoints remain independent. | [ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md); narrow D37 exception preserves D44 without spool or a second Dial. |
+| **D79** | **The frontend must provide functional parity with every operator-facing REST/MCP capability.** Supported inputs and outcomes, authorization and preconditions remain those of the existing capability. Required workflows and their automated gate land with UI-PARITY-001. | [ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md); REST/MCP parity alone does not prove browser usability. |
 
 HTTP/2 response forwarding uses bounded capture and preserves incremental delivery. Oversized response breakpoints sharing one HTTP/1.1 origin connection retain that connection until the pause and unread body finish ([ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md), D78); ordinary bounded response breakpoints remain independent.
 
@@ -195,7 +197,7 @@ UI (static) -----> REST only                    -> store / snapshot / audit / ru
 
 ## Embedded operator UI
 
-Required for GA / 1.0 (D13, PR 13). The UI talks REST only. XSS/CSP: [docs/08-rest-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/08-rest-api.md) and [docs/10-security-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/10-security-architecture.md).
+Required for GA / 1.0 (D13, PR 13). The UI talks REST only. The table below describes the current shipped baseline. [UI-PARITY-001](https://github.com/hilather/go-lab-mitmproxy/blob/main/tasks/00-program-board.md) will add the remaining D79 workflows and the mandatory automated frontend parity gate; this policy change does not implement them. XSS/CSP: [docs/08-rest-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/08-rest-api.md) and [docs/10-security-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/10-security-architecture.md).
 
 | Item | Choice |
 |---|---|
@@ -205,7 +207,7 @@ Required for GA / 1.0 (D13, PR 13). The UI talks REST only. XSS/CSP: [docs/08-re
 | Pages | Flows split-pane (list stays mounted; selection on `/` + `/flows/:id` drives Request / Response / TLS; Trailers / Frames / gRPC when present). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary (`why not decrypted: port not in tls.ports:[443]`), not empty HTTP panes. Handshake `tls_handshake` / `http2_inner` stays an error, not that chip. Header chrome: LabMITM, **live**, intercept-ports chip from live `GET /v1/state` `canonical.spec.tls.ports` (e.g. `:443 intercept` / `:8443 intercept`; never hardcoded `:443 intercept only`). Status / Audit / Reset / Login page bodies share the same dark lab chrome (IBM Plex, `#0b0c0e` / `#6ea8d1` / `#c4a35a`); tunnel-not-decrypt remains a **flow** chip only. CA download (`GET /v1/ca`; `ca.spkiSha256` on status), status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` including gated `ui.enabled` off-confirm; compact `status.features` including `httpAuth` + Reset-required 1.2 flags as muted text; live `replaceTLS` (hidden `hosts`/`ca`/`upstream` from the OCC `GET /v1/state` snapshot) / `replaceHTTPAuth` / `replaceRules` / `replaceAdmission` / `replaceCompat`; reset-only catalog row links to `/reset`; no `/features` route), Frames tab badges `drop`/`block`, audit (if scoped), gated reset |
 | Live update | `EventSource` `GET /v1/events/stream` (SSE) stays mounted while selecting flows (`flow.inserted` / `flow.paused` / `flow.deleted` / `store.wiped`). Fallback: 3s poll of `GET /v1/flows`. |
 | Bodies | Render as text if `Content-Type` is text/*, json, xml, form; otherwise hex/size + download. Never `innerHTML` of response HTML. Download is `download=` plus blob fetch; raw body GETs are `application/octet-stream` + attachment. Optional iframe preview **only** with `sandbox` (no scripts, no same-origin) and CSP `default-src 'none'` — default **off**. |
-| Missing on purpose | Fuzzer, repeater-as-weapon, payload generator, “exploit”, SSL-strip toggle, Relay |
+| Excluded tooling | Fuzzer, repeater, bulk attack automation, payload generator, “exploit”, SSL-strip toggle, Relay. D79 permits a single guarded replay of a captured flow; its browser workflow is forthcoming in UI-PARITY-001. |
 
 `spec.ui.enabled: false` serves 404 for `/` (and `/status`, `/flows/…`) but keeps REST/MCP. Status may apply that bit after a gated off-confirm ([ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77).
 

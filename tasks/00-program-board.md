@@ -93,3 +93,7 @@ The coordinator must stop dependent work when any of these are unstable:
 - Store epoch / generation contract.
 - Supported MCP protocol version.
 - Dial isolation / CONNECT Hijack contract.
+
+## UI-PARITY-001: Operator control-plane parity
+
+Policy: [ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md), D79. Implementation is in progress following the policy PR. Deliver flow resume/edit/drop/replay/wait, complete filtering, state validation/export/plan review, all eight live configuration verbs, diagnostic reads, and audit detail. Add a registry/contract parity gate with passing UI behavioral evidence. Completion requires root and skeptic review, relevant local checks, and required CI. Bootstrap ownership and Reset-only boundaries remain unchanged.
