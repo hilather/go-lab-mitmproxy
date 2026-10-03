@@ -25,7 +25,7 @@ help:
 		'  verify-generated    fail if generate would change those files' \
 		'  test                go test ./...' \
 		'  test-race           go test -race ./...' \
-		'  test-fuzz-smoke     buildinfo + config + HTTP request fuzz corpora (5s each)' \
+		'  test-fuzz-smoke     buildinfo + config + HTTP request fuzz corpora (500000 executions each)' \
 		'  test-docs           required documents, metadata, links, and leftover invariants' \
 		'  security-scan       govulncheck' \
 		'  test-parity         REST/MCP capability parity and MCP goldens' \
@@ -65,10 +65,11 @@ test-race:
 	$(GO) test -race ./...
 
 test-fuzz-smoke:
+	# Execution limits avoid Go fuzz coordinator deadline-propagation races.
 	$(GO) test ./scripts/checkdocs -run TestFuzzCorporaPresent -count=1
-	$(GO) test ./internal/buildinfo -fuzz=FuzzInfoString -fuzztime=5s -count=1
-	$(GO) test ./internal/config -fuzz=FuzzDecode -fuzztime=5s -count=1
-	$(GO) test ./internal/httputilx -fuzz=FuzzReadRequest -fuzztime=5s -count=1
+	$(GO) test ./internal/buildinfo -fuzz=FuzzInfoString -fuzztime=500000x -count=1
+	$(GO) test ./internal/config -fuzz=FuzzDecode -fuzztime=500000x -count=1
+	$(GO) test ./internal/httputilx -fuzz=FuzzReadRequest -fuzztime=500000x -count=1
 
 test-docs:
 	$(GO) run ./scripts/checkdocs

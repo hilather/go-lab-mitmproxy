@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-10-03 (QA regressions and deterministic HTTP/2 origin harnesses)
+Last reviewed: 2026-10-03 (QA regressions, deterministic HTTP/2 origin harnesses, and execution-bounded fuzz smoke)
 Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -65,6 +65,8 @@ FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-
 Jobs: format, lint, unit, race, fuzz-smoke, generated-file, documentation, security-scan, changelog, parity, config-compat, container-test, web. There is no optional or bypassable job. Tag creation is gated by `.github/workflows/release.yml` (`tag-gate`): notes file present, required headings, generated files clean, every required CI job success on the exact tag commit.
 
 CI shell steps use Bash `-e -o pipefail`; unit, race, and fuzz commands merge stderr into the `tee` artifact. `scripts/checkci/pipeline_test.go` runs a failing pipeline with the workflow's declared shell and verifies that the step fails while preserving diagnostics.
+
+`make test-fuzz-smoke` checks committed corpora and runs each of `FuzzInfoString`, `FuzzDecode`, and `FuzzReadRequest` for 500,000 fuzz executions. This exceeds the observed execution counts of the previous five-second budgets while avoiding a Go fuzz coordinator race between parent deadline notification and child cancellation. Seeds, coverage-guided mutation, minimization, and failure detection remain enabled; there are no retries. The default Go package timeout and the 15-minute CI job timeout are unchanged. Failure artifacts retain stderr logs and `internal/**/testdata/fuzz/**`, including any saved failing input.
 
 Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`. govulncheck `v1.1.4`. Actions SHA-pinned.
 
