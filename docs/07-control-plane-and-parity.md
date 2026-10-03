@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP, Frontend
-Last reviewed: 2026-10-03 (frontend parity contract; D79)
+Last reviewed: 2026-10-03 (frontend parity supported inputs and rollout boundary; D79)
 Related ADRs: 0004, 0005, 0006, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0020
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
@@ -103,11 +103,13 @@ Renaming a tool, resource, or REST path requires an ADR plus catalog + design-ta
 
 ## Frontend parity
 
-[ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md) (D79) requires functional parity for every operator-facing capability above. The browser uses REST and the same shared authorization and domain behavior. Supported inputs and outputs, optional and explicit-empty edits, filtering and pagination, errors, scopes, mutation preconditions, reasons, and idempotency must remain available. New capabilities or fields include their frontend workflow and regression tests in the same change.
+[ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md) (D79) requires functional parity for every operator-facing capability above. The browser uses REST and the same shared authorization and domain behavior. Supported inputs and outputs, optional and explicit-empty edits, filtering and pagination, errors, scopes, mutation preconditions, and reasons and idempotency where the native capability supports them must remain available. The browser must not add unsupported request fields. New capabilities or fields include their frontend workflow and regression tests in the same change.
 
 Every registry entry must map to a reachable UI workflow and passing behavioral evidence. Session and event transport entries map to browser authentication and live updates; compatibility aliases do not require duplicate screens. A transport-only exemption requires an architectural reason, not an implementation backlog. The automated gate compares capabilities and operation contracts to reviewed UI coverage, with behavioral tests proving requests and outcomes.
 
-Configuration covers all eight live verbs, candidate validation, plan review, and canonical export. Plan review pins the exact request through apply; a revision conflict requires a new review. Reset-only settings remain bootstrap plus Reset. The UI must never write bootstrap configuration. Existing guarded replay of a captured flow is included; bulk attack automation remains excluded.
+The required configuration workflow covers all eight live verbs, candidate validation, plan review, and canonical export. Plan review pins the exact existing changeset through apply; a revision conflict requires a new review. There is no plan ID or new apply protocol. Reset-only settings remain bootstrap plus Reset. The UI must never write bootstrap configuration. Existing guarded replay of a captured flow is included; bulk attack automation remains excluded.
+
+UI-PARITY-001 will deliver the remaining workflows and the automated frontend parity gate. This policy change adds neither implementation nor gate; current REST/MCP parity and web test/build checks remain required while that follow-on work is pending.
 
 ## Related documents
 
