@@ -1,7 +1,7 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { json, renderApp, resetClientState, sessionView } from "../test/render";
+import { json, renderAppReady, resetClientState, sessionView } from "../test/render";
 import { ResetPage } from "./ResetPage";
 
 describe("ResetPage", () => {
@@ -27,12 +27,17 @@ describe("ResetPage", () => {
         });
       }),
     );
-    renderApp(<ResetPage />, { route: "/reset" });
-    const submit = await screen.findByRole("button", { name: /Reset LabMITM/i });
+    await renderAppReady(<ResetPage />, { route: "/reset" });
+    const submit = screen.getByRole("button", { name: /Reset LabMITM/i });
     expect(submit).toBeDisabled();
-    await user.type(screen.getByLabelText(/Confirmation phrase/i), "RESET");
+    const phrase = screen.getByLabelText(/Confirmation phrase/i);
+    fireEvent.change(phrase, { target: { value: "RESE" } });
+    expect(submit).toBeDisabled();
+    fireEvent.change(phrase, { target: { value: "RESET" } });
     expect(submit).toBeDisabled();
     await user.click(screen.getByLabelText(/Wipe the flow store/i));
     expect(submit).toBeEnabled();
+    fireEvent.change(phrase, { target: { value: "RESE" } });
+    expect(submit).toBeDisabled();
   });
 });

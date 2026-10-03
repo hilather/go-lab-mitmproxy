@@ -1,6 +1,7 @@
 package http2x
 
 import (
+	"golang.org/x/net/http2"
 	"io"
 	"os"
 	"sync"
@@ -33,7 +34,7 @@ func newOutFlow() *outFlow {
 
 func (f *outFlow) open(id uint32) {
 	f.mu.Lock()
-	if _, ok := f.stream[id]; !ok {
+	if _, ok := f.stream[id]; !ok && !f.closed {
 		f.stream[id] = f.initStream
 	}
 	f.mu.Unlock()
@@ -151,4 +152,39 @@ func (f *outFlow) takeDeadline(id uint32, want int, deadline time.Time) (int, er
 		}
 		f.cond.Wait()
 	}
+}
+
+// inFlow bounds buffered DATA by the receive windows advertised on this hop.
+// Padding consumes both windows and is credited immediately after validation.
+type inFlow struct {
+	mu     sync.Mutex
+	conn   int
+	stream map[uint32]int
+}
+
+func newInFlow() *inFlow           { return &inFlow{conn: initialWindow, stream: make(map[uint32]int)} }
+func (f *inFlow) open(id uint32)   { f.mu.Lock(); f.stream[id] = initialWindow; f.mu.Unlock() }
+func (f *inFlow) forget(id uint32) { f.mu.Lock(); delete(f.stream, id); f.mu.Unlock() }
+func (f *inFlow) take(id uint32, n int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if n > f.conn {
+		return http2.ConnectionError(http2.ErrCodeFlowControl)
+	}
+	f.conn -= n
+	if v, ok := f.stream[id]; ok {
+		if n > v {
+			return http2.StreamError{StreamID: id, Code: http2.ErrCodeFlowControl}
+		}
+		f.stream[id] = v - n
+	}
+	return nil
+}
+func (f *inFlow) credit(id uint32, n int) {
+	f.mu.Lock()
+	f.conn += n
+	if v, ok := f.stream[id]; ok {
+		f.stream[id] = v + n
+	}
+	f.mu.Unlock()
 }

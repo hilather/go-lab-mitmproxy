@@ -6,6 +6,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="${LABMITM_TEST_IMAGE:-ghcr.io/hilather/labmitm:test}"
 NAME="labmitm-container-test-$$"
+ORIGIN_NAME="${NAME}-origin"
+NETWORK="${NAME}-network"
+ORIGIN_IMAGE="labmitm-container-origin:test"
 COMPOSE="${ROOT}/examples/compose.smoke.yaml"
 TOKEN="${ROOT}/testdata/container/token"
 ORIGIN_CA="${ROOT}/testdata/tls/origin-ca.pem"
@@ -24,9 +27,9 @@ if ! command -v curl >/dev/null 2>&1; then
 	echo "curl is required for make test-container" >&2
 	exit 1
 fi
-if ! command -v python3 >/dev/null 2>&1; then
-	echo "python3 is required to run origin fixtures in make test-container" >&2
-	exit 1
+if ! command -v go >/dev/null 2>&1; then
+ echo "go is required to compile the test-only container origin" >&2
+ exit 1
 fi
 if [ ! -f "${TOKEN}" ]; then
 	echo "missing ${TOKEN}" >&2
@@ -37,93 +40,44 @@ if [ ! -f "${ORIGIN_CA}" ] || [ ! -f "${ORIGIN_CERT}" ] || [ ! -f "${ORIGIN_KEY}
 	exit 1
 fi
 
+source "${ROOT}/scripts/container-diagnostics.sh"
+STAGE="fixture startup"
 WORKDIR="$(mktemp -d)"
-HTTP_PID=""
-HTTPS_PID=""
 cleanup() {
+ local status=$?
+ if [ "${status}" -ne 0 ]; then
+  report_container_failure "${STAGE}" "${status}" "${NAME}" "${WORKDIR}"
+ fi
 	docker rm -f "${NAME}" >/dev/null 2>&1 || true
-	if [ -n "${HTTP_PID}" ]; then
-		kill "${HTTP_PID}" >/dev/null 2>&1 || true
-	fi
-	if [ -n "${HTTPS_PID}" ]; then
-		kill "${HTTPS_PID}" >/dev/null 2>&1 || true
-	fi
+ docker rm -f "${ORIGIN_NAME}" >/dev/null 2>&1 || true
+ docker network rm "${NETWORK}" >/dev/null 2>&1 || true
 	rm -rf "${WORKDIR}"
 }
 trap cleanup EXIT
 
-start_http_origin() {
-	python3 - "${WORKDIR}/http.port" <<'PY' &
-import http.server
-import sys
-
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = b"container-smoke"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *_args):
-        return
-
-httpd = http.server.HTTPServer(("0.0.0.0", 0), H)
-with open(sys.argv[1], "w", encoding="utf-8") as fh:
-    fh.write(str(httpd.server_address[1]))
-httpd.serve_forever()
-PY
-	HTTP_PID=$!
-}
-
-start_https_origin() {
-	python3 - "${WORKDIR}/https.port" "${ORIGIN_CERT}" "${ORIGIN_KEY}" <<'PY' &
-import http.server
-import ssl
-import sys
-
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = b"container-smoke-https"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *_args):
-        return
-
-httpd = http.server.HTTPServer(("0.0.0.0", 0), H)
-ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ctx.load_cert_chain(sys.argv[2], sys.argv[3])
-httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
-with open(sys.argv[1], "w", encoding="utf-8") as fh:
-    fh.write(str(httpd.server_address[1]))
-httpd.serve_forever()
-PY
-	HTTPS_PID=$!
-}
-
-wait_port_file() {
-	local path="$1"
-	local i
-	for i in $(seq 1 40); do
-		if [ -s "${path}" ]; then
-			cat "${path}"
-			return 0
-		fi
-		sleep 0.05
-	done
-	echo "origin did not publish ${path}" >&2
-	return 1
-}
-
-start_http_origin
-start_https_origin
-HTTP_PORT="$(wait_port_file "${WORKDIR}/http.port")"
-HTTPS_PORT="$(wait_port_file "${WORKDIR}/https.port")"
+# Build before the bounded runtime readiness budget. Origin and appliance share
+# an isolated bridge; no container-to-host INPUT firewall exception is needed.
+STAGE="origin fixture build"
+ORIGIN_ARCH="$(docker version --format '{{.Server.Arch}}')"
+(
+ cd "${ROOT}"
+ CGO_ENABLED=0 GOOS=linux GOARCH="${ORIGIN_ARCH}" go build -o "${WORKDIR}/container-origin" ./scripts/containerorigin
+)
+cat > "${WORKDIR}/Dockerfile" <<'EOF'
+FROM scratch
+COPY container-origin /origin
+USER 65532:65532
+ENTRYPOINT ["/origin"]
+EOF
+docker build -t "${ORIGIN_IMAGE}" "${WORKDIR}"
+docker network create "${NETWORK}" >/dev/null
+STAGE="origin fixture startup"
+docker run -d --name "${ORIGIN_NAME}" --network "${NETWORK}" --network-alias app.lab \
+ --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
+ -v "${ORIGIN_CERT}:/origin-cert.pem:ro" -v "${ORIGIN_KEY}:/origin-key.pem:ro" "${ORIGIN_IMAGE}" >/dev/null
+wait_container_origin "${ORIGIN_NAME}"
+HTTP_PORT=8080
+HTTPS_PORT=8443
 
 # extraCAFiles is validated at load, so the intercept overlay is written
 # here (host testdata/container/config.yaml stays loadable without the
@@ -166,9 +120,11 @@ spec:
       publicPath: false
 EOF
 
+STAGE="image build"
 echo "building ${IMAGE}"
 docker build -t "${IMAGE}" "${ROOT}"
 
+STAGE="image metadata"
 inspect_user="$(docker image inspect --format '{{.Config.User}}' "${IMAGE}")"
 if [ "${inspect_user}" != "65532:65532" ]; then
 	echo "image User=${inspect_user}, want 65532:65532" >&2
@@ -225,11 +181,12 @@ else
 	echo "docker compose plugin not available; compose file parse skipped" >&2
 fi
 
+STAGE="container startup"
 docker run -d --name "${NAME}" \
 	--read-only \
 	--cap-drop=ALL \
 	--security-opt=no-new-privileges:true \
-	--add-host=app.lab:host-gateway \
+	--network "${NETWORK}" \
 	--tmpfs /tmp:rw,noexec,nosuid,size=16m \
 	-v "${WORKDIR}/config.yaml:/etc/labmitm/config.yaml:ro" \
 	-v "${TOKEN}:/etc/labmitm/token:ro" \
@@ -286,14 +243,17 @@ assert_identity() {
 	echo "CapEff not readable from this client; accepted CapDrop=${capdrop} Privileged=${privileged}" >&2
 	return 0
 }
+STAGE="container identity"
 assert_identity
 
 mgmt_port="$(docker port "${NAME}" 8088/tcp | head -n1 | awk -F: '{print $NF}')"
 proxy_port="$(docker port "${NAME}" 8888/tcp | head -n1 | awk -F: '{print $NF}')"
 
+STAGE="management readiness"
 ok=0
-for _ in $(seq 1 40); do
-	if curl -fsS "http://127.0.0.1:${mgmt_port}/v1/health/ready" >/dev/null 2>&1; then
+ready_deadline=$((SECONDS + 10))
+while [ "${SECONDS}" -lt "${ready_deadline}" ]; do
+	if container_curl --connect-timeout 1 --max-time 1 -fsS "http://127.0.0.1:${mgmt_port}/v1/health/ready" >/dev/null 2>&1; then
 		ok=1
 		break
 	fi
@@ -305,6 +265,7 @@ if [ "${ok}" -ne 1 ]; then
 	exit 1
 fi
 
+STAGE="container hardening"
 # The image has no shell; docker exec still runs the copied binary.
 if ! docker exec "${NAME}" /labmitm version >/dev/null; then
 	echo "non-root exec of /labmitm version failed" >&2
@@ -334,20 +295,23 @@ fi
 
 SMOKE_TOKEN="$(tr -d '\r\n' < "${TOKEN}")"
 
-unauth="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${mgmt_port}/v1/flows")"
+STAGE="unauthenticated management"
+unauth="$(container_curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${mgmt_port}/v1/flows")"
 if [ "${unauth}" != "401" ]; then
 	echo "unauthenticated GET /v1/flows status=${unauth}, want 401" >&2
 	exit 1
 fi
 
-http_body="$(curl -fsS --http1.1 --proxy "http://127.0.0.1:${proxy_port}" "http://app.lab:${HTTP_PORT}/container-smoke")"
+STAGE="HTTP proxy smoke"
+http_body="$(container_curl -fsS --http1.1 --proxy "http://127.0.0.1:${proxy_port}" "http://app.lab:${HTTP_PORT}/container-smoke")"
 if [ "${http_body}" != "container-smoke" ]; then
 	echo "HTTP proxy smoke body=${http_body}, want container-smoke" >&2
 	docker logs "${NAME}" >&2 || true
 	exit 1
 fi
 
-curl -fsS -H "Authorization: Bearer ${SMOKE_TOKEN}" \
+STAGE="CA download"
+container_curl -fsS -H "Authorization: Bearer ${SMOKE_TOKEN}" \
 	"http://127.0.0.1:${mgmt_port}/v1/ca" > "${WORKDIR}/lab-ca.pem"
 if ! grep -q 'BEGIN CERTIFICATE' "${WORKDIR}/lab-ca.pem"; then
 	echo "GET /v1/ca did not return a PEM certificate" >&2
@@ -358,7 +322,8 @@ if grep -q 'PRIVATE' "${WORKDIR}/lab-ca.pem"; then
 	exit 1
 fi
 
-https_body="$(curl -fsS --http1.1 --proxy "http://127.0.0.1:${proxy_port}" \
+STAGE="HTTPS intercept smoke"
+https_body="$(container_curl -fsS --http1.1 --proxy "http://127.0.0.1:${proxy_port}" \
 	--cacert "${WORKDIR}/lab-ca.pem" \
 	"https://app.lab:${HTTPS_PORT}/container-smoke-https")"
 if [ "${https_body}" != "container-smoke-https" ]; then
@@ -367,7 +332,8 @@ if [ "${https_body}" != "container-smoke-https" ]; then
 	exit 1
 fi
 
-listed="$(curl -fsS -H "Authorization: Bearer ${SMOKE_TOKEN}" "http://127.0.0.1:${mgmt_port}/v1/flows")"
+STAGE="captured flow contract"
+listed="$(container_curl -fsS -H "Authorization: Bearer ${SMOKE_TOKEN}" "http://127.0.0.1:${mgmt_port}/v1/flows")"
 if ! printf '%s\n' "${listed}" | grep -q 'container-smoke-https'; then
 	echo "GET /v1/flows missing container-smoke-https: ${listed}" >&2
 	exit 1

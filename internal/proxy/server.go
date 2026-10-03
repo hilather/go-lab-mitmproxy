@@ -76,12 +76,13 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	rawLn        net.Listener
-	origLn       net.Listener
-	httpLn       *chanListener
-	http         *http.Server
-	origDestBind string
-	origDestFn   func(net.Conn) (net.IP, int, error)
+	rawLn             net.Listener
+	origLn            net.Listener
+	origListenAddress string
+	httpLn            *chanListener
+	http              *http.Server
+	origDestBind      string
+	origDestFn        func(net.Conn) (net.IP, int, error)
 
 	mu          sync.Mutex
 	hijacked    map[net.Conn]struct{}
@@ -330,6 +331,7 @@ func (s *Server) Start() error {
 			return fmt.Errorf("proxy: originalDestination listen: %w", err)
 		}
 		s.origLn = origLn
+		s.origListenAddress = odAddr
 	}
 	httpLn := newChanListener(ln.Addr())
 	s.httpLn = httpLn
@@ -373,6 +375,12 @@ func (s *Server) acceptLoop(rawLn net.Listener, kind connKind) {
 	for {
 		c, err := rawLn.Accept()
 		if err != nil {
+			s.mu.Lock()
+			retired := s.started && ((kind == kindProxy && s.rawLn != rawLn) || (kind == kindOrigDest && s.origLn != rawLn))
+			s.mu.Unlock()
+			if retired {
+				return
+			}
 			if !s.accepting.Load() || shutdownClosed(err) {
 				s.accepting.Store(false)
 				return

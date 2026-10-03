@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
@@ -19,10 +20,11 @@ const realmBearer = `Bearer realm="labmitm"`
 
 // Verifier is the process-local token index. There is no HTTP Basic.
 type Verifier struct {
-	mu       sync.RWMutex
-	mode     string
-	tokens   []storedToken
-	onChange []func()
+	mu         sync.RWMutex
+	mode       string
+	tokens     []storedToken
+	onChange   []func()
+	generation atomic.Uint64
 }
 
 type storedToken struct {
@@ -129,9 +131,12 @@ func (v *Verifier) Replace(next *Verifier) {
 	if v == nil || next == nil {
 		return
 	}
-	changed := !v.Equivalent(next)
 	mode, toks := next.snapshot()
 	v.mu.Lock()
+	changed := !identitiesEqual(v.mode, v.tokens, mode, toks)
+	if changed {
+		v.generation.Add(1)
+	}
 	v.mode = mode
 	v.tokens = toks
 	hooks := append([]func(){}, v.onChange...)
@@ -153,6 +158,10 @@ func (v *Verifier) Equivalent(other *Verifier) bool {
 	}
 	modeA, toksA := v.snapshot()
 	modeB, toksB := other.snapshot()
+	return identitiesEqual(modeA, toksA, modeB, toksB)
+}
+
+func identitiesEqual(modeA string, toksA []storedToken, modeB string, toksB []storedToken) bool {
 	if modeA != modeB || len(toksA) != len(toksB) {
 		return false
 	}
@@ -244,7 +253,7 @@ func (v *Verifier) Authenticate(in Request) (Principal, error) {
 	h := strings.TrimSpace(in.Authorization)
 	if h == "" {
 		if v.mode == model.MgmtAuthDevLoopbackUnauth && IsLoopback(in.RemoteAddr) {
-			return loopbackPrincipal(), nil
+			return v.bindPrincipal(loopbackPrincipal()), nil
 		}
 		return Principal{}, domainerr.Unauthenticated("authentication required")
 	}
@@ -289,7 +298,7 @@ func (v *Verifier) lookupBearerLocked(secret string) (Principal, error) {
 	if found != 1 {
 		return Principal{}, domainerr.Unauthenticated("authentication required")
 	}
-	return principalOf(v.tokens[idx]), nil
+	return v.bindPrincipal(principalOf(v.tokens[idx])), nil
 }
 
 func principalOf(t storedToken) Principal {
@@ -349,4 +358,11 @@ func IsLoopback(remoteAddr string) bool {
 		return false
 	}
 	return addr.IsLoopback()
+}
+
+// bindPrincipal records the credential generation while the verifier lock is held.
+func (v *Verifier) bindPrincipal(p Principal) Principal {
+	p.verifier = v
+	p.generation = v.generation.Load()
+	return p
 }

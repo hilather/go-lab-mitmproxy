@@ -2,10 +2,18 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-09-12 (h2 receive-window for unread DATA on RST)
-Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018
+Last reviewed: 2026-10-03 (QA Reset, JSON diagnostics, and trailer regressions)
+Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
+
+QA follow-up regressions require overlapping same-port Reset binds to report non-retryable validation errors while preserving the snapshot, flows, and active listeners and releasing staged sockets. REST unknown-field tests assert the rejected name, a distinct syntax diagnostic for malformed JSON, and no mutation. HTTP/2 frame tests assert completion without empty trailer HEADERS and preservation of real trailers populated at EOF. Login and Reset UI tests await initial session loading; login also awaits session refresh and form clearing. Fixture input avoids unnecessary per-character timer turns while retaining Enter submission and confirmation gating assertions.
+
+Review regressions cover management HTTPS and transactional Reset listener rollback (`cmd/labmitm/reset_runtime_test.go`), credential-rotation interleavings (`internal/auth/rotation_regression_test.go` and REST session tests), strict REST envelopes and single candidate coercion (`internal/control/rest/request_regression_test.go`), leaf expiry (`internal/tlsmitm/leaf_expiry_test.go`), transactional spill replacement and explicit empty Resume patches (`internal/store/resume_regression_test.go`, `internal/proxy/resume_empty_test.go`). HTTP/2 frame-level tests enforce receive windows, padding credit, stream-error isolation, completed-origin cleanup, and complete-response preservation when a normal origin reset ends an unused upload (`internal/http2x/review_test.go`). Proxy wire tests require headers and body prefixes before origin EOF on inner h1/h2 and h2c, bounded stored capture, and an intact oversized body after breakpoint Resume (`internal/proxy/review_streaming_test.go`). A stalled origin-h2 response and upload must be canceled by inner RST while a sibling stream stays usable (`internal/proxy/cancel_stream_test.go`). The oversized h1 breakpoint exception is D78; small response breakpoint and throttle concurrency regressions remain required.
+
+Status UI regressions cover missing `crypto.randomUUID`, secure-byte fallback, and key-generation failure restoring controls. UI tests await mocked initial effects and body-download completion, separate expensive fixture setup from behavior assertions, and scope DOM queries to the relevant visible controls. Vitest uses one jsdom worker to bound resource use; test deadlines and assertions remain intact. Async harnesses synchronize recordings and shared connection reads. SOCKS rejection tests wait for the server to close the connection before checking both rejection counters, since the rejection reply precedes those independent increments. Silent RST is allowed to surface on the request write or response read, but a real reset, no HTTP response, and no origin contact remain required.
+
+The test-only Go origin fixture (`scripts/containerorigin`) is compiled before startup and runs in a cap-less, read-only scratch sidecar on an isolated Docker network shared with the appliance. It emits a readiness event after HTTP bind and TLS setup; the harness waits for that event under a bounded deadline. This avoids dependence on Docker-to-host firewall access. `scripts/containerorigins` covers readiness, early exit, deadline, and bounded stage diagnostics. Failure reports include the stage, container state, and logs before cleanup. The product image and all appliance hardening, proxy, TLS, and capture assertions remain unchanged.
 
 ## Layers
 
@@ -55,6 +63,8 @@ FND-001 implements `format`, `lint`, `vet`, `build`, `test`, `test-race`, `test-
 ## Required CI (GA-001)
 
 Jobs: format, lint, unit, race, fuzz-smoke, generated-file, documentation, security-scan, changelog, parity, config-compat, container-test, web. There is no optional or bypassable job. Tag creation is gated by `.github/workflows/release.yml` (`tag-gate`): notes file present, required headings, generated files clean, every required CI job success on the exact tag commit.
+
+CI shell steps use Bash `-e -o pipefail`; unit, race, and fuzz commands merge stderr into the `tee` artifact. `scripts/checkci/pipeline_test.go` runs a failing pipeline with the workflow's declared shell and verifies that the step fails while preserving diagnostics.
 
 Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`. govulncheck `v1.1.4`. Actions SHA-pinned.
 

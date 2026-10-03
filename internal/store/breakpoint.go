@@ -217,37 +217,53 @@ func (m *Memory) applyPatchLocked(rec *record, patch ResumePatch) error {
 	old := rec.resident
 	extra := next - old
 
+	// Plan eviction without changing rows or counters before fallible spill I/O.
+	var victims []string
+	projected := m.bytes + extra
+	if projected > m.maxBytes {
+		if m.fullPolicy != model.FullPolicyEvictOldest {
+			return ErrFull
+		}
+		for _, id := range m.order {
+			if id == rec.flow.ID {
+				continue
+			}
+			victims = append(victims, id)
+			projected -= m.byID[id].resident
+			if projected <= m.maxBytes {
+				break
+			}
+		}
+		if projected > m.maxBytes {
+			return ErrFull
+		}
+	}
 	var newSpill string
 	if patch.Body != nil {
 		sideName := "req"
 		if respSide {
 			sideName = "resp"
 		}
-		path, err := writeSideSpill(m.spillDir, m.spillThreshold, rec.flow.ID, sideName, patch.Body)
+		tmp, final, err := stageSideSpill(m.spillDir, m.spillThreshold, rec.flow.ID, sideName, patch.Body)
 		if err != nil {
 			return err
 		}
-		newSpill = path
+		if tmp != "" {
+			defer func() { _ = os.Remove(tmp) }()
+			if err := os.Rename(tmp, final); err != nil {
+				return errors.Join(ErrSpill, err)
+			}
+			newSpill = final
+		}
 	}
-
-	if extra > 0 && m.bytes+extra > m.maxBytes {
-		if m.fullPolicy != model.FullPolicyEvictOldest {
-			if newSpill != "" {
-				_ = os.Remove(newSpill)
-			}
-			return ErrFull
-		}
-		if err := m.evictOthersUntilFitsLocked(rec.flow.ID, extra); err != nil {
-			if newSpill != "" {
-				_ = os.Remove(newSpill)
-			}
-			return err
-		}
+	// The remaining changes cannot fail; publish the file and row together.
+	for _, id := range victims {
+		m.removeLocked(id, true)
 	}
 
 	if patch.Body != nil {
 		if respSide {
-			if rec.respSpill != "" {
+			if rec.respSpill != "" && rec.respSpill != newSpill {
 				_ = os.Remove(rec.respSpill)
 			}
 			rec.respSpill = newSpill
@@ -255,7 +271,7 @@ func (m *Memory) applyPatchLocked(rec *record, patch ResumePatch) error {
 				trial.Response.Body = nil
 			}
 		} else {
-			if rec.reqSpill != "" {
+			if rec.reqSpill != "" && rec.reqSpill != newSpill {
 				_ = os.Remove(rec.reqSpill)
 			}
 			rec.reqSpill = newSpill
@@ -283,7 +299,7 @@ func snapshotPatch(patch ResumePatch, f *model.Flow) ResumePatch {
 	}
 	if patch.Body != nil {
 		out.Body = cloneBytes(patch.Body)
-	} else {
+	} else if !currentSide(f).Truncated {
 		out.Body = cloneBytes(currentSide(f).Body)
 	}
 	return out
@@ -291,10 +307,11 @@ func snapshotPatch(patch ResumePatch, f *model.Flow) ResumePatch {
 
 func currentPatch(f *model.Flow) ResumePatch {
 	side := currentSide(f)
-	return ResumePatch{
-		Headers: cloneHeaders(side.Headers),
-		Body:    cloneBytes(side.Body),
+	out := ResumePatch{Headers: cloneHeaders(side.Headers)}
+	if !side.Truncated {
+		out.Body = cloneBytes(side.Body)
 	}
+	return out
 }
 
 func currentSide(f *model.Flow) *model.HTTPMessage {

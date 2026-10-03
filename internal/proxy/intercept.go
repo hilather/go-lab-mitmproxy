@@ -425,6 +425,8 @@ func httpsOriginHost(host, port string) string {
 }
 
 func (s *Server) innerFlow(req *http.Request, host, port string, status int, ferr string, started time.Time, info *model.TLSInfo, reqCap, respCap *cappedWriter) *model.Flow {
+	reqCap = reqCap.snapshot()
+	respCap = respCap.snapshot()
 	state := model.FlowStateCompleted
 	if ferr != "" {
 		state = model.FlowStateError
@@ -815,20 +817,15 @@ func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, ori
 		sess.reqTrailers = append([]model.Header(nil), in.Trailers...)
 	}
 
-	var (
-		resp     *http.Response
-		trailers []model.Header
-		err      error
-	)
-	func() {
-		// D44: mutex covers RoundTrip and the full origin body drain so a
-		// second stream cannot Dial while resp.Body still owns the conn.
-		// Origin h2 multiplexes on one TCP; do not hold this lock (D64).
+	pipe, streamCtx := newResponseStream(ctx)
+	go func() {
+		unlock := func() {}
 		if originMu != nil {
 			originMu.Lock()
-			defer originMu.Unlock()
+			unlock = sync.OnceFunc(originMu.Unlock)
 		}
-		upCtx, upCancel := s.upstreamCtxSess(ctx, sess)
+		defer unlock()
+		upCtx, upCancel := s.upstreamCtxSess(streamCtx, sess)
 		defer upCancel()
 		out, cap := s.innerOriginRequest(upCtx, inner, res, host, port, sess.reqCap, sess)
 		if cap != nil {
@@ -838,43 +835,53 @@ func (s *Server) roundTripInnerH2(ctx context.Context, rt http.RoundTripper, ori
 		if originH2 && out.URL != nil {
 			out.URL.Scheme = "https"
 		}
-		resp, err = rt.RoundTrip(out)
+		resp, err := rt.RoundTrip(out)
 		if err != nil {
 			drainBody(inner)
-			// D44 h1 origin owns the one TCP. Origin h2 multiplexes;
-			// a stream error must not Close the shared CONNECT (D64).
 			if !originH2 && upTLS != nil {
 				_ = upTLS.Close()
 			}
+			f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, sess.reqCap, nil)
+			s.captureRule(f, inner, sess.reqCap, nil, nil, sess, sess.reqHit)
+			_ = pipe.write(badGatewayH2())
+			pipe.finish(nil)
 			return
 		}
-		trailers = drainOriginBody(resp)
+		if resp.Body == nil {
+			unlock()
+		} else {
+			resp.Body = &originResponseBody{ReadCloser: resp.Body, release: unlock}
+		}
+		originalBody := resp.Body
+		stopClose := context.AfterFunc(streamCtx, func() {
+			if originalBody != nil {
+				_ = originalBody.Close()
+			}
+		})
+		defer stopClose()
+		defer func() {
+			if originalBody != nil {
+				_ = originalBody.Close()
+			}
+		}()
 		httputilx.PrepareResponse(resp.Header, false)
+		var streamErr error
+		result := s.finishResponseWrite(streamCtx, inner, resp, host, port, "https", started, sess, info, func(r *http.Response) error {
+			streamErr = pipe.write(r)
+			sess.respTrailers = headersFrom(r.Trailer)
+			return streamErr
+		}, false)
+		if result == ruleSilentClose {
+			pipe.finish(http2x.ErrSilentClose)
+			return
+		}
+		if result == ruleAbort && pipe.resp == nil {
+			_ = pipe.write(badGatewayH2())
+		}
+		pipe.finish(streamErr)
 	}()
-	if err != nil {
-		f := s.innerFlow(inner, host, port, http.StatusBadGateway, "upstream", started, info, sess.reqCap, nil)
-		s.captureRule(f, inner, sess.reqCap, nil, nil, sess, sess.reqHit)
-		return badGatewayH2(), nil, nil
-	}
-	sess.respTrailers = trailers
-
-	var outResp *http.Response
-	result = s.finishResponseWrite(ctx, inner, resp, host, port, "https", started, sess, info, func(r *http.Response) error {
-		rewindResponseBody(r)
-		outResp = r
-		return nil
-	}, false)
-	if result == ruleSilentClose {
-		return nil, nil, http2x.ErrSilentClose
-	}
-	if result == ruleAbort {
-		return badGatewayH2(), nil, nil
-	}
-	if outResp == nil {
-		rewindResponseBody(resp)
-		outResp = resp
-	}
-	return s.paceReturnedResponse(ctx, sess, outResp), trailers, nil
+	resp, err := pipe.response()
+	return s.paceReturnedResponse(ctx, sess, resp), nil, err
 }
 
 func randomWebSocketKey() string {

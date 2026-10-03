@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-09-03 (Status replaceTLS OCC merge)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018
+Last reviewed: 2026-10-02 (bounded responses and runtime listener reconciliation)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019
 
 ## Problem statement
 
@@ -133,6 +133,8 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D73** | **Websocket-phase `drop` omits one frame; `block` closes both TCP sides.** `labmitm_ws_frames_total` counts forwarded frames only. | ADR 0015 |
 | **D74** | **`inspectFrames` stays Reset-only (D51').** Live path is `replaceRules` / `setFeature rules.enabled` on the STA-001 pin (next request / next CONNECT / next h2c PRI; open inspect sockets never reload). Catalog stays 31. | ADR 0015 |
 | **D75** | **Rules may include `action.type: throttle`.** The winning item paces that phase’s **body** at `bytesPerSecond` (256 B/s–64 MiB/s). Live `replaceRules`. No daemon, no jitter, no new capability. See [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md). | Issue #52 QA bandwidth without collapsing into `delay`. ADR 0015 is websocket frame rules (D72–D74); ADR 0017 / D76 is HTTP proxy 407. |
+
+HTTP/2 response forwarding uses bounded capture and preserves incremental delivery. Oversized response breakpoints sharing one HTTP/1.1 origin connection retain that connection until the pause and unread body finish ([ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md), D78); ordinary bounded response breakpoints remain independent.
 
 ## Process architecture
 

@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Store, Proxy, Application
-Last reviewed: 2026-08-28 (D73 frames[].action)
-Related ADRs: 0003, 0012
+Last reviewed: 2026-10-02 (transactional Resume and empty patches)
+Related ADRs: 0003, 0012, 0019
 
 Package `internal/store`. Captured HTTP is runtime evidence, not desired state. Restart or reset wipes flows. Pattern is LabMail `docs/03-message-store.md`. SOCKS metadata may include `SOCKSInfo.User` as the matching YAML `userPass` id after RFC 1929 success; username and password are never stored on the flow.
 
@@ -54,6 +54,7 @@ RULES-001 wires the proxy session to these primitives **without REST**. The HTTP
 - `Insert` of a paused flow **or** `Pause(id)` sets `State=paused` and emits `Event{Kind:"paused"}`.
 - The **proxy session** calls `WaitPaused(ctx, id)` with a context whose deadline is `min(rule.breakpoint.timeout, store.maxWait)`. Timeout lives in that ctx — **not** a store timer that outlives `Wipe`.
 - `Resume` / `Drop` wake `WaitPaused`. `Resume` on a non-paused id → `ErrBreakpointInactive`. `Drop` marks `State=dropped`.
+- A nil patch field keeps that field; a non-nil empty header list or body explicitly clears it. Cloning and waiter delivery preserve this distinction. An untouched truncated body stays nil in the returned patch so the proxy forwards its captured prefix and unread tail rather than replacing the message with only the prefix. An explicit Resume body replaces the complete message and must fit `maxBodyBytes`.
 - After `WaitPaused` the session **re-looks up** the flow. If a Resume raced the ctx timeout, honor the applied patch. If the row is still paused (timeout / `ErrStaleEpoch`), `ExpireBreakpoint` marks it `completed` with `Error=breakpoint_timeout` so a late Resume is inactive; the hop continues unmodified without a second Insert.
 - **Lock order:** store mutex is never held across a proxy network read/write. Proxy session: (1) release any store lock, (2) `WaitPaused`, (3) re-lookup the flow.
 - `Wipe` / `ResetTo` / stale `epoch` on `Resume`/`Drop`/`WaitPaused` → `ErrStaleEpoch`; all waiters cancel.
@@ -109,6 +110,8 @@ A single flow whose stored size exceeds `maxBytes` → `store.ErrTooLarge` (flow
 `evict_oldest`: delete oldest `CompletedAt` (or `StartedAt` if still open) until the new flow fits.
 
 Spill writes bodies over `spillThreshold` under tmpfs. **tmpfs is still RAM.** `Wipe` / process exit unlinks files. Startup `Wipe`s the configured spill path. Spill is not a flow-directory across restarts.
+
+Resume plans capacity and eviction before changing a paused flow. A replacement spilled body is written to a temporary sibling file and atomically renamed before committing the record and planned evictions. A capacity, write, or rename failure leaves the original body, counters, and other flows intact. Replacing a body at the same spill path must not unlink the newly committed file.
 
 Default worst-case RSS: `maxBytes` (256 MiB) + `maxInFlightBytes` (64 MiB) + stream slack (4 MiB) + ~64 MiB process ≈ **388 MiB**.
 

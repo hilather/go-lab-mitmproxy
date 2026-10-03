@@ -2,10 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-09-03 (Status replaceTLS OCC merge)
+Last reviewed: 2026-10-03 (unknown-field diagnostics and Reset bind conflicts)
 Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
+
+Request envelopes and nested operation objects reject unknown fields with `400` `validation_failed` before any mutation. The error names the rejected field and uses the `unknown_field` violation code; malformed JSON retains its separate syntax diagnostic. Candidate `state` in `POST /v1/state:validate` uses the strict configuration decoder: duration and byte-size strings such as `3s` and `8MiB` are converted once, while unknown and reserved configuration keys remain errors.
 
 API-001 implements the native REST adapter (`internal/control/rest`) from the frozen capability registry. OpenAPI is generated (`make generate` → `api/openapi/v1.json`). SEC-001 implements cookie `labmitm_session` + CSRF (`X-LabMITM-CSRF`); `GET /v1/session` returns the cookie CSRF secret for reload recovery. Unauthenticated `GET /v1/flows` is 401. UI-001 embeds the React flow-inspector (`internal/web` `go:embed` of `web/dist`; `make web-build`). Management bind refuses listen when `mode: bearer` has no usable token.
 
@@ -23,6 +25,8 @@ API-001 implements the native REST adapter (`internal/control/rest`) from the fr
 ```
 
 `type` is `urn:labmitm:error:` plus the domain code with underscores turned to hyphens. `code` **is** the table token.
+
+`POST /v1/state:reset` returns `400` `validation_failed` with `retryable: false` when a prepared listener address is already in use. Its remediation explains overlapping same-port changes and recovery; the active state, listeners, and flows remain intact. See [Reset](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/06-state-and-configuration.md#reset).
 
 | Code | HTTP | Notes |
 |---|---|---|
@@ -78,6 +82,8 @@ DELETE /v1/session     clears cookie
 ```
 
 Cookie mutations (any non-GET with `Cookie: labmitm_session=…` and no `Authorization`) require header `X-LabMITM-CSRF: <csrf>`. Mismatch → `403` `forbidden`.
+
+Session issuance retains the credential generation authenticated by the request. A concurrent token rotation or role change cannot issue a usable session from the previous generation; existing sessions become invalid when the verifier changes, even before session-table cleanup completes.
 
 ## Events SSE (PARITY_DIFFERENT_BINDING)
 

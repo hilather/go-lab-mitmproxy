@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-09-03 (Status replaceTLS OCC merge)
+Last reviewed: 2026-10-03 (Reset listener address conflicts)
 Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -18,6 +18,8 @@ STA-001 implements the HTTP-less control plane: `internal/compiler` (the **only*
 - Byte sizes: binary units via `config.ByteSize` (`10MiB`, `256KiB`); bare numbers rejected.
 - Secrets are **file references** only. Reject `environment:` as unknown. No `LABMITM_ALLOW_ENV_SECRETS`.
 - `additionalProperties: false` in published JSON Schema.
+
+REST candidate-state validation passes its raw `state` object to the configuration decoder. The REST envelope converts operation units separately; it must not pre-convert candidate byte sizes or durations and cause a second conversion to reject valid strings.
 
 Reserved / rejected keys (normalize strips dashes/underscores/case before compare):
 
@@ -202,11 +204,13 @@ The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://githu
 
 1. Re-read bootstrap path (never write it).
 2. Validate + compile. On failure, leave current config **and** flows unchanged.
-3. Preflight store options and CA load/generate.
+3. Preflight store options, CA load/generate, management TLS cert/key, and changed proxy, original-destination, management, and metrics binds. Bind or TLS failure leaves the old snapshot, flows, and listeners intact; close every staged listener.
 4. `store.ResetTo` — the only epoch bump.
-5. Atomically swap snapshot, clear idempotency LRU, increment `generation`.
-6. In-flight proxy sessions keep the old snapshot until the request ends; new accepts load the new one.
+5. Swap the snapshot under the mutation lock, activate the prepared listeners/TLS configuration, retire replaced accepts, clear the idempotency LRU, and increment `generation`. The commit performs no fallible bind or certificate load.
+6. In-flight proxy sessions keep the old snapshot until the request ends; new accepts load the new one. Existing management connections remain alive so the Reset response can complete. CLI bind overrides (including management off) continue to take precedence.
 7. Audit `state.reset`.
+
+An occupied listener address fails runtime preflight with non-retryable `validation_failed` and recovery guidance on both REST and MCP. Reset reserves new sockets before retiring old ones, so overlapping same-port changes (for example, `127.0.0.1:8888` to `0.0.0.0:8888`) cannot complete in one Reset. Restart with the new bootstrap, or Reset through an intermediate free port before selecting the final address. Each successful Reset wipes flows; failed attempts preserve them.
 
 Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped on next start.
 
@@ -280,7 +284,7 @@ Idempotency LRU default 256; reset clears it.
 
 `internal/snapshot.Store` holds active / previous / bootstrap behind atomic pointers. The proxy loads once per request / CONNECT (`Options.Snapshots`) and pins spec, engine, CA, and store epoch for the session. In-flight sessions keep the pointer they loaded; new accepts see the swapped snapshot. An in-flight `Insert` after `ResetTo` uses the accept-time epoch and is discarded (`ErrStaleEpoch`).
 
-`internal/app.Service` is HTTP-less (no `net/http`, no MCP types, no Dial). Mutations copy Canonical, apply typed operations, compile a full candidate, then `Store.Swap` only after success. Failures leave config **and** flows unchanged. Reset rereads the bootstrap path, preflights store options (including spill), `store.ResetTo` (the only epoch bump), swaps, and clears the idempotency LRU.
+`internal/app.Service` is HTTP-less (no `net/http`, no MCP types, no Dial). Mutations copy Canonical, apply typed operations, compile a full candidate, then `Store.Swap` only after success. Failures leave config **and** flows unchanged. Reset rereads the bootstrap path, preflights store options (including spill) and runtime resources through a composition-root callback, performs `store.ResetTo` (the only epoch bump), swaps, commits the staged listeners, and clears the idempotency LRU. The application package does not import listener or management adapters.
 
 `internal/audit` is a bounded ring (default 128) plus optional hook. Secrets, bearer tokens, and PEM private keys (`BEGIN` + `PRIVATE`) are redacted. Hook delivery failure is counted and never fail-closes.
 
@@ -304,5 +308,7 @@ A failed validate/compile exits non-zero and binds nothing.
 Shutdown: `Accepting()=false` (ready goes unready) → drain in-flight proxy sessions up to `--shutdown-timeout` → close management → wipe spill → exit.
 
 ## Compatibility promise
+
+Known adapter reload gap: Reset currently changes listener addresses and management TLS but retains startup MCP mount paths, management origin allowlists, admission/body limits, legacy-client policy, and public metrics routing. Those settings require a process restart until the adapter reload defect in [known limitations](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md#store-and-control-plane-unchanged) is resolved.
 
 `labmitm.dev/v1alpha1` is fail-closed; additive fields only after schema bump or explicit defaulting ADR.

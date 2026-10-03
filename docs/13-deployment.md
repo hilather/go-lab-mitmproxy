@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-09-07 (v1.6.1 notes pointer)
+Last reviewed: 2026-10-03 (overlapping Reset binds and recovery)
 Related ADRs: 0001, 0003, 0010
 
 DEP-001 shipped the hardened image, `examples/compose.smoke.yaml`, and `scripts/test-container.sh`. Ports and image posture stay frozen here. A `v*` tag is refused unless [`.github/workflows/release.yml`](https://github.com/hilather/go-lab-mitmproxy/blob/main/.github/workflows/release.yml) `tag-gate` sees required CI green on that SHA. Current notes: [docs/releases/v1.6.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.1.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md). The lab overlay YAML is [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) (SWAP-001; published binds, `allowLegacyClients: true`). Do not mount that overlay as the smoke config without a 0o644 `labmitm-token`.
@@ -32,7 +32,11 @@ Flag semantics (LabMail-shaped; **no** `serve --token-file`):
 | `--shutdown-timeout` | `serve` | Default `5s`. |
 | `--pid-file` | `serve` | Written only after both required listeners bind (or management explicitly off). |
 
-`serve` loads → compile → bind **proxy** → bind management → write pid file. Invalid bootstrap does **not** bind proxy or management.
+`serve` loads → compile → validate management TLS → bind **proxy** → bind management → write pid file. Invalid bootstrap does **not** bind proxy or management.
+
+Management TLS uses `spec.listeners.management.tls.enabled`, `certFile`, and `keyFile`. Enabled TLS rejects plaintext; use HTTPS clients and a health probe that trusts the configured certificate. Edit bootstrap and Reset to change TLS files or listener addresses. Reset prebinds changed addresses and validates TLS before committing; failures preserve the old listeners and flows. CLI overrides remain in force: use `--management-listen=""` to follow the YAML address, since the default is `off` and the image explicitly pins `:8088`.
+
+An occupied address returns non-retryable `validation_failed`. A same-port change from a specific interface to an overlapping wildcard (such as `127.0.0.1:8888` to `0.0.0.0:8888`) cannot be staged while the old socket remains open. Restart with the edited bootstrap, or use an intermediate free port and two successful Resets. Each successful Reset wipes flows; repeating the failed request without changing the conflict does not help.
 
 `SIGTERM`/`SIGINT`: stop proxy accept, drain sessions (deadline), then HTTP, then `store.Wipe` spill files. `SIGUSR1` unused (no chaos).
 
@@ -119,6 +123,8 @@ Supported topologies only:
 Copyable overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml). Bootstrap: [testdata/container/originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/testdata/container/originaldest.yaml). Do not redirect 8088, 8888, 8890, or 9090. **REDIRECT must not apply to the appliance UID `65532`** (iptables `-m owner --uid-owner 65532 -j RETURN` at the top of the OUTPUT chain; ip6tables analogue if IPv6 REDIRECT is installed). Otherwise dest-IP Dial of `:80`/`:443` is REDIRECTed back to `:8890` and hairpins. Do not treat Docker `-p 8890:8890` as a substitute.
 
 Ready is `OrigDestBound || OrigDestOff` (D56). When the spec leaves orig-dest disabled, `OrigDestOff` is true so 1.0 processes stay ready. Non-linux `enabled: true` fails `Start` closed and binds nothing.
+
+Container validation requires Bash, Docker, Go, and curl. The harness compiles a test-only HTTP/TLS origin and runs it in a read-only, cap-less scratch sidecar on a private Docker network with the appliance. It does not require a Docker-to-host firewall exception. Readiness follows an explicit event after fixture bind/TLS setup, and HTTP probes have connection and total time limits. Failures print the stage, container state, and bounded logs before cleanup.
 
 Residuals (HTTP/3, no Python VM, no TPROXY in the appliance, Linux-only orig-dest, compat subset, live hop/accept vs Reset bind): [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md).
 

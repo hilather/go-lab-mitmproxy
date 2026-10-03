@@ -13,7 +13,11 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request, ins
 		s.writeProblem(w, r, instance, domainerr.Internal("session store unavailable"))
 		return
 	}
-	p := auth.Principal{ID: actor.ID, Class: actor.Class, Role: actor.Role, Scopes: actor.Scopes}
+	p, ok := r.Context().Value(sessionPrincipalKey{}).(auth.Principal)
+	if !ok {
+		s.writeProblem(w, r, instance, domainerr.Unauthenticated("authentication required"))
+		return
+	}
 	cookie, csrf, sess, err := s.cfg.Sessions.Create(p)
 	if err != nil {
 		s.writeProblem(w, r, instance, asDomain(err))

@@ -3,6 +3,7 @@ package rest
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -371,4 +372,21 @@ func TestBasicRejectedOnREST(t *testing.T) {
 	req.SetBasicAuth("admin", "lab-web-pass")
 	rec := doRaw(s.Handler(), req)
 	requireProblem(t, rec, http.StatusUnauthorized, "unauthenticated")
+}
+
+func TestSessionCreateRejectsRotationAfterAuthentication(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/v1/session", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	actor, err := s.authenticate(req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.cfg.Auth.Replace(auth.Static("new-secret", "admin", model.RoleViewer))
+	rec := httptest.NewRecorder()
+	s.handleSessionCreate(rec, req, "test", actor)
+	requireStatus(t, rec, http.StatusUnauthorized)
+	if len(rec.Result().Cookies()) != 0 {
+		t.Fatal("revoked principal received a session cookie")
+	}
 }

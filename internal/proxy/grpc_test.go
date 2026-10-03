@@ -59,7 +59,10 @@ func TestInterceptGRPCDecodeWellFormed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	got, _ := io.ReadAll(resp.Body)
+	got, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
 	if resp.StatusCode != http.StatusOK || !bytes.Equal(got, frame) {
 		t.Fatalf("status %d body %x", resp.StatusCode, got)
 	}
@@ -113,6 +116,13 @@ func TestInterceptGRPCDecodeFlagOff(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, frame) {
+		t.Fatalf("flag-off body=%x want=%x", body, frame)
+	}
 	f := findGRPCFlow(sink, "/svc/Off")
 	if f == nil {
 		t.Fatalf("missing flow: %+v", sink.Last())
@@ -153,7 +163,10 @@ func TestInterceptGRPCMalformedFailOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	got, _ := io.ReadAll(resp.Body)
+	got, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
 	if resp.StatusCode != http.StatusOK || !bytes.Equal(got, frame) {
 		t.Fatalf("fail-open status %d body %x", resp.StatusCode, got)
 	}
@@ -196,6 +209,13 @@ func TestInterceptGRPCWebOpaque(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, frame) {
+		t.Fatalf("grpc-web body=%x want=%x", body, frame)
 	}
 	f := findGRPCFlow(sink, "/svc/Web")
 	if f == nil {
@@ -243,7 +263,10 @@ func TestInterceptGRPCOriginH2(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	got, _ := io.ReadAll(resp.Body)
+	got, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
 	if resp.StatusCode != http.StatusOK || !bytes.Equal(got, frame) {
 		t.Fatalf("status %d body %x proto %q", resp.StatusCode, got, resp.Proto)
 	}

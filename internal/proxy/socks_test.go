@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -234,6 +236,17 @@ func TestSOCKS5OffStillCloses(t *testing.T) {
 	}
 }
 
+// A terminal rejection reply precedes metric emission. Waiting for the server's
+// deferred connection close synchronizes assertions with both metric increments.
+func socksRejectionClosed(t *testing.T, c net.Conn) {
+	t.Helper()
+	var b [1]byte
+	n, err := c.Read(b[:])
+	if n != 0 || (!errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET)) {
+		t.Fatalf("rejected SOCKS connection: read %d bytes, err=%v; want EOF or connection reset", n, err)
+	}
+}
+
 func TestSOCKS5NoAuthRequired(t *testing.T) {
 	px := startProxy(t, Options{Spec: socks5Spec(t)})
 	c := socksDial(t, px.Addr().String())
@@ -242,12 +255,9 @@ func TestSOCKS5NoAuthRequired(t *testing.T) {
 	if got[0] != 0x05 || got[1] != 0xff {
 		t.Fatalf("got %x want 05 ff", got)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for px.Metrics().Rejected("socks_auth") < 1 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	socksRejectionClosed(t, c)
 	if px.Metrics().Rejected("socks_auth") < 1 || px.Metrics().Socks("auth") < 1 {
-		t.Fatal("expected socks_auth")
+		t.Fatalf("expected socks_auth: rejected=%d sessions=%d", px.Metrics().Rejected("socks_auth"), px.Metrics().Socks("auth"))
 	}
 }
 
@@ -271,8 +281,9 @@ func TestSOCKS5BindCommand(t *testing.T) {
 	if got[0] != 0x05 || got[1] != 0x07 {
 		t.Fatalf("got %x want 05 07", got)
 	}
+	socksRejectionClosed(t, c)
 	if px.Metrics().Rejected("socks_command") < 1 || px.Metrics().Socks("command") < 1 {
-		t.Fatal("expected socks_command")
+		t.Fatalf("expected socks_command: rejected=%d sessions=%d", px.Metrics().Rejected("socks_command"), px.Metrics().Socks("command"))
 	}
 }
 
@@ -286,8 +297,9 @@ func TestSOCKS5UDPCommand(t *testing.T) {
 	if got[0] != 0x05 || got[1] != 0x07 {
 		t.Fatalf("udp rep %x want 05 07", got)
 	}
+	socksRejectionClosed(t, c)
 	if px.Metrics().Rejected("socks_command") < 1 || px.Metrics().Socks("command") < 1 {
-		t.Fatal("expected socks_command")
+		t.Fatalf("expected socks_command: rejected=%d sessions=%d", px.Metrics().Rejected("socks_command"), px.Metrics().Socks("command"))
 	}
 }
 
@@ -1713,17 +1725,9 @@ func TestSOCKS5NMethodsZeroCloses(t *testing.T) {
 	px := startProxy(t, Options{Spec: socks5Spec(t)})
 	c := socksDial(t, px.Addr().String())
 	writeAll(t, c, []byte{0x05, 0x00})
-	buf := make([]byte, 8)
-	n, err := c.Read(buf)
-	if err == nil && n > 0 {
-		t.Fatalf("got %x want close", buf[:n])
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for px.Metrics().Rejected("socks_auth") < 1 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if px.Metrics().Rejected("socks_auth") < 1 {
-		t.Fatal("expected socks_auth")
+	socksRejectionClosed(t, c)
+	if px.Metrics().Rejected("socks_auth") < 1 || px.Metrics().Socks("auth") < 1 {
+		t.Fatalf("expected socks_auth: rejected=%d sessions=%d", px.Metrics().Rejected("socks_auth"), px.Metrics().Socks("auth"))
 	}
 }
 
@@ -1787,17 +1791,9 @@ func TestSOCKS5UserPassWrongPassword(t *testing.T) {
 	if rep[0] != 0x01 || rep[1] != 0x01 {
 		t.Fatalf("auth reply %x want 01 01", rep)
 	}
-	buf := make([]byte, 8)
-	n, err := c.Read(buf)
-	if err == nil && n > 0 {
-		t.Fatalf("got %x want close", buf[:n])
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for px.Metrics().Rejected("socks_auth") < 1 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	socksRejectionClosed(t, c)
 	if px.Metrics().Rejected("socks_auth") < 1 || px.Metrics().Socks("auth") < 1 {
-		t.Fatal("expected socks_auth")
+		t.Fatalf("expected socks_auth: rejected=%d sessions=%d", px.Metrics().Rejected("socks_auth"), px.Metrics().Socks("auth"))
 	}
 	logged := logBuf.String()
 	if strings.Contains(logged, "labpass12") || strings.Contains(logged, "wrongpass") || strings.Contains(logged, "labuser") {
@@ -1813,12 +1809,9 @@ func TestSOCKS5UserPassMissingMethodEvenIfNoAuthOffered(t *testing.T) {
 	if got[0] != 0x05 || got[1] != 0xff {
 		t.Fatalf("got %x want 05 ff", got)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for px.Metrics().Rejected("socks_auth") < 1 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if px.Metrics().Rejected("socks_auth") < 1 {
-		t.Fatal("expected socks_auth")
+	socksRejectionClosed(t, c)
+	if px.Metrics().Rejected("socks_auth") < 1 || px.Metrics().Socks("auth") < 1 {
+		t.Fatalf("expected socks_auth: rejected=%d sessions=%d", px.Metrics().Rejected("socks_auth"), px.Metrics().Socks("auth"))
 	}
 }
 

@@ -1,4 +1,4 @@
-import { render, type RenderOptions } from "@testing-library/react";
+import { act, render, type RenderOptions } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement, ReactNode } from "react";
 import { clearMemoryCSRF, setMemoryCSRF } from "../api/client";
@@ -38,6 +38,19 @@ export function renderApp(ui: ReactElement, options?: Omit<RenderOptions, "wrapp
     );
   }
   return render(ui, { wrapper: Wrapper, ...options });
+}
+
+// Resolve the mocked initial session/page fetches within React's act boundary.
+// Tests can then inspect a committed page rather than racing initial effects.
+export async function renderAppReady(
+  ui: ReactElement,
+  options?: Omit<RenderOptions, "wrapper"> & { route?: string },
+) {
+  let result!: ReturnType<typeof renderApp>;
+  await act(async () => {
+    result = renderApp(ui, options);
+  });
+  return result;
 }
 
 export function resetClientState(): void {

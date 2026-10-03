@@ -25,7 +25,7 @@ func cloneMessage(in model.HTTPMessage) model.HTTPMessage {
 	out.Headers = cloneHeaders(in.Headers)
 	out.Trailers = cloneHeaders(in.Trailers)
 	if in.Body != nil {
-		out.Body = append([]byte(nil), in.Body...)
+		out.Body = cloneBytes(in.Body)
 	}
 	return out
 }
@@ -94,7 +94,9 @@ func cloneHeaders(in []model.Header) []model.Header {
 	if in == nil {
 		return nil
 	}
-	return append([]model.Header(nil), in...)
+	out := make([]model.Header, len(in))
+	copy(out, in)
+	return out
 }
 
 func cloneTLS(in *model.TLSInfo) *model.TLSInfo {
@@ -112,5 +114,7 @@ func cloneBytes(in []byte) []byte {
 	if in == nil {
 		return nil
 	}
-	return append([]byte(nil), in...)
+	out := make([]byte, len(in))
+	copy(out, in)
+	return out
 }

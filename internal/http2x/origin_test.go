@@ -93,7 +93,10 @@ func TestOriginTransportRoundTripAfterDeadRefusesRedial(t *testing.T) {
 	if !ok {
 		t.Fatal("expected pinnedPool")
 	}
-	pool.MarkDead(pool.cc)
+	pool.mu.Lock()
+	pinned := pool.cc
+	pool.mu.Unlock()
+	pool.MarkDead(pinned)
 	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.lab/o2", nil)
 	if err != nil {
 		t.Fatal(err)

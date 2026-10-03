@@ -461,6 +461,9 @@ func applyResumePatchResponse(resp *http.Response, capw *cappedWriter, patch sto
 		applyPatchToHeader(resp.Header, patch.Headers)
 	}
 	if patch.Body != nil {
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		resp.Body = io.NopCloser(bytes.NewReader(patch.Body))
 		resp.ContentLength = int64(len(patch.Body))
 		resp.Header.Set("Content-Length", strconv.FormatInt(int64(len(patch.Body)), 10))
@@ -520,6 +523,9 @@ func writeClientResponse(w http.ResponseWriter, resp *http.Response) {
 	if resp.Body != nil {
 		drainCopy(w, resp.Body)
 	}
+	if streaming, ok := w.(*captureRW); ok {
+		streaming.setTrailers(resp.Trailer)
+	}
 }
 
 func writeConnResponse(c net.Conn, resp *http.Response) error {
@@ -537,6 +543,8 @@ func writeConnResponse(c net.Conn, resp *http.Response) error {
 }
 
 func (s *Server) annotateFlow(f *model.Flow, req *http.Request, reqCap, respCap *cappedWriter, respHdr http.Header, hits ...*rules.Hit) {
+	reqCap = reqCap.snapshot()
+	respCap = respCap.snapshot()
 	if f == nil {
 		return
 	}
@@ -771,6 +779,9 @@ func (s *Server) finishResponseWrite(ctx context.Context, req *http.Request, res
 		s.wrapResponseThrottle(ctx, resp, respHit)
 	}
 	_ = write(resp)
+	if sess != nil {
+		sess.respTrailers = headersFrom(resp.Trailer)
+	}
 	if skipCapture {
 		s.metrics.session("ok")
 		return ruleContinue

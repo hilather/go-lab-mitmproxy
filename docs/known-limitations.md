@@ -2,7 +2,7 @@
 
 Honest residual for the LabMITM 1.2 protocol expansion series (stacked PRs 1–13; ADR 0012 D58–D68: SOCKS BIND / UDP ASSOCIATE / username-password, WebSocket frame inspect, client-facing h2c, RFC 9113 CONNECT, Extended CONNECT, origin `h2`, gRPC decode, `PUSH_PROMISE` capture). These are not defects hidden from the notes. They are product bounds, default-off flags, or work that is **not** claimed here.
 
-Last reviewed: 2026-09-12 (h2 receive-window for unread DATA on RST; v1.6.1 notes pointer)
+Last reviewed: 2026-10-03 (overlapping Reset binds and HTTP/1.1 buffering)
 
 This file is the operator-facing residual list. The numbered pack still wins on conflict: [docs/01-architecture.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/01-architecture.md#residual-limitations). Current tag notes: [docs/releases/v1.6.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.1.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) (HTTP/1.1-only hops, no SOCKS, no orig-dest, no compat path). ADR [0012](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0012-protocol-expansion-12.md) records D58–D68. ADR [0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) records **D51'** (live hop/accept vs Reset bind) and the **D22 carve** (1.0-preserving hop gates default on). ADR [0014](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0014-qa-block-modes.md) records **D69** (QA block modes). ADR [0015](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0015-websocket-frame-rules.md) records **D72–D74** (WebSocket frame rules). ADR [0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md) records **D75** (rules throttle). ADR [0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md) records **D76** (opt-in HTTP proxy 407; default-off). ADR [0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) records **D77** (Status may apply `ui.enabled` after gated off-confirm).
 
@@ -26,7 +26,13 @@ LabMITM is a **laboratory intercepting proxy**. It is **not a public** edge prox
 | Standalone binds | `127.0.0.1:8888` / `127.0.0.1:8088` (D10) | Empty orig-dest address → `127.0.0.1:8890` when enabled |
 | Image | `USER 65532:65532`, `cap_drop: ALL`, no `NET_ADMIN` | **Unchanged.** iptables is sidecar/host only |
 
+## Oversized response breakpoints
+
+When an intercepted HTTP/2 session uses one HTTP/1.1 origin connection, a response breakpoint larger than `store.maxBodyBytes` holds that connection through the pause and unread body. Other requests on the same origin connection wait. Responses within the capture cap release it before pausing; HTTP/2 origins continue multiplexing. This is the bounded-memory exception in [ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md) (D78).
+
 ## Live hop/accept vs Reset bind (D51' operator residual)
+
+Reset reserves changed listener addresses before retiring old sockets. Overlapping same-port changes, such as `127.0.0.1:8888` to `0.0.0.0:8888`, fail with non-retryable `validation_failed` and leave the old listeners, state, and flows intact. Restart with the new bootstrap or Reset through a free intermediate port; each successful Reset wipes flows.
 
 [ADR 0013](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0013-live-protocol-feature-gates.md) replaces D51. Hop/accept flags the running proxy honors are live-applyable via `setFeature` (and `replaceCompat` for the compat subtree) **without Reset or wiping flows**. Disabled hop gates 403 `forbidden` before rules/Dial. There is no `replaceProtocols` / `replaceProxyAccept`. Mutation stays `changes.plan` / `changes.apply`. `features.get` lists the 11-row catalog (`GET /v1/features`, `mitm_features_list`, `labmitm://features`). Compact `status.features` spec-flag booleans stay on `status.get` (including additive `httpAuth`, [ADR 0017](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)). Status may apply `ui.enabled` after a gated off-confirm ([ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) D77). 1.2 h2c CONNECT is **not** `protocols.connect`; `extendedConnect` `:protocol=websocket` is **not** `protocols.websocket`.
 
@@ -99,6 +105,10 @@ Supported **only**:
 
 Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml). Do not redirect 8088, 8888, 8890, or 9090. REDIRECT must skip UID `65532` on OUTPUT or dest-IP Dial hairpins back to `:8890`. `make test-container` never requires `NET_ADMIN`.
 
+## HTTP/1.1 response buffering
+
+On the cleartext HTTP/1.1 forwarding path, response headers are flushed immediately, but body writes are not individually flushed. Small chunked or SSE events can remain buffered until enough bytes accumulate or the response finishes. The HTTP/2 streaming fixes do not change this existing HTTP/1.1 behavior.
+
 ## HTTP/2 residuals (when enabled)
 
 - Flag-off client-facing `:8888` / orig-dest cleartext stay HTTP/1.1; `PRI * HTTP/2.0` is a hard close **before** `gate.acquire`.
@@ -147,10 +157,11 @@ Overlay: [examples/compose.originaldest.yaml](https://github.com/hilather/go-lab
 - MCP clients requiring OAuth PRM cannot authorize. MCPJungle needs `allowLegacyClients: true` (family-doc reason; image SDK version not re-measured here).
 - MCP protocol is **2026-07-28**. `mcp-stdio` is a developer adapter, not an image entrypoint.
 - Management is bearer-only (D6). Catalog id is **`labmitm`**. There is no predecessor mitmproxy service to preserve.
+- Reset reconciles listener addresses and management TLS. MCP mount paths, management origin allowlists, admission/body limits, legacy-client policy, and the public metrics route still use startup adapter configuration. Restart after changing those settings; a Reset alone can otherwise report configuration that those adapters have not adopted. This is an outstanding control-plane reload defect.
 
 ## Deployment (unchanged except orig-dest overlay)
 
-- Healthcheck plane is HTTP `/v1/health/ready`. Ready still requires the proxy listener bound. Orig-dest ready is `OrigDestBound || OrigDestOff` (1.0 default is off).
+- Healthcheck plane is management `/v1/health/ready`, over HTTPS when management TLS is enabled. Ready still requires the proxy listener bound. Orig-dest ready is `OrigDestBound || OrigDestOff` (1.0 default is off).
 - Dockerfile and `make test-container` are in-tree. The default image is not granted `NET_ADMIN`. This candidate does not publish a `ghcr.io/hilather/labmitm` digest, SBOM, or provenance.
 - Application binaries built without ldflags report version `dev`.
 - Overlay examples live in this repo. The lab pin is vendor tag **v1.1.0** + `labmitm:local` (not a GHCR digest). A later appliance tag will align vendored `examples/` with the lab-owned copy; do not bump the lab pin off **v1.1.0** for comments. Catalog id is **`labmitm`** (D18).

@@ -1,9 +1,30 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "./App";
-import { json, renderApp, resetClientState, sessionView } from "./test/render";
+import { json, renderAppReady, resetClientState, sessionView } from "./test/render";
 import { portsOnlyState, sampleState, sampleStatus } from "./test/state";
+
+// Match the named native element directly, then retain accessibility and
+// visibility checks without computing every sibling's accessible name.
+function namedElement(name: string | RegExp, selector: string) {
+  const element = screen.getByText(name, { selector });
+  expect(element).not.toHaveAttribute("role");
+  expect(element.closest('[aria-hidden="true"]')).toBeNull();
+  expect(element).toHaveAccessibleName(name);
+  expect(element).toBeVisible();
+  return element;
+}
+
+function flowLink(method: string, id: string) {
+  const link = screen.getByText(method).closest("a");
+  expect(link).not.toBeNull();
+  expect(link).toHaveAttribute("href", `/flows/${id}`);
+  expect(link).toHaveAccessibleName(new RegExp(method));
+  expect(link).toBeVisible();
+  expect(link!.closest('[aria-hidden="true"]')).toBeNull();
+  return link!;
+}
 
 describe("operator chrome", () => {
   afterEach(() => {
@@ -78,22 +99,22 @@ describe("operator chrome", () => {
       }),
     );
 
-    renderApp(<AppRoutes />, { route: "/" });
-    expect(await screen.findByRole("link", { name: /Skip to main content/i })).toHaveAttribute("href", "#app-main");
-    expect(screen.getByRole("link", { name: /LabMITM/i })).toBeInTheDocument();
+    await renderAppReady(<AppRoutes />, { route: "/" });
+    expect(namedElement(/Skip to main content/i, "a")).toHaveAttribute("href", "#app-main");
+    expect(namedElement(/LabMITM/i, "a")).toBeInTheDocument();
     expect(screen.getByText("live")).toBeInTheDocument();
     expect(await screen.findByText(":8443 intercept")).toBeInTheDocument();
     expect(screen.queryByText(":443 intercept only")).toBeNull();
-    expect(screen.getByRole("button", { name: /Sign out/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Flows" })).toHaveClass("nav-active");
+    expect(namedElement(/Sign out/i, "button")).toBeInTheDocument();
+    expect(namedElement("Flows", "a")).toHaveClass("nav-active");
     expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
 
-    await user.click(await screen.findByRole("link", { name: /GET/i }));
-    expect(await screen.findByRole("heading", { name: /GET http:\/\/labdns.lab\/v1\/status/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Flows" })).toHaveClass("nav-active");
+    await act(async () => { await user.click(flowLink("GET", "01J")); });
+    expect(namedElement(/GET http:\/\/labdns.lab\/v1\/status/, "h1,h2")).toBeInTheDocument();
+    expect(namedElement("Flows", "a")).toHaveClass("nav-active");
   });
 
-  it("restyles signed-in leftover routes without tunnel-not-decrypt chips", async () => {
+  it.each(["/status", "/audit", "/reset"] as const)("restyles signed-in %s without tunnel-not-decrypt chips", async (route) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -138,38 +159,36 @@ describe("operator chrome", () => {
       }),
     );
 
-    for (const route of ["/status", "/audit", "/reset"] as const) {
-      const { unmount } = renderApp(<AppRoutes />, { route });
-      expect(await screen.findByRole("link", { name: /Skip to main content/i })).toHaveAttribute("href", "#app-main");
-      expect(screen.getByRole("link", { name: /LabMITM/i })).toBeInTheDocument();
-      expect(await screen.findByText(":8443 intercept")).toBeInTheDocument();
-      expect(screen.queryByText(":443 intercept only")).toBeNull();
-      expect(screen.getByRole("button", { name: /Sign out/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Flows" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Status" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Audit" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Reset" })).toBeInTheDocument();
-      const active =
-        route === "/status" ? "Status" : route === "/audit" ? "Audit" : "Reset";
-      expect(screen.getByRole("link", { name: active })).toHaveClass("nav-active");
-      expect(await screen.findByRole("heading", { name: active })).toBeInTheDocument();
-      if (route === "/status") {
-        expect(await screen.findByRole("heading", { name: "Lab CA" })).toBeInTheDocument();
-        expect(screen.getByText(/Ready:/)).toBeInTheDocument();
-        expect(await screen.findByLabelText("Users (file refs)")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /Apply admission/i })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /Apply compat/i })).toBeInTheDocument();
-      } else if (route === "/audit") {
-        expect(await screen.findByText("No audit events.")).toBeInTheDocument();
-      } else {
-        expect(await screen.findByRole("button", { name: /Reset LabMITM/i })).toBeInTheDocument();
-      }
-      expect(document.querySelector(".panel")).not.toBeNull();
-      expect(screen.queryByText("tunnel-not-decrypt")).toBeNull();
-      expect(screen.queryByText("intercepted")).toBeNull();
-      expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
-      unmount();
+    const { unmount } = await renderAppReady(<AppRoutes />, { route });
+    expect(namedElement(/Skip to main content/i, "a")).toHaveAttribute("href", "#app-main");
+    expect(namedElement(/LabMITM/i, "a")).toBeInTheDocument();
+    expect(await screen.findByText(":8443 intercept")).toBeInTheDocument();
+    expect(screen.queryByText(":443 intercept only")).toBeNull();
+    expect(namedElement(/Sign out/i, "button")).toBeInTheDocument();
+    expect(namedElement("Flows", "a")).toBeInTheDocument();
+    expect(namedElement("Status", "a")).toBeInTheDocument();
+    expect(namedElement("Audit", "a")).toBeInTheDocument();
+    expect(namedElement("Reset", "a")).toBeInTheDocument();
+    const active =
+      route === "/status" ? "Status" : route === "/audit" ? "Audit" : "Reset";
+    expect(namedElement(active, "a")).toHaveClass("nav-active");
+    expect(namedElement(active, "h1,h2")).toBeInTheDocument();
+    if (route === "/status") {
+      expect(namedElement("Lab CA", "h1,h2")).toBeInTheDocument();
+      expect(screen.getByText(/Ready:/)).toBeInTheDocument();
+      expect(await screen.findByLabelText("Users (file refs)")).toBeInTheDocument();
+      expect(namedElement(/Apply admission/i, "button")).toBeInTheDocument();
+      expect(namedElement(/Apply compat/i, "button")).toBeInTheDocument();
+    } else if (route === "/audit") {
+      expect(await screen.findByText("No audit events.")).toBeInTheDocument();
+    } else {
+      expect(namedElement(/Reset LabMITM/i, "button")).toBeInTheDocument();
     }
+    expect(document.querySelector(".panel")).not.toBeNull();
+    expect(screen.queryByText("tunnel-not-decrypt")).toBeNull();
+    expect(screen.queryByText("intercepted")).toBeNull();
+    expect(screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i })).toBeNull();
+    unmount();
   });
 
   it("restyles the signed-out login page body", async () => {
@@ -194,9 +213,9 @@ describe("operator chrome", () => {
         });
       }),
     );
-    renderApp(<AppRoutes />, { route: "/login" });
-    expect(await screen.findByRole("heading", { name: /Sign in to LabMITM/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /LabMITM/i })).toBeInTheDocument();
+    await renderAppReady(<AppRoutes />, { route: "/login" });
+    expect(namedElement(/Sign in to LabMITM/i, "h1,h2")).toBeInTheDocument();
+    expect(namedElement(/LabMITM/i, "a")).toBeInTheDocument();
     expect(screen.getByLabelText(/API bearer token/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Sign out/i })).toBeNull();
     expect(screen.queryByText(":443 intercept only")).toBeNull();
