@@ -31,7 +31,7 @@ The test-only Go origin fixture (`scripts/containerorigin`) is compiled before s
 | REST contract | OpenAPI, auth 401, list/get/delete/wait/resume, problem+json, `GET /v1/features` 401/200 `len(items)==11` | `internal/control/rest` |
 | Compat flow REST | after-auth CSRF, Basic 401, truncated header, disabled 404 vs SPA, goldens | `internal/control/compat`, `internal/control/rest`, `testdata/compat` |
 | MCP | 2026-07-28 initialize, tools/list, tool call, origin, bearer | `internal/control/mcp` |
-| Parity | every `PARITY_REQUIRED` capability | `make test-parity` |
+| Parity | every `PARITY_REQUIRED` capability across REST and MCP; does not check the UI (frontend parity gate: UI-PARITY-001, not landed) | `make test-parity` |
 | Fuzz | YAML decode, HTTP request line/headers, buildinfo, `wsx.ReadFrame`, `grpcx.Decode` | committed `testdata/fuzz` corpora under each package |
 | Soak | accept N flows, `Wait`, `Wipe` | `internal/perf` (`-soak-n` / `LABMITM_SOAK_N`; CI default 8; local lab target 100 flows/s for 30s) |
 | Feature gates | Catalog `Load` of `spec: {}` before `CatalogFromSpec` (D22 carve default-true); `setFeature` live IDs swap without `ResetTo` / inbox wipe; orig-dest and `tls.intercept` `validation_failed`; `live_next_connection` warning; hop 403 before rules/Dial; SOCKS apply on without Restart; Status live verbs (`replaceTLS` / `replaceHTTPAuth` / `replaceRules` / `replaceAdmission` / `replaceCompat`); Status `replaceTLS` OCC snapshot merge of hidden `hosts`/`ca`/`upstream`; Status `ui.enabled` gated off-confirm (D77) | `internal/app`, `internal/proxy`, `internal/control/{rest,mcp}`, `web/src/pages/StatusPage.test.tsx` |

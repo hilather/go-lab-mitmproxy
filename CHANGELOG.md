@@ -10,7 +10,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- Frontend parity is a project requirement (ADR 0020): operator-facing REST/MCP capabilities, inputs, results, authorization, and mutation semantics must be available in the embedded UI with behavioral coverage.
+- Policy: ADR 0020 (D79) makes frontend parity with operator-facing REST/MCP capabilities a project requirement. This entry changes no UI, REST, or MCP behavior; the browser workflows and the frontend parity gate follow in UI-PARITY-001.
 - HTTP/2 and h2c responses forward incrementally with bounded capture. An oversized response paused on the shared HTTP/1.1 origin connection retains that connection until its unread body is consumed or closed; small paused responses still allow other streams to proceed. See [ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md). No new configuration, persistence, REST capabilities, or MCP tools.
 - REST request envelopes reject unknown fields, including nested apply operations. Clients must remove misspelled or extra fields. Candidate-state byte-size values are coerced once by the strict configuration decoder.
 
