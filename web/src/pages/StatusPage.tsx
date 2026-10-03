@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { APIError, applyChanges, CA_DOWNLOAD_URL, getFeatures, getState, getStatus } from "../api/client";
+import { planConfiguration } from "../api/configuration";
 import { useLiveSpec } from "../api/liveSpec";
 import type {
   AdmissionSpec,
@@ -237,12 +238,16 @@ export function StatusPage() {
       const fresh = await getState();
       const expectedRevision = fresh.runtimeRevision || revision;
       const ops = typeof operations === "function" ? await operations(fresh) : operations;
-      const result = await applyChanges({
+      const change = {
         expectedRevision,
         idempotencyKey,
         reason: reason.trim(),
         operations: ops,
-      });
+        force: false,
+      };
+      const plan = await planConfiguration(change);
+      if (!window.confirm(`Review planned change before applying:\n${JSON.stringify({ change, plan }, null, 2)}`)) return false;
+      const result = await applyChanges(change);
       if (result.runtimeRevision) {
         setRevision(result.runtimeRevision);
       }
@@ -447,6 +452,7 @@ export function StatusPage() {
     <main className="page">
       <p className="kicker">Status</p>
       <h1>Status</h1>
+      <p><Link to="/configuration">Full configuration, validation, plan review and export</Link></p>
       <p className="banner-warn">
         Lab-only intercepting proxy. Install the lab CA only on systems under test and uninstall it
         after use. LabMITM is not a public MITM product.

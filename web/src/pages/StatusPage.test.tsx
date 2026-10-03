@@ -66,6 +66,7 @@ function stubPageFetch(opts?: {
   const catalog = opts?.features ?? sampleFeatures();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith("/v1/changes:plan")) return json(200, {previousRevision: "sha256:abc", candidateRevision: "sha256:next", drifted: true, diff: [], warnings: []});
     const method = (init?.method ?? "GET").toUpperCase();
     if (url.endsWith("/v1/session")) {
       return json(200, sessionView(opts?.scopes));
@@ -119,6 +120,22 @@ function applyButton(name: string) {
 }
 
 describe("StatusPage", () => {
+  beforeEach(() => { vi.spyOn(window, "confirm").mockReturnValue(true); });
+  it("reviews the exact planned request and cancellation does not apply", async () => {
+    const {fetchMock} = stubPageFetch();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await renderAppReady(<StatusPage />, {route:"/status"});
+    await act(async () => { fireEvent.click(screen.getByLabelText("Toggle protocols.http2")); });
+    const planned = fetchMock.mock.calls.find((call) => String(call[0]).endsWith("/v1/changes:plan"));
+    expect(planned).toBeDefined();
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("candidateRevision"));
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/v1/changes:apply"))).toBe(false);
+    confirm.mockReturnValue(true);
+    await act(async () => { fireEvent.click(screen.getByLabelText("Toggle protocols.http2")); });
+    const plans = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith("/v1/changes:plan"));
+    const applied = fetchMock.mock.calls.find((call) => String(call[0]).endsWith("/v1/changes:apply"));
+    expect(applied?.[1]?.body).toBe(plans.at(-1)?.[1]?.body);
+  });
   afterEach(() => {
     resetClientState();
     vi.unstubAllGlobals();
@@ -220,7 +237,7 @@ describe("StatusPage", () => {
     expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
   });
 
-  it("does not confirm when turning ui.enabled on", async () => {
+  it("reviews the plan when turning ui.enabled on", async () => {
     const catalog = sampleFeatures();
     const row = catalog.items.find((item) => item.id === "ui.enabled");
     if (row) {
@@ -231,7 +248,7 @@ describe("StatusPage", () => {
     const confirm = vi.spyOn(window, "confirm");
     await renderAppReady(<StatusPage />, { route: "/status" });
     await user.click(await findSwitch("Toggle ui.enabled"));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Review planned change"));
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     });
@@ -348,6 +365,7 @@ describe("StatusPage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+    if (url.endsWith("/v1/changes:plan")) return json(200, {previousRevision: "sha256:abc", candidateRevision: "sha256:next", drifted: true, diff: [], warnings: []});
         const method = (init?.method ?? "GET").toUpperCase();
         if (url.endsWith("/v1/session")) {
           return json(200, sessionView());
@@ -440,6 +458,7 @@ describe("StatusPage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+    if (url.endsWith("/v1/changes:plan")) return json(200, {previousRevision: "sha256:abc", candidateRevision: "sha256:next", drifted: true, diff: [], warnings: []});
         const method = (init?.method ?? "GET").toUpperCase();
         if (url.endsWith("/v1/session")) {
           return json(200, sessionView());
@@ -508,6 +527,7 @@ describe("StatusPage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+    if (url.endsWith("/v1/changes:plan")) return json(200, {previousRevision: "sha256:abc", candidateRevision: "sha256:next", drifted: true, diff: [], warnings: []});
         const method = (init?.method ?? "GET").toUpperCase();
         if (url.endsWith("/v1/session")) {
           return json(200, sessionView());
@@ -539,6 +559,7 @@ describe("StatusPage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+    if (url.endsWith("/v1/changes:plan")) return json(200, {previousRevision: "sha256:abc", candidateRevision: "sha256:next", drifted: true, diff: [], warnings: []});
         const method = (init?.method ?? "GET").toUpperCase();
         if (url.endsWith("/v1/session")) {
           return json(200, sessionView());

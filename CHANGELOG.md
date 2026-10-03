@@ -6,7 +6,10 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
-- None.
+- Frontend flow resume/header-body edit/drop/replay/wait, full server filters and cursor traversal, optional store-generation preconditions, complete escaped flow detail, and selected-flow live updates.
+- Configuration page for all eight live verbs, full TLS/target/store edits, candidate and operation validation, immutable plan review/apply, idempotency-aware retries, and canonical YAML/JSON export with revision/drift details.
+- Diagnostics for version, capabilities, schema, health and metrics; audit limit queries and full event lookup.
+- Mandatory frontend parity gate covering registry entries, apply verbs, contract review, reachable routes and passing behavioral evidence.
 
 ### Changed
 
@@ -18,6 +21,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 - CI fuzz smoke uses 500,000 executions for each existing target instead of a five-second deadline, avoiding a Go coordinator deadline-propagation race that can report `context deadline exceeded` at normal completion. Coverage-guided fuzzing and existing package/job timeouts remain intact, without retries; failure artifacts include saved corpus inputs alongside logs.
 - Concurrent origin HTTP/2 requests allocate stream IDs in opening-HEADERS wire order. This prevents intermittent origin `PROTOCOL_ERROR` disconnects and proxy 502 responses while retaining multiplexed request/response bodies. Already-closed origin connections still refuse new requests immediately. The unread-response RST regression synchronizes header delivery and verifies window credit before closing the body, eliminating a fixture race and preventing a false pass through body cleanup.
+- Browser API errors retain field violations, remediation, retryability and current revision. Paused-flow controls refresh after live events; replay results survive list refresh; canceled waits and stale audit responses cannot overwrite newer selections.
 - Reset reports an occupied listener address as non-retryable `validation_failed` on REST and MCP, with recovery guidance. Same-port changes that overlap an active bind require a restart or an intermediate free port; failed Reset preserves listeners, state, and flows.
 - REST unknown-field errors name the rejected field instead of reporting valid JSON as malformed.
 - HTTP/2 responses omit empty trailer HEADERS while preserving actual trailers, including values populated after streaming the body.

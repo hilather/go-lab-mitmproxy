@@ -4,6 +4,11 @@ export type Problem = {
   status: number;
   detail: string;
   code: string;
+  instance?: string;
+  retryable?: boolean;
+  fieldViolations?: { path: string; code: string; message: string }[];
+  currentRevision?: string;
+  remediation?: string;
 };
 
 export type SessionCreated = {
@@ -345,9 +350,18 @@ export type AuditList = {
 };
 
 export type FlowListQuery = {
+  ruleId?: string;
+  pathPrefix?: string;
+  protocol?: string;
+  via?: string;
   host?: string;
   method?: string;
   status?: string;
   scheme?: string;
   intercepted?: string;
+};
+
+export type WaitFilter = {
+  host?: string; method?: string; status?: number; pathPrefix?: string;
+  protocol?: string; via?: string; intercepted?: boolean; after?: string;
 };

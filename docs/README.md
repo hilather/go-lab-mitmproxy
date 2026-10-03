@@ -59,6 +59,8 @@ The numbered pack is the source of truth.
 | [releases/v1.1.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.1.0.md) | 1.1.0 tag notes (first Git tag) |
 | [releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md) | Untagged 1.0 candidate notes |
 
+- [Operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md): flow controls, complete settings, diagnostics, audit and parity checks.
+
 ## Architecture decisions
 
 | ADR | Decision |

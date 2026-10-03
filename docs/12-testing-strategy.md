@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-10-03 (HTTP/2 and fuzz harnesses; frontend parity rollout boundary)
+Last reviewed: 2026-10-03 (frontend parity and deterministic HTTP/2 regressions)
 Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
@@ -51,7 +51,7 @@ Create when first needed; do not skip. Placeholders must fail closed.
 ```
 make format lint generate verify-generated
 make test test-race test-fuzz-smoke
-make test-parity test-config-compat test-docs
+make test-parity test-ui-parity test-config-compat test-docs
 make test-container security-scan test-changelog
 make web-test web-build
 ```
@@ -89,3 +89,9 @@ Toolchain `GO_VERSION: "1.26.6"`, `GOTOOLCHAIN: local`. golangci-lint `v2.12.2`.
 - RULES-001: `internal/rules` first-match, default-off, AND match, no Dial; Resume without HTTP (store only, test-constructed snapshot); proxy delay/drop/status/header/body/breakpoint/silent/hang/redirect/block/throttle, stream-vs-mutate `body_skipped`, inner CONNECT drop; config fixtures `testdata/config/valid/rules-{silent-rst,silent-fin,hang,redirect,redirect-307,throttle}.yaml` and invalid hang/redirect/`http_status`/throttle; transcripts `testdata/proxy/rule-{silent-rst,silent-fin,hang,redirect}.txt`. LimitReader unit (fake sleep) + proxytest session lower-bound timing. Response throttle on the default HTTP/1.1 hop: raw-socket `ReadResponse` TTFH ≪ body (`4KiB` at `1KiB/s`; a no-Flush hop fails). Intercept request-phase silent (HTTP/1.1 and inner h2) asserts `intercepted: true`, absolute https URL, TLS filled.
 - STA-001: `internal/compiler` (rules engine + CA handle; reuse CA unless `replaceTLS` / reset); `internal/snapshot` atomic swap; `internal/audit` ring + redact (`BEGIN PRIVATE` never logged); `internal/app` Plan/Apply/Reset/Export, reset-wipes-flows, failed reset leaves snapshot+inbox, generate-mode CA rotates on reset, idempotency LRU, `replaceStoreCaps` / `replaceRules` / `replaceTLS` / `replaceAdmission` / `replaceTargets` / `setFeature` / `replaceCompat` / `replaceHTTPAuth` (live hop/accept / HTTP 407 without `ResetTo`; orig-dest/`tls.intercept` `validation_failed`; `live_next_connection`); proxy loads snapshot per request / CONNECT (in-flight keeps the pin, including response-phase rules); accept-time epoch so reset cannot refill the inbox from an in-flight hop.
 - Invalid config fixtures (CFG-001): unknown field, reserved socks/tproxy/publicca/mitmproxy, bare numbers, multi-doc, alias, missing kind, **`upstream.verify` present**.
+
+## Embedded UI parity
+
+The [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md) documents the browser equivalents of the existing control-plane operations under ADR 0020 (D79). Browser requests retain the same authorization, validation, preconditions and error contracts. No REST paths, MCP tools, capability IDs, configuration schema or bootstrap ownership change.
+
+`make test-parity` now runs the frontend registry/operation/contract review gate. `make web-test` runs the passing-evidence reporter and its fail-closed regressions. UI tests cover every mapped route, all eight edited operation payloads, plan/apply identity, automatic key lifecycle, conflicts, uncertain-network retries, YAML revision consistency, explicit empty resume edits, complete errors, late async responses, selected-flow SSE updates and permissions. The existing `parity` and `web` CI jobs remain mandatory.

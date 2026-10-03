@@ -14,6 +14,8 @@ export function navItems(canAudit: boolean, canReset: boolean): NavItem[] {
   const items: NavItem[] = [
     { to: "/", label: "Flows" },
     { to: "/status", label: "Status" },
+    { to: "/configuration", label: "Configuration" },
+    { to: "/diagnostics", label: "Diagnostics" },
   ];
   if (canAudit) {
     items.push({ to: "/audit", label: "Audit" });

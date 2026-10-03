@@ -5,8 +5,8 @@ describe("operator nav", () => {
   it("has no fuzzer, repeater, exploit, or SSL-strip controls", () => {
     const labels = navItems(true, true).map((i) => i.label);
     expect(containsForbiddenControl(labels)).toBe(false);
-    expect(labels).toEqual(["Flows", "Status", "Audit", "Reset"]);
-    expect(navItems(false, false).map((i) => i.label)).toEqual(["Flows", "Status"]);
+    expect(labels).toEqual(["Flows", "Status", "Configuration", "Diagnostics", "Audit", "Reset"]);
+    expect(navItems(false, false).map((i) => i.label)).toEqual(["Flows", "Status", "Configuration", "Diagnostics"]);
   });
 
   it("gates reset on the exact phrase and confirmation", () => {

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: REST, Application
-Last reviewed: 2026-10-03 (unknown-field diagnostics and Reset bind conflicts)
+Last reviewed: 2026-10-03 (frontend control-plane parity and regression coverage)
 Related ADRs: 0004, 0005, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Base: `/v1`. JSON unless noted. Errors: `Content-Type: application/problem+json`. Capability table: [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md).
@@ -169,3 +169,7 @@ Contract: [examples/compat/flow-rest-contract.md](https://github.com/hilather/go
 ## Compatibility promise
 
 `/v1/*` is versioned; breaking change requires `/v2` or a documented flag day.
+
+## Embedded UI parity
+
+The [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md) documents the browser equivalents of the existing control-plane operations under ADR 0020 (D79). Browser requests retain the same authorization, validation, preconditions and error contracts. No REST paths, MCP tools, capability IDs, configuration schema or bootstrap ownership change.

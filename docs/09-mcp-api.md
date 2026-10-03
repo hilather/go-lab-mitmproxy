@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: MCP, Application
-Last reviewed: 2026-10-03 (Reset listener address conflict errors)
+Last reviewed: 2026-10-03 (frontend control-plane parity and regression coverage)
 Related ADRs: 0004, 0006, 0013, 0015, 0016, 0017
 
 Native management API is `/v1` + `POST /mcp`. Capability IDs and tool names are frozen in [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md). Protocol pin: [docs/adr/0006-pin-mcp-protocol-versions.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0006-pin-mcp-protocol-versions.md).
@@ -86,3 +86,7 @@ MCP is bearer-only. Tokens are the same lab static bearer set as REST (`spec.man
 ## Compatibility promise
 
 MCP tool names `mitm_*` are frozen; rename needs ADR + catalog change.
+
+## Embedded UI parity
+
+The [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md) documents the browser equivalents of the existing control-plane operations under ADR 0020 (D79). Browser requests retain the same authorization, validation, preconditions and error contracts. No REST paths, MCP tools, capability IDs, configuration schema or bootstrap ownership change.

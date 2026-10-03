@@ -115,3 +115,5 @@ UI-PARITY-001 will deliver the remaining workflows and the automated frontend pa
 
 - REST shapes: [docs/08-rest-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/08-rest-api.md)
 - MCP pin: [docs/09-mcp-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/09-mcp-api.md)
+
+Implemented browser workflows and their maintenance contract: [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md). `make test-parity` includes the frontend contract gate; `make web-test` requires passing behavioral evidence for every entry.

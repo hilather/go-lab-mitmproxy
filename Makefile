@@ -9,7 +9,7 @@ GOVULNCHECK_MOD ?= golang.org/x/vuln/cmd/govulncheck@v1.1.4
 GOLANGCI_LINT_MOD ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: help fmt format lint vet build generate verify-generated test test-race \
-	test-fuzz-smoke test-parity test-config-compat test-docs test-container \
+	test-fuzz-smoke test-parity test-ui-parity test-config-compat test-docs test-container \
 	test-container-originaldest security-scan test-changelog web-install \
 	web-test web-build web-embed
 
@@ -28,7 +28,8 @@ help:
 		'  test-fuzz-smoke     buildinfo + config + HTTP request fuzz corpora (500000 executions each)' \
 		'  test-docs           required documents, metadata, links, and leftover invariants' \
 		'  security-scan       govulncheck' \
-		'  test-parity         REST/MCP capability parity and MCP goldens' \
+		'  test-parity         REST/MCP capability parity, MCP goldens, and frontend coverage' \
+		'  test-ui-parity      frontend registry, operation, and contract review gate' \
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
 		'  web-install         npm ci in web/ (Node 22.14.0)' \
 		'  web-test            Vitest flow-inspector SPA tests' \
@@ -77,8 +78,11 @@ test-docs:
 security-scan:
 	$(GO) run $(GOVULNCHECK_MOD) ./...
 
-test-parity:
+test-parity: test-ui-parity
 	$(GO) test ./internal/capabilities ./internal/control/rest ./internal/control/mcp -count=1
+
+test-ui-parity:
+	$(GO) run ./scripts/checkuiparity
 
 test-config-compat:
 	$(GO) test ./internal/config -run TestConfigCompat -count=1
@@ -87,7 +91,8 @@ web-install:
 	npm --prefix web ci
 
 web-test:
-	npm --prefix web test
+	node --test web/scripts/parity-reporter.test.mjs
+	npm --prefix web test -- --reporter=default --reporter=./scripts/parity-reporter.mjs
 
 web-build:
 	npm --prefix web run build

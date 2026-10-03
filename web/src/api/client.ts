@@ -58,6 +58,11 @@ function problemFrom(status: number, statusText: string, body: unknown): Problem
     status: typeof rec.status === "number" ? rec.status : fallback.status,
     detail: typeof rec.detail === "string" ? rec.detail : fallback.detail,
     code: typeof rec.code === "string" ? rec.code : fallback.code,
+    ...(typeof rec.instance === "string" ? { instance: rec.instance } : {}),
+    ...(typeof rec.retryable === "boolean" ? { retryable: rec.retryable } : {}),
+    ...(Array.isArray(rec.fieldViolations) ? { fieldViolations: rec.fieldViolations.filter((value): value is { path: string; code: string; message: string } => !!value && typeof value === "object" && typeof value.path === "string" && typeof value.code === "string" && typeof value.message === "string") } : {}),
+    ...(typeof rec.currentRevision === "string" ? { currentRevision: rec.currentRevision } : {}),
+    ...(typeof rec.remediation === "string" ? { remediation: rec.remediation } : {}),
   };
 }
 
@@ -81,7 +86,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   });
 }
 
-async function readJSON<T>(resp: Response): Promise<T> {
+export async function readJSON<T>(resp: Response): Promise<T> {
   const text = await resp.text();
   let parsed: unknown;
   if (text !== "") {
@@ -133,23 +138,11 @@ export async function deleteSession(): Promise<void> {
 // Native list default is 50; the store cap is 1000. Walk at MaxListLimit so
 // the inspector is not silently truncated to the first page.
 export const LIST_PAGE_LIMIT = 200;
-const LIST_MAX_PAGES = 16;
+
 
 function applyListQuery(params: URLSearchParams, query: FlowListQuery): void {
-  if (query.host) {
-    params.set("host", query.host);
-  }
-  if (query.method) {
-    params.set("method", query.method);
-  }
-  if (query.status) {
-    params.set("status", query.status);
-  }
-  if (query.scheme) {
-    params.set("scheme", query.scheme);
-  }
-  if (query.intercepted) {
-    params.set("intercepted", query.intercepted);
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "" && key !== "limit" && key !== "cursor") params.set(key, String(value));
   }
 }
 
@@ -170,28 +163,9 @@ export async function listAllFlows(query: FlowListQuery = {}): Promise<FlowList>
   let cursor: string | undefined;
   let generation = 0;
   let revision = "";
-  for (let page = 0; page < LIST_MAX_PAGES; page += 1) {
-    const next: FlowListQuery & { cursor?: string; limit: number } = {
-      limit: LIST_PAGE_LIMIT,
-    };
-    if (query.host) {
-      next.host = query.host;
-    }
-    if (query.method) {
-      next.method = query.method;
-    }
-    if (query.status) {
-      next.status = query.status;
-    }
-    if (query.scheme) {
-      next.scheme = query.scheme;
-    }
-    if (query.intercepted) {
-      next.intercepted = query.intercepted;
-    }
-    if (cursor) {
-      next.cursor = cursor;
-    }
+  const seen = new Set<string>();
+  for (;;) {
+    const next = { ...query, limit: LIST_PAGE_LIMIT, ...(cursor ? { cursor } : {}) };
     const chunk = await listFlows(next);
     items.push(...chunk.items);
     generation = chunk.storeGeneration;
@@ -199,9 +173,10 @@ export async function listAllFlows(query: FlowListQuery = {}): Promise<FlowList>
     if (!chunk.nextCursor) {
       return { revision, storeGeneration: generation, items, nextCursor: null };
     }
+    if (seen.has(chunk.nextCursor)) throw new Error("Flow pagination cursor repeated; refresh the list.");
+    seen.add(chunk.nextCursor);
     cursor = chunk.nextCursor;
   }
-  return { revision, storeGeneration: generation, items, nextCursor: cursor ?? null };
 }
 
 export async function getFlow(id: string): Promise<Flow> {
@@ -254,15 +229,15 @@ export async function downloadFlowBody(id: string, side: FlowBodySide): Promise<
 
 export const CA_DOWNLOAD_URL = "/v1/ca";
 
-export async function deleteFlow(id: string): Promise<void> {
-  const resp = await apiFetch(`/v1/flows/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function deleteFlow(id: string, expectedStoreGeneration?: number): Promise<void> {
+  const resp = await apiFetch(`/v1/flows/${encodeURIComponent(id)}${expectedStoreGeneration === undefined ? "" : `?expectedStoreGeneration=${expectedStoreGeneration}`}`, { method: "DELETE" });
   if (resp.status !== 204) {
     await readJSON<unknown>(resp);
   }
 }
 
-export async function clearFlows(): Promise<{ deleted: number }> {
-  return readJSON<{ deleted: number }>(await apiFetch("/v1/flows", { method: "DELETE" }));
+export async function clearFlows(expectedStoreGeneration?: number): Promise<{ deleted: number }> {
+  return readJSON<{ deleted: number }>(await apiFetch(`/v1/flows${expectedStoreGeneration === undefined ? "" : `?expectedStoreGeneration=${expectedStoreGeneration}`}`, { method: "DELETE" }));
 }
 
 export async function getStatus(): Promise<Status> {
@@ -299,4 +274,21 @@ export async function resetState(reason: string): Promise<unknown> {
       body: JSON.stringify({ reason }),
     }),
   );
+}
+
+export async function resumeFlow(id: string, patch: { headers?: import("./types").Header[]; body?: string } = {}): Promise<void> {
+  await readJSON<unknown>(await apiFetch(`/v1/flows/${encodeURIComponent(id)}:resume`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+  }));
+}
+export async function dropFlow(id: string): Promise<void> {
+  await readJSON<unknown>(await apiFetch(`/v1/flows/${encodeURIComponent(id)}:drop`, { method: "POST" }));
+}
+export async function replayFlow(id: string): Promise<Flow> {
+  return readJSON<Flow>(await apiFetch(`/v1/flows/${encodeURIComponent(id)}:replay`, { method: "POST" }));
+}
+export async function waitFlow(filter: import("./types").WaitFilter, timeout: string, signal?: AbortSignal): Promise<Flow> {
+  return readJSON<Flow>(await apiFetch("/v1/flows:wait", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filter, timeout }), ...(signal ? { signal } : {}),
+  }));
 }
