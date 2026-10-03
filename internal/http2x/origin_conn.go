@@ -219,6 +219,9 @@ func (o *OriginConn) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req == nil {
 		return nil, ErrRefuseRedial
 	}
+	// Refuse an already-closed origin without waiting behind a blocked
+	// writer. The closure check inside o.write remains authoritative if
+	// GOAWAY or a connection failure races this preflight check.
 	o.mu.Lock()
 	if o.closed {
 		err := o.err
@@ -228,33 +231,51 @@ func (o *OriginConn) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		return nil, err
 	}
-	id := o.nextID
-	if id == 0 || id%2 == 0 || id > 1<<31-1 {
-		o.mu.Unlock()
-		return nil, ErrRefuseRedial
-	}
-	o.nextID += 2
-	st := &originStream{
-		id:          id,
-		requestBody: req.Body,
-		body:        newBodyBuf(func(n int) { o.credit(id, n) }),
-		hdr:         make(chan []hpack.HeaderField, 1),
-		fail:        make(chan error, 1),
-	}
-	o.inbound.open(id)
-	o.streams[id] = st
 	o.mu.Unlock()
-	o.out.open(id)
 
+	var id uint32
+	var st *originStream
 	hasBody := requestHasBody(req)
 	if err := o.write(func() error {
+		// Stream allocation and its opening HEADERS share the writer lock.
+		// Allocating before this lock lets another RoundTrip open a higher
+		// ID first, implicitly closing the lower ID (RFC 9113 section 5.1.1).
+		o.mu.Lock()
+		if o.closed {
+			err := o.err
+			o.mu.Unlock()
+			if err == nil {
+				err = ErrRefuseRedial
+			}
+			return err
+		}
+		id = o.nextID
+		if id == 0 || id%2 == 0 || id > 1<<31-1 {
+			o.mu.Unlock()
+			return ErrRefuseRedial
+		}
+		o.nextID += 2
+		st = &originStream{
+			id:          id,
+			requestBody: req.Body,
+			body:        newBodyBuf(func(n int) { o.credit(id, n) }),
+			hdr:         make(chan []hpack.HeaderField, 1),
+			fail:        make(chan error, 1),
+		}
+		o.inbound.open(id)
+		o.streams[id] = st
+		o.mu.Unlock()
+		o.out.open(id)
+
 		o.encBuf.Reset()
 		if err := encodeOriginRequest(o.enc, req); err != nil {
 			return err
 		}
 		return writeHeaderBlock(o.fr, id, o.encBuf.Bytes(), !hasBody)
 	}); err != nil {
-		o.forget(id)
+		if st != nil {
+			o.forget(id)
+		}
 		return nil, err
 	}
 	if hasBody {
