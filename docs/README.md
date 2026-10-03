@@ -96,3 +96,5 @@ Normative docs still win. These plans freeze a follow-on workstream after skepti
 |---|---|
 | [00-program-board.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/tasks/00-program-board.md) | PRs 1–14 and milestones |
 | [README.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/tasks/README.md) | Task working rules |
+
+- [ADR 0020: Frontend control-plane parity](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md): required operator workflows and automated behavioral coverage (D79).

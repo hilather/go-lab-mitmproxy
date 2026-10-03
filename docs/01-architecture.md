@@ -2,8 +2,8 @@
 
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
-Last reviewed: 2026-10-02 (bounded responses and runtime listener reconciliation)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019
+Last reviewed: 2026-10-03 (frontend control-plane parity; D79)
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020
 
 ## Problem statement
 
@@ -57,7 +57,7 @@ Family container-internal binds that must not collide:
 1. Single-process Go appliance that accepts HTTP/1.1 absolute-form and CONNECT, optionally intercepts TLS with a lab CA, captures flows, and never wraps or execs Python mitmproxy.
 2. Versioned, fail-closed YAML bootstrap; runtime flows ephemeral; reset rereads bootstrap and wipes the flow store.
 3. Same authorized flow and state operations on REST `/v1` and MCP `POST /mcp` (parity).
-4. Embedded operator flow-inspector UI (React/TS + Vite, Node **22.14.0**) that calls REST only.
+4. Embedded operator UI (React/TS + Vite, Node **22.14.0**) that calls REST only and exposes every operator-facing capability with equivalent inputs, results, and authorization ([ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md), D79).
 5. Hardened container: non-root UID 65532, scratch/static, read-only root, `cap_drop: ALL`, no-new-privileges, tmpfs `/tmp`.
 6. In-tree proxy + TLS intercept using stdlib `net/http`, `crypto/tls`, `crypto/x509` only.
 7. Bounded flow store (count + bytes + per-body cap) with fail-closed `fullPolicy`.
