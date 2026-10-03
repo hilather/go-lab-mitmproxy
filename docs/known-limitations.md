@@ -153,6 +153,7 @@ On the cleartext HTTP/1.1 forwarding path, response headers are flushed immediat
 ## Store and control plane (unchanged)
 
 - Store-full still forwards (capture is best-effort when the inspector is full).
+- Request-phase Resume leaves the original breakpoint record `open` and inserts the final completed capture under a separate ID. Inspect the completed capture for the final response. Response-phase Resume completes the existing record; the UI reflects the same REST/MCP store semantics.
 - Single replica; no shared flow store.
 - MCP clients requiring OAuth PRM cannot authorize. MCPJungle needs `allowLegacyClients: true` (family-doc reason; image SDK version not re-measured here).
 - MCP protocol is **2026-07-28**. `mcp-stdio` is a developer adapter, not an image entrypoint.

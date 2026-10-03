@@ -17,6 +17,8 @@ The inspector shows protocol-specific detail and an expandable complete JSON rep
 
 Paused flows expose **Resume flow** and **Drop flow** to writers. Unchecked edits preserve the original headers/body. Checked empty edits explicitly clear them. Header rows preserve ordering and duplicates; copy captured headers to start an edit, or clear all rows. Drop terminates the paused exchange. **Replay flow** confirms one replay of the captured request through the existing guarded application operation, then displays the returned flow and a link to inspect it. Replay restrictions remain server-owned; the UI does not add arbitrary requests, scanning or bulk replay.
 
+Request-phase Resume currently leaves the original breakpoint record `open` with status `0`; forwarding inserts the final completed capture under a new ID. Select that completed capture to inspect the response. Response-phase Resume completes the original record. The UI reports these existing store semantics without synthesizing a different result.
+
 ## Configuration and Status
 
 Status shows health, CA identity, feature flags and convenient live editors. Its mutations first obtain and display the plan, then submit the same reviewed request after confirmation.
