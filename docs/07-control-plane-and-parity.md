@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Application, REST, MCP, Frontend
-Last reviewed: 2026-10-03 (frontend parity supported inputs and rollout boundary; D79)
+Last reviewed: 2026-10-03 (implemented frontend parity and mandatory checks; D79)
 Related ADRs: 0004, 0005, 0006, 0007, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0020
 
 REST and MCP are two protocol adapters over one capability model. Adapters never call each other and never contain proxy/store business logic. See [docs/adr/0004-shared-capability-registry.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0004-shared-capability-registry.md).
@@ -109,11 +109,9 @@ Every registry entry must map to a reachable UI workflow and passing behavioral 
 
 The required configuration workflow covers all eight live verbs, candidate validation, plan review, and canonical export. Plan review pins the exact existing changeset through apply; a revision conflict requires a new review. There is no plan ID or new apply protocol. Reset-only settings remain bootstrap plus Reset. The UI must never write bootstrap configuration. Existing guarded replay of a captured flow is included; bulk attack automation remains excluded.
 
-UI-PARITY-001 will deliver the remaining workflows and the automated frontend parity gate. This policy change adds neither implementation nor gate; current REST/MCP parity and web test/build checks remain required while that follow-on work is pending.
+UI-PARITY-001 implements these browser workflows and the mandatory automated frontend parity gate. The [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md) describes the delivered controls and maintenance contract. `make test-parity` includes `make test-ui-parity`; `make web-test` requires every mapped behavioral test to execute and pass, and `make web-build` checks types and bundles the UI. The existing parity and web CI jobs remain mandatory.
 
 ## Related documents
 
 - REST shapes: [docs/08-rest-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/08-rest-api.md)
 - MCP pin: [docs/09-mcp-api.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/09-mcp-api.md)
-
-Implemented browser workflows and their maintenance contract: [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md). `make test-parity` includes the frontend contract gate; `make web-test` requires passing behavioral evidence for every entry.

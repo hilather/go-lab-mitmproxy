@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-10-03
-Last reviewed: 2026-10-03 (supported inputs and implementation rollout)
+Last reviewed: 2026-10-03 (supported inputs and delivered UI-PARITY-001)
 Decisions: D79
 
 ## Context
@@ -23,7 +23,7 @@ A mandatory automated frontend parity check compares the registry and operation 
 
 ## Implementation rollout
 
-UI-PARITY-001 will deliver the missing browser workflows and mandatory automated frontend parity gate required by this decision. This policy change records the contract; it does not add those implementations or the gate. Existing REST/MCP parity and web test/build checks remain mandatory while the follow-on work is pending.
+The policy was adopted separately from its implementation. UI-PARITY-001 now delivers the required browser workflows and mandatory automated frontend parity gate. Existing REST/MCP parity and web test/build checks remain mandatory alongside that gate; the delivered controls are documented in the [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md).
 
 ## Consequences
 
@@ -31,7 +31,7 @@ UI-PARITY-001 will deliver the missing browser workflows and mandatory automated
 - Flow resume/edit/drop/replay/wait, state validation/export/planning, full live settings, and diagnostic reads are included in frontend scope.
 - Existing REST/MCP errors and security boundaries remain authoritative. No browser-side business logic replaces server validation.
 - UI inputs and test coverage evolve with API contracts. Generic raw JSON output may supplement useful controls but is not a substitute for usable flow and mutation workflows.
-- The implementation following this policy closes the existing gaps and introduces the mandatory parity gate before the feature is considered complete.
+- UI-PARITY-001 closes the identified workflow gaps and introduces the mandatory parity gate.
 
 ## Alternatives considered
 

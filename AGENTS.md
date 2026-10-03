@@ -1,6 +1,6 @@
 # Repository Instructions for Agents
 
-Last reviewed: 2026-10-03 (frontend parity supported inputs and rollout)
+Last reviewed: 2026-10-03 (implemented frontend parity and mandatory gate)
 
 These instructions apply to every human or AI agent working in this repository. More specific `AGENTS.md` files may add stricter rules but may not weaken this file.
 
@@ -98,7 +98,7 @@ The numbered pack is the source of truth after FND-001. Do not invent paths, typ
 - The frontend must expose every operator-facing REST/MCP capability with equivalent supported inputs, outputs, filtering, pagination, optional and explicit-empty edits, scope restrictions, errors, concurrency preconditions, and idempotency and reasons where the native capability supports them (ADR 0020 / D79).
 - Every capability needs a reachable browser workflow and behavioral regression coverage. Hidden API helpers and coverage declarations alone do not establish parity. Transport-only bindings need a documented browser equivalent or an ADR-backed exemption; compatibility aliases need no duplicate screen.
 - All live configuration verbs and editable fields must be available, with validation, plan review, and canonical export. Preserve bootstrap ownership and Reset-only boundaries. A single guarded replay of a captured flow is permitted; scanning and attack automation remain out of scope.
-- New or changed API capabilities and inputs must include frontend changes and tests in the same PR. Run existing REST/MCP parity verification and web test/build checks whenever REST, MCP, UI, schemas, authorization, or application commands change. UI-PARITY-001 will introduce the mandatory frontend parity gate with the remaining workflows; once that task lands, run the frontend gate alongside those checks. It must fail for missing capabilities, operations, routes, contract review, or passing behavioral evidence. This policy change does not provide that gate.
+- New or changed API capabilities and inputs must include frontend changes and tests in the same PR. Run `make test-parity` (including the mandatory `make test-ui-parity` gate), `make web-test`, and `make web-build` whenever REST, MCP, UI, schemas, authorization, or application commands change. UI-PARITY-001 implements the frontend gate and workflows. The gate must fail for missing capabilities, operations, routes, contract review, or passing behavioral evidence.
 
 ## Dial isolation and intercept correctness
 
@@ -135,6 +135,7 @@ make test
 make test-race
 make test-fuzz-smoke
 make test-parity
+make test-ui-parity
 make test-config-compat
 make test-docs
 make test-container
