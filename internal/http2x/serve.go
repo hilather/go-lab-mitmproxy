@@ -592,7 +592,9 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, writ
 		status = http.StatusOK
 	}
 	hasBody := resp.Body != nil
-	hasTrailers := len(trailers) > 0 || resp.Trailer != nil
+	if !hasBody {
+		trailers = append(trailers, headersFromHTTP(resp.Trailer)...)
+	}
 	if err := write(func() error {
 		buf.Reset()
 		if err := enc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)}); err != nil {
@@ -611,7 +613,7 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, writ
 				}
 			}
 		}
-		return writeHeaderBlock(fr, id, buf.Bytes(), !hasBody && !hasTrailers)
+		return writeHeaderBlock(fr, id, buf.Bytes(), !hasBody && len(trailers) == 0)
 	}); err != nil {
 		return err
 	}
@@ -620,6 +622,12 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, writ
 		sawEnd := false
 		for {
 			n, err := resp.Body.Read(chunk)
+			if err == io.EOF {
+				// Streaming producers may populate Trailer while reading the
+				// body. Inspect it only after EOF, then send HEADERS only when
+				// there are actual trailer values.
+				trailers = append(trailers, headersFromHTTP(resp.Trailer)...)
+			}
 			if n > 0 {
 				off := 0
 				for off < n {
@@ -627,7 +635,7 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, writ
 					if werr != nil {
 						return werr
 					}
-					end := err == io.EOF && off+take == n && !hasTrailers
+					end := err == io.EOF && off+take == n && len(trailers) == 0
 					payload := append([]byte(nil), chunk[off:off+take]...)
 					if werr := write(func() error {
 						return fr.WriteData(id, end, payload)
@@ -641,7 +649,7 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, writ
 				}
 			}
 			if err == io.EOF {
-				if !hasTrailers && !sawEnd {
+				if len(trailers) == 0 && !sawEnd {
 					if werr := write(func() error {
 						return fr.WriteData(id, true, nil)
 					}); werr != nil {
@@ -655,8 +663,7 @@ func writeResponse(fr *http2.Framer, enc *hpack.Encoder, buf *bytes.Buffer, writ
 			}
 		}
 	}
-	if hasTrailers {
-		trailers = append(trailers, headersFromHTTP(resp.Trailer)...)
+	if len(trailers) > 0 {
 		return write(func() error {
 			buf.Reset()
 			for _, th := range trailers {

@@ -2,8 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -235,6 +240,62 @@ func TestResetRuntimePreflightFailureLeavesStateAndStore(t *testing.T) {
 	}
 	if _, err := svc.Inbox().Get(id); err != nil {
 		t.Fatalf("preflight failure lost flow: %v", err)
+	}
+}
+
+func TestResetRuntimeAddressConflictClassification(t *testing.T) {
+	conflict := fmt.Errorf("management listen: %w", &net.OpError{
+		Op: "listen", Net: "tcp", Addr: &net.TCPAddr{IP: net.IPv4zero, Port: 8088},
+		Err: &os.SyscallError{Syscall: "bind", Err: syscall.EADDRINUSE},
+	})
+	explicit := domainerr.Forbidden("runtime preparation denied")
+	for _, tc := range []struct {
+		name string
+		err  error
+		code domainerr.Code
+	}{
+		{"wrapped address conflict", conflict, domainerr.CodeValidationFailed},
+		{"unrelated bind error", fmt.Errorf("proxy listen: %w", syscall.EACCES), domainerr.CodeInternalError},
+		{"same wording without errno", errors.New("address already in use"), domainerr.CodeInternalError},
+		{"explicit domain error", explicit, domainerr.CodeForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _ := mustBoot(t)
+			before := svc.Active()
+			bootstrap := svc.snaps.Bootstrap()
+			id := insertRaw(t, svc, "preserved.lab")
+			epoch := svc.Inbox().Epoch()
+			svc.SetResetRuntime(func(context.Context, model.Spec) (func(), func(), error) {
+				return nil, nil, tc.err
+			})
+			_, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "bind fails"})
+			requireCode(t, err, tc.code)
+			de, _ := domainerr.As(err)
+			if de.Retryable != domainerr.Retryable(tc.code) {
+				t.Fatalf("retryable=%t for %s", de.Retryable, tc.code)
+			}
+			if tc.code == domainerr.CodeValidationFailed {
+				if !strings.Contains(de.Message, "0.0.0.0:8088") {
+					t.Fatalf("conflicting address missing from message: %q", de.Message)
+				}
+				for _, hint := range []string{"Free", "nonoverlapping", "restart", "intermediate port"} {
+					if !strings.Contains(de.Remediation, hint) {
+						t.Errorf("remediation %q is missing %q", de.Remediation, hint)
+					}
+				}
+			} else if de.Remediation != "" {
+				t.Fatalf("unrelated error gained bind remediation: %q", de.Remediation)
+			}
+			if tc.err == explicit && err != explicit {
+				t.Fatalf("explicit domain error was replaced: %v", err)
+			}
+			if svc.Active() != before || svc.snaps.Bootstrap() != bootstrap || svc.Inbox().Epoch() != epoch {
+				t.Fatal("preflight failure changed snapshot, bootstrap, or store epoch")
+			}
+			if _, err := svc.Inbox().Get(id); err != nil {
+				t.Fatalf("preflight failure lost flow: %v", err)
+			}
+		})
 	}
 }
 

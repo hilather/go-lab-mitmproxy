@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/app"
@@ -121,6 +122,13 @@ func decodeError(err error) error {
 	if errors.As(err, &maxErr) {
 		return domainerr.ValidationFailed("request body too large",
 			domainerr.FieldViolation{Path: "", Code: "document_too_large", Message: "request body exceeds the management limit"})
+	}
+	// encoding/json exposes unknown-field errors only as quoted strings.
+	if quoted, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		if field, unquoteErr := strconv.Unquote(quoted); unquoteErr == nil {
+			return domainerr.ValidationFailed("unknown fields",
+				domainerr.FieldViolation{Path: field, Code: "unknown_field", Message: "unknown field " + quoted})
+		}
 	}
 	msg := "invalid JSON"
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {

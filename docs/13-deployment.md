@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Platform, Operations
-Last reviewed: 2026-10-02 (management TLS and Reset bind precedence)
+Last reviewed: 2026-10-03 (overlapping Reset binds and recovery)
 Related ADRs: 0001, 0003, 0010
 
 DEP-001 shipped the hardened image, `examples/compose.smoke.yaml`, and `scripts/test-container.sh`. Ports and image posture stay frozen here. A `v*` tag is refused unless [`.github/workflows/release.yml`](https://github.com/hilather/go-lab-mitmproxy/blob/main/.github/workflows/release.yml) `tag-gate` sees required CI green on that SHA. Current notes: [docs/releases/v1.6.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.1.md). Untagged 1.0 notes remain [docs/releases/v1.0.0-rc.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.0.0-rc.1.md). The lab overlay YAML is [examples/labmitm.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/labmitm.yaml) (SWAP-001; published binds, `allowLegacyClients: true`). Do not mount that overlay as the smoke config without a 0o644 `labmitm-token`.
@@ -35,6 +35,8 @@ Flag semantics (LabMail-shaped; **no** `serve --token-file`):
 `serve` loads → compile → validate management TLS → bind **proxy** → bind management → write pid file. Invalid bootstrap does **not** bind proxy or management.
 
 Management TLS uses `spec.listeners.management.tls.enabled`, `certFile`, and `keyFile`. Enabled TLS rejects plaintext; use HTTPS clients and a health probe that trusts the configured certificate. Edit bootstrap and Reset to change TLS files or listener addresses. Reset prebinds changed addresses and validates TLS before committing; failures preserve the old listeners and flows. CLI overrides remain in force: use `--management-listen=""` to follow the YAML address, since the default is `off` and the image explicitly pins `:8088`.
+
+An occupied address returns non-retryable `validation_failed`. A same-port change from a specific interface to an overlapping wildcard (such as `127.0.0.1:8888` to `0.0.0.0:8888`) cannot be staged while the old socket remains open. Restart with the edited bootstrap, or use an intermediate free port and two successful Resets. Each successful Reset wipes flows; repeating the failed request without changing the conflict does not help.
 
 `SIGTERM`/`SIGINT`: stop proxy accept, drain sessions (deadline), then HTTP, then `store.Wipe` spill files. `SIGUSR1` unused (no chaos).
 

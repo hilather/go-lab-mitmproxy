@@ -1,7 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { json, renderApp, resetClientState } from "../test/render";
+import { json, renderAppReady, resetClientState } from "../test/render";
 import { LoginPage } from "./LoginPage";
 
 describe("LoginPage", () => {
@@ -48,13 +48,17 @@ describe("LoginPage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    renderApp(<LoginPage />, { route: "/login" });
-    const field = await screen.findByLabelText(/API bearer token/i);
-    await user.type(field, "lab-bootstrap-token-32-bytes!!!");
+    await renderAppReady(<LoginPage />, { route: "/login" });
+    const field = screen.getByLabelText(/API bearer token/i);
+    // Operators paste bearer tokens; per-key typing adds unrelated timer turns.
+    await user.click(field);
+    await user.paste("lab-bootstrap-token-32-bytes!!!");
     await user.keyboard("{Enter}");
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => (c[1]?.method ?? "GET").toUpperCase() === "POST")).toBe(true);
+      // Wait for session refresh and form reset, not just request dispatch.
+      expect(field).toHaveValue("");
     });
     expect(screen.queryByRole("alert")).toBeNull();
     const post = fetchMock.mock.calls.find((c) => (c[1]?.method ?? "GET").toUpperCase() === "POST");
@@ -78,8 +82,8 @@ describe("LoginPage", () => {
         }),
       ),
     );
-    renderApp(<LoginPage />, { route: "/login" });
-    await screen.findByLabelText(/API bearer token/i);
+    await renderAppReady(<LoginPage />, { route: "/login" });
+    expect(screen.getByLabelText(/API bearer token/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /sign in/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/enter an api bearer token/i);
   });

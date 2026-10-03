@@ -137,6 +137,117 @@ func TestServeClientGET(t *testing.T) {
 	}
 }
 
+func TestWriteResponseTrailerFrames(t *testing.T) {
+	for _, bodyCase := range []struct {
+		name        string
+		body        string
+		nilBody     bool
+		dataWithEOF bool
+	}{
+		{name: "nil-body", nilBody: true},
+		{name: "empty-body"},
+		{name: "separate-eof", body: "body"},
+		{name: "data-with-eof", body: "body", dataWithEOF: true},
+	} {
+		for _, trailerCase := range []string{"nil", "empty", "declared-empty", "present", "late", "late-from-nil", "explicit"} {
+			if bodyCase.nilBody && strings.HasPrefix(trailerCase, "late") {
+				continue
+			}
+			t.Run(bodyCase.name+"/"+trailerCase, func(t *testing.T) {
+				resp := &http.Response{StatusCode: http.StatusOK}
+				var trailers []model.Header
+				wantTrailer := false
+				switch trailerCase {
+				case "empty", "late":
+					resp.Trailer = make(http.Header)
+				case "declared-empty":
+					resp.Trailer = http.Header{"Grpc-Status": nil}
+				case "present":
+					resp.Trailer = http.Header{"Grpc-Status": []string{"0"}}
+					wantTrailer = true
+				case "explicit":
+					trailers = []model.Header{{Name: "Grpc-Status", Value: "0"}}
+					wantTrailer = true
+				}
+				if strings.HasPrefix(trailerCase, "late") {
+					wantTrailer = true
+				}
+				if !bodyCase.nilBody {
+					source := strings.NewReader(bodyCase.body)
+					resp.Body = io.NopCloser(responseTrailerReader(func(p []byte) (int, error) {
+						n, err := source.Read(p)
+						if bodyCase.dataWithEOF && source.Len() == 0 {
+							err = io.EOF
+						}
+						if err == io.EOF && strings.HasPrefix(trailerCase, "late") {
+							if resp.Trailer == nil {
+								resp.Trailer = make(http.Header)
+							}
+							resp.Trailer.Set("Grpc-Status", "0")
+						}
+						return n, err
+					}))
+				}
+				var wire, headerBlock bytes.Buffer
+				fr := http2.NewFramer(&wire, nil)
+				out := newOutFlow()
+				out.open(1)
+				if err := writeResponse(fr, hpack.NewEncoder(&headerBlock), &headerBlock, func(write func() error) error { return write() }, out, 1, resp, trailers); err != nil {
+					t.Fatal(err)
+				}
+				fr = http2.NewFramer(nil, &wire)
+				fr.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+				var body bytes.Buffer
+				headerFrames, endFrames := 0, 0
+				for wire.Len() > 0 {
+					frame, err := fr.ReadFrame()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if endFrames != 0 {
+						t.Fatal("frame follows END_STREAM")
+					}
+					switch frame := frame.(type) {
+					case *http2.MetaHeadersFrame:
+						headerFrames++
+						if headerFrames == 1 {
+							if frame.PseudoValue("status") != "200" {
+								t.Fatalf("response headers=%v", frame.Fields)
+							}
+						} else if !wantTrailer || len(frame.Fields) != 1 || frame.Fields[0].Name != "grpc-status" || frame.Fields[0].Value != "0" || !frame.StreamEnded() {
+							t.Fatalf("unexpected trailer HEADERS: fields=%v end=%v", frame.Fields, frame.StreamEnded())
+						}
+						if frame.StreamEnded() {
+							endFrames++
+						}
+					case *http2.DataFrame:
+						body.Write(frame.Data())
+						if frame.StreamEnded() {
+							if wantTrailer {
+								t.Fatal("DATA ended stream before trailers")
+							}
+							endFrames++
+						}
+					default:
+						t.Fatalf("unexpected frame %T", frame)
+					}
+				}
+				wantHeaders := 1
+				if wantTrailer {
+					wantHeaders++
+				}
+				if body.String() != bodyCase.body || headerFrames != wantHeaders || endFrames != 1 {
+					t.Fatalf("body=%q headers=%d END_STREAM=%d; want body=%q headers=%d END_STREAM=1", body.String(), headerFrames, endFrames, bodyCase.body, wantHeaders)
+				}
+			})
+		}
+	}
+}
+
+type responseTrailerReader func([]byte) (int, error)
+
+func (r responseTrailerReader) Read(p []byte) (int, error) { return r(p) }
+
 func TestServeClientKeepsRequestBodyAfterHandlerReturns(t *testing.T) {
 	client, server := h2TLSPair(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

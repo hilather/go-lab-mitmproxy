@@ -15,6 +15,10 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- Reset reports an occupied listener address as non-retryable `validation_failed` on REST and MCP, with recovery guidance. Same-port changes that overlap an active bind require a restart or an intermediate free port; failed Reset preserves listeners, state, and flows.
+- REST unknown-field errors name the rejected field instead of reporting valid JSON as malformed.
+- HTTP/2 responses omit empty trailer HEADERS while preserving actual trailers, including values populated after streaming the body.
+- Login and Reset UI regressions await session loading and completed login, with input setup that avoids unnecessary per-character timers without relaxing test deadlines or confirmation checks.
 - Management listeners honor configured TLS, require TLS 1.2 or newer, and reject plaintext when enabled. Startup validates certificate/key files before opening listeners. Operators with TLS configured must use HTTPS, including management health probes.
 - Reset preflights proxy, original-destination, management, and metrics listener changes, then applies them with the new snapshot. Failed binds or invalid management TLS leave the old listeners, state, and flows intact. Existing CLI address overrides remain authoritative; accepted sessions and the Reset response can finish.
 - Bearer rotation invalidates browser sessions atomically through credential generations, including a session-create request authenticated just before rotation. Failed credential reloads preserve existing sessions.

@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: MCP, Application
-Last reviewed: 2026-08-28 (D73 frames[].action; compact features.httpAuth)
+Last reviewed: 2026-10-03 (Reset listener address conflict errors)
 Related ADRs: 0004, 0006, 0013, 0015, 0016, 0017
 
 Native management API is `/v1` + `POST /mcp`. Capability IDs and tool names are frozen in [docs/07-control-plane-and-parity.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/07-control-plane-and-parity.md). Protocol pin: [docs/adr/0006-pin-mcp-protocol-versions.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0006-pin-mcp-protocol-versions.md).
@@ -21,6 +21,8 @@ Native management API is `/v1` + `POST /mcp`. Capability IDs and tool names are 
 - `subscriptions/listen` stays 2026-07-28 even when the pin is relaxed.
 
 Tool input/output schemas are generated from the same Go request/response types as REST. MCP structured content is the operation result **without** the HTTP problem envelope; domain `code` is always present on errors.
+
+`mitm_state_reset` returns the same non-retryable `validation_failed` domain error as REST when a prepared listener address is already in use. Remediation covers overlapping same-port changes; the active state, listeners, and flows remain intact. See [Reset](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/06-state-and-configuration.md#reset).
 
 Resources mirror GET representations. Clients without resource support use the `mitm_*` read tools.
 

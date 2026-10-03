@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
+	"syscall"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/audit"
 	"github.com/hilather/go-lab-mitmproxy/internal/compiler"
@@ -67,6 +69,10 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	if s.resetRuntime != nil {
 		commit, rollback, err = s.resetRuntime(ctx, next.Spec())
 		if err != nil {
+			if errors.Is(err, syscall.EADDRINUSE) {
+				return nil, nil, domainerr.ValidationFailed("Reset listener address is already in use: " + err.Error()).
+					WithRemediation("Free the occupied address or choose a nonoverlapping address in bootstrap YAML, then Reset. If it overlaps an active listener, restart the process or Reset through a free intermediate port.")
+			}
 			return nil, nil, asDomain(err)
 		}
 		if rollback != nil {

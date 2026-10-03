@@ -10,22 +10,79 @@ import (
 
 func TestDecodeRequestRejectsUnknownFields(t *testing.T) {
 	s, _ := newTestServer(t)
-	for _, body := range []string{
-		`{"reasno":"oops"}`,
-		`{"operations":[{"op":"setFeature","feature":{"id":"rules.enabled","enabeld":true}}]}`,
-		`{"operations":[{"op":"replaceAdmission","admission":{"maxSesion":3}}]}`,
+	for _, tt := range []struct {
+		body  string
+		field string
+	}{
+		{`{"reasno":"oops"}`, "reasno"},
+		{`{"operations":[{"op":"setFeature","feature":{"id":"rules.enabled","enabeld":true}}]}`, "enabeld"},
+		{`{"operations":[{"op":"replaceAdmission","admission":{"maxSesion":3}}]}`, "maxSesion"},
 	} {
-		t.Run(body, func(t *testing.T) {
+		t.Run(tt.field, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			var in changeRequest
-			req := httptest.NewRequest(http.MethodPost, "/v1/changes:plan", strings.NewReader(body))
-			if s.decodeBytes(rec, req, "test", []byte(body), &in) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/changes:plan", strings.NewReader(tt.body))
+			if s.decodeBytes(rec, req, "test", []byte(tt.body), &in) {
 				t.Fatal("unknown field accepted")
 			}
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			requireRequestViolation(t, rec, "unknown fields", tt.field, "unknown_field", `unknown field "`+tt.field+`"`)
+		})
+	}
+}
+
+func TestRESTResetDecodeErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name, body, detail, path, code, message string
+	}{
+		{
+			name: "unknown field", body: `{"reason":"x","nope":true}`,
+			detail: "unknown fields", path: "nope", code: "unknown_field", message: `unknown field "nope"`,
+		},
+		{
+			name: "escaped unknown field", body: `{"reason":"x","odd\"key":"do-not-expose"}`,
+			detail: "unknown fields", path: `odd"key`, code: "unknown_field", message: `unknown field "odd\"key"`,
+		},
+		{
+			name: "malformed JSON", body: `{"reason":]}`,
+			detail: "invalid JSON", code: "invalid_value", message: "request body is not valid JSON",
+		},
+		{
+			name: "trailing JSON", body: `{"reason":"x"} {}`,
+			detail: "request body must contain a single JSON value", code: "invalid_value", message: "trailing JSON is not allowed",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, svc := newTestServer(t)
+			id := insertFlow(t, svc, "app.lab")
+			epoch := svc.Inbox().Epoch()
+			rec := doReq(t, s.Handler(), http.MethodPost, "/v1/state:reset", tt.body)
+			requireRequestViolation(t, rec, tt.detail, tt.path, tt.code, tt.message)
+			if strings.Contains(rec.Body.String(), "do-not-expose") {
+				t.Fatal("decode error exposed the unknown field value")
+			}
+			if svc.Inbox().Epoch() != epoch {
+				t.Fatal("rejected request reset the store")
+			}
+			if _, err := svc.Inbox().Get(id); err != nil {
+				t.Fatalf("rejected request removed a flow: %v", err)
 			}
 		})
+	}
+}
+
+func requireRequestViolation(t *testing.T, rec *httptest.ResponseRecorder, detail, path, code, message string) {
+	t.Helper()
+	problem := requireProblem(t, rec, http.StatusBadRequest, "validation_failed")
+	if problem["detail"] != detail {
+		t.Fatalf("detail=%v want %q; body=%s", problem["detail"], detail, rec.Body.String())
+	}
+	violations, ok := problem["fieldViolations"].([]any)
+	if !ok || len(violations) != 1 {
+		t.Fatalf("expected one field violation: %s", rec.Body.String())
+	}
+	violation, ok := violations[0].(map[string]any)
+	if !ok || violation["path"] != path || violation["code"] != code || violation["message"] != message {
+		t.Fatalf("violation=%v want path=%q code=%q message=%q", violations[0], path, code, message)
 	}
 }
 

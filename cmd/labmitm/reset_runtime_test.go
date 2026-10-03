@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +19,8 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/app"
+	"github.com/hilather/go-lab-mitmproxy/internal/capabilities"
+	"github.com/hilather/go-lab-mitmproxy/internal/domainerr"
 	"github.com/hilather/go-lab-mitmproxy/internal/model"
 )
 
@@ -211,8 +214,15 @@ func TestResetListenerFailuresPreserveStateFlowsAndBindings(t *testing.T) {
 				block = "      tls:\n        enabled: true\n        certFile: /missing-cert\n        keyFile: /missing-key"
 			}
 			runtimeConfig(t, path, proxyAddr, mgmtAddr, metricsAddr, block)
-			if _, err := rt.svc.Reset(context.Background(), app.Actor{ID: "test"}, app.ResetIn{Reason: "fail"}); err == nil {
+			_, err = rt.svc.Reset(context.Background(), app.Actor{ID: "test"}, app.ResetIn{Reason: "fail"})
+			if err == nil {
 				t.Fatal("reset unexpectedly succeeded")
+			}
+			if failure != "tls" {
+				de, ok := domainerr.As(err)
+				if !ok || de.Code != domainerr.CodeValidationFailed || de.Retryable || de.Remediation == "" {
+					t.Fatalf("occupied address must return nonretryable validation with remediation: %v", err)
+				}
 			}
 			if rt.svc.Active() != before || rt.svc.Inbox().Epoch() != epoch || rt.svc.Inbox().Stats().FlowCount != 1 {
 				t.Fatal("failed Reset changed state or flows")
@@ -232,6 +242,97 @@ func TestResetListenerFailuresPreserveStateFlowsAndBindings(t *testing.T) {
 		})
 	}
 }
+
+func TestResetOverlappingListenerAddressReturnsValidationAndRollsBack(t *testing.T) {
+	for _, listener := range []string{"proxy", "management", "metrics"} {
+		t.Run(listener, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			oldProxy, oldMgmt, oldMetrics := freeAddress(t), freeAddress(t), freeAddress(t)
+			runtimeConfig(t, path, oldProxy, oldMgmt, oldMetrics, "")
+			rt := startTestRuntime(t, path, "")
+			before := rt.svc.Active()
+			epoch := rt.svc.Inbox().Epoch()
+			inserted, err := rt.svc.Inbox().Insert(context.Background(), epoch, &model.Flow{Host: "preserved.lab"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldAddress := map[string]string{"proxy": oldProxy, "management": oldMgmt, "metrics": oldMetrics}[listener]
+			_, port, err := net.SplitHostPort(oldAddress)
+			if err != nil {
+				t.Fatal(err)
+			}
+			overlap := net.JoinHostPort("0.0.0.0", port)
+			proxyAddr, mgmtAddr, metricsAddr := freeAddress(t), freeAddress(t), freeAddress(t)
+			switch listener {
+			case "proxy":
+				proxyAddr = overlap
+			case "management":
+				mgmtAddr = overlap
+			case "metrics":
+				metricsAddr = overlap
+			}
+			runtimeConfig(t, path, proxyAddr, mgmtAddr, metricsAddr, "")
+			req, err := http.NewRequest("POST", "http://"+oldMgmt+"/v1/state:reset", strings.NewReader(`{"reason":"overlapping bind"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Authorization", "Bearer "+serveTestToken)
+			req.Header.Set("Content-Type", "application/json")
+			transport := &http.Transport{DisableKeepAlives: true}
+			defer transport.CloseIdleConnections()
+			client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var problem capabilities.Problem
+			if err := json.Unmarshal(body, &problem); err != nil {
+				t.Fatalf("decode problem %q: %v", body, err)
+			}
+			if resp.StatusCode != http.StatusBadRequest || problem.Code != domainerr.CodeValidationFailed || problem.Retryable {
+				t.Errorf("overlapping Reset must return nonretryable validation: HTTP %d: %s", resp.StatusCode, body)
+			}
+			if !strings.Contains(problem.Detail, overlap) || !strings.Contains(problem.Remediation, "restart") || !strings.Contains(problem.Remediation, "intermediate port") {
+				t.Errorf("overlapping Reset must name address and remediation: %s", body)
+			}
+			if rt.svc.Active() != before || rt.svc.Inbox().Epoch() != epoch || rt.svc.Inbox().Stats().FlowCount != 1 {
+				t.Fatal("failed Reset changed state or flows")
+			}
+			if _, err := rt.svc.Inbox().Get(inserted.ID); err != nil {
+				t.Fatalf("failed Reset lost preserved flow: %v", err)
+			}
+			if rt.proxy.Addr().String() != oldProxy || rt.http.Addr() != oldMgmt || rt.metrics.Addr() != oldMetrics {
+				t.Fatal("failed Reset published staged listener addresses")
+			}
+			for _, addr := range []string{oldProxy, oldMgmt, oldMetrics} {
+				conn, err := net.DialTimeout("tcp", addr, time.Second)
+				if err != nil {
+					t.Fatalf("old bind lost: %s: %v", addr, err)
+				}
+				_ = conn.Close()
+			}
+			for _, addr := range []string{proxyAddr, mgmtAddr, metricsAddr} {
+				if addr == overlap {
+					continue
+				}
+				ln, err := net.Listen("tcp", addr)
+				if err != nil {
+					t.Fatalf("staged address was not released: %s: %v", addr, err)
+				}
+				_ = ln.Close()
+			}
+			if body := getViaProxy(t, oldProxy, httptestOrigin(t)+"/"); body != "origin" {
+				t.Fatalf("old proxy no longer forwards after failed Reset: %q", body)
+			}
+		})
+	}
+}
+
 func TestResetSameManagementAddressChangesTLSAndKeepsManagementOff(t *testing.T) {
 	for _, off := range []bool{false, true} {
 		t.Run(fmt.Sprint(off), func(t *testing.T) {

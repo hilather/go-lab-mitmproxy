@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-10-02 (candidate decoding and transactional Reset)
+Last reviewed: 2026-10-03 (Reset listener address conflicts)
 Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -209,6 +209,8 @@ The published schema is [api/jsonschema/labmitm.dev.v1alpha1.json](https://githu
 5. Swap the snapshot under the mutation lock, activate the prepared listeners/TLS configuration, retire replaced accepts, clear the idempotency LRU, and increment `generation`. The commit performs no fallible bind or certificate load.
 6. In-flight proxy sessions keep the old snapshot until the request ends; new accepts load the new one. Existing management connections remain alive so the Reset response can complete. CLI bind overrides (including management off) continue to take precedence.
 7. Audit `state.reset`.
+
+An occupied listener address fails runtime preflight with non-retryable `validation_failed` and recovery guidance on both REST and MCP. Reset reserves new sockets before retiring old ones, so overlapping same-port changes (for example, `127.0.0.1:8888` to `0.0.0.0:8888`) cannot complete in one Reset. Restart with the new bootstrap, or Reset through an intermediate free port before selecting the final address. Each successful Reset wipes flows; failed attempts preserve them.
 
 Restart is equivalent: process memory dies; generate-mode CA is new; spill wiped on next start.
 

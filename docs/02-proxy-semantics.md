@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Proxy, Architecture
-Last reviewed: 2026-10-02 (bounded HTTP/2 forwarding and D78)
+Last reviewed: 2026-10-03 (HTTP/2 trailer completion)
 Related ADRs: 0002, 0009, 0010, 0012, 0013, 0014, 0015, 0016, 0017, 0019
 
 Implementation lives in `internal/proxy` (listener, session, CONNECT, resolve-then-guard) and `internal/httputilx` (hop-by-hop strip). No third-party proxy library. Do not use `httputil.ReverseProxy`. See [docs/adr/0002-in-tree-http-forward-proxy.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0002-in-tree-http-forward-proxy.md).
@@ -222,6 +222,8 @@ Upstream request is origin-form. Use `http.Transport.RoundTrip` **only** — nev
 ## Stream vs mutate (bodies)
 
 HTTP/2 inner and h2c responses forward headers and body incrementally on the capture-only path; neither adapter buffers the complete response. HTTP/1.1 origin ownership lasts until the original body is consumed or closed, while HTTP/2 origins multiplex independently.
+
+HTTP/2 response completion checks trailer values after body EOF, when streaming origins have finished populating them. Actual trailers are sent in a final HEADERS block; responses with no trailer fields end on DATA (or the initial HEADERS for a nil body) without an empty trailer block.
 
 Two paths, chosen **after** request-phase rules match (and again after response headers for response-phase rules):
 

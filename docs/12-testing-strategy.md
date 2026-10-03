@@ -2,10 +2,12 @@
 
 Status: Proposed normative behavior
 Owners: Quality, Proxy, Control Plane
-Last reviewed: 2026-10-02 (review regressions and CI failure propagation)
+Last reviewed: 2026-10-03 (QA Reset, JSON diagnostics, and trailer regressions)
 Related ADRs: 0002, 0004, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019
 
 Every area has regressions. A bug fix starts with a failing test. CI has no optional jobs.
+
+QA follow-up regressions require overlapping same-port Reset binds to report non-retryable validation errors while preserving the snapshot, flows, and active listeners and releasing staged sockets. REST unknown-field tests assert the rejected name, a distinct syntax diagnostic for malformed JSON, and no mutation. HTTP/2 frame tests assert completion without empty trailer HEADERS and preservation of real trailers populated at EOF. Login and Reset UI tests await initial session loading; login also awaits session refresh and form clearing. Fixture input avoids unnecessary per-character timer turns while retaining Enter submission and confirmation gating assertions.
 
 Review regressions cover management HTTPS and transactional Reset listener rollback (`cmd/labmitm/reset_runtime_test.go`), credential-rotation interleavings (`internal/auth/rotation_regression_test.go` and REST session tests), strict REST envelopes and single candidate coercion (`internal/control/rest/request_regression_test.go`), leaf expiry (`internal/tlsmitm/leaf_expiry_test.go`), transactional spill replacement and explicit empty Resume patches (`internal/store/resume_regression_test.go`, `internal/proxy/resume_empty_test.go`). HTTP/2 frame-level tests enforce receive windows, padding credit, stream-error isolation, completed-origin cleanup, and complete-response preservation when a normal origin reset ends an unused upload (`internal/http2x/review_test.go`). Proxy wire tests require headers and body prefixes before origin EOF on inner h1/h2 and h2c, bounded stored capture, and an intact oversized body after breakpoint Resume (`internal/proxy/review_streaming_test.go`). A stalled origin-h2 response and upload must be canceled by inner RST while a sibling stream stays usable (`internal/proxy/cancel_stream_test.go`). The oversized h1 breakpoint exception is D78; small response breakpoint and throttle concurrency regressions remain required.
 
