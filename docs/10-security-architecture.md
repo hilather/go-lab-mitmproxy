@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Security, Proxy, Control Plane
-Last reviewed: 2026-10-02 (credential generation and session revocation)
+Last reviewed: 2026-10-03 (frontend control-plane parity and regression coverage)
 Related ADRs: 0002, 0003, 0005, 0007, 0009, 0010, 0012, 0014, 0015, 0016, 0017, 0018
 
 LabMITM is a **laboratory intercepting proxy**, not a public edge proxy and not an attack framework. It is a loaded gun: anyone who can reach the proxy can make the process dial arbitrary targets; anyone who can steal the CA can impersonate every host the clients trust that CA for; anyone who can read the management API can exfiltrate captured bodies (often cookies and tokens).
@@ -83,3 +83,9 @@ Default 1.0 view is escaped text. Optional preview iframe (off by default): `san
 ## Container
 
 Non-root UID 65532, read-only root, no caps, no-new-privileges, no shell, no Docker socket, no writable volume except tmpfs `/tmp` (optional spill `/tmp/labmitm-spill`). Image does **not** contain a lab MITM CA key. Image **must** copy `/etc/ssl/certs/ca-certificates.crt` from the build stage so `x509.SystemCertPool()` is non-empty and default upstream verify works. Transparent orig-dest does **not** add `NET_ADMIN` or change `USER`. iptables REDIRECT lives in a privileged sidecar or on the host ([examples/compose.originaldest.yaml](https://github.com/hilather/go-lab-mitmproxy/blob/main/examples/compose.originaldest.yaml)).
+
+## Embedded UI parity
+
+The [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md) documents the browser equivalents of the existing control-plane operations under ADR 0020 (D79). Browser requests retain the same authorization, validation, preconditions and error contracts. No REST paths, MCP tools, capability IDs, configuration schema or bootstrap ownership change.
+
+Resume and replay remain guarded application operations. The browser renders captured data, audit details, diagnostics and errors as text; body downloads remain blob attachments. Complete TLS and HTTP-auth edits contain file references only. UI-off and store-eviction plans require confirmation, and plan review pins the exact request through apply. Browser mutation payloads carry session CSRF; actor identity comes from the authenticated session.

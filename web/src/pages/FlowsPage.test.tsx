@@ -274,3 +274,72 @@ describe("FlowsWorkspace", () => {
     expect(RecordingEventSource.instances).toHaveLength(1);
   });
 });
+
+it("refreshes selected pause actions on SSE without losing replay results", async () => {
+  vi.stubGlobal("EventSource", RecordingEventSource);
+  let paused = false;
+  let generation = 4;
+  const current = () => ({ ...httpFlow, state: paused ? "paused" : "completed" });
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/v1/session") return json(200, sessionView());
+    if (url === "/v1/state") return json(200, portsOnlyState("sha256:abc", [8443]));
+    if (url.endsWith(":replay")) return json(200, { ...httpFlow, id: "replayed" });
+    if (url.startsWith("/v1/flows/")) return json(200, current());
+    return json(200, { revision: "rev", storeGeneration: generation, items: [current()], nextCursor: null });
+  }));
+  const user = userEvent.setup();
+  await renderAppReady(<AppRoutes />, { route: "/flows/01JH2LIST" });
+  expect(screen.queryByRole("button", { name: "Resume flow" })).not.toBeInTheDocument();
+  paused = true;
+  generation++;
+  await act(async () => RecordingEventSource.instances[0]?.dispatch("flow.paused"));
+  expect(await screen.findByRole("button", { name: "Resume flow" })).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: "Replay flow" }));
+  expect(await screen.findByRole("link", { name: "Inspect replay replayed" })).toBeVisible();
+  generation++;
+  await act(async () => RecordingEventSource.instances[0]?.dispatch("flow.inserted"));
+  expect(await screen.findByRole("link", { name: "Inspect replay replayed" })).toBeVisible();
+  paused = false;
+  generation++;
+  await act(async () => RecordingEventSource.instances[0]?.dispatch("flow.resumed"));
+  expect(screen.queryByRole("button", { name: "Resume flow" })).not.toBeInTheDocument();
+  expect(RecordingEventSource.instances).toHaveLength(1);
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  RecordingEventSource.instances = [];
+  resetClientState();
+});
+
+describe("flow list errors", () => {
+  afterEach(() => {
+    resetClientState();
+    vi.unstubAllGlobals();
+    RecordingEventSource.instances = [];
+  });
+  it("shows list filter field violations instead of only the detail", async () => {
+    vi.stubGlobal("EventSource", RecordingEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) return json(200, sessionView());
+        if (url.endsWith("/v1/state")) return json(200, portsOnlyState("sha256:abc", [8443]));
+        if (url.includes("/v1/flows"))
+          return json(400, {
+            status: 400,
+            title: "Validation failed",
+            detail: "invalid status",
+            code: "validation_failed",
+            fieldViolations: [{ path: "status", code: "invalid_value", message: "status must be an integer" }],
+          });
+        return json(404, { code: "not_found", detail: "not found" });
+      }),
+    );
+    await renderAppReady(<AppRoutes />, { route: "/" });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "invalid status (status: status must be an integer [invalid_value])",
+    );
+  });
+});

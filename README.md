@@ -184,6 +184,8 @@ probes readiness.
 The CA certificate is `GET /v1/ca` (PEM cert only, authenticated; never the
 key; not on `:8888`).
 
+The [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md) covers flow pause/edit/drop/replay/wait, full configuration validation/plan/apply/export, diagnostics and audit.
+
 Open `http://127.0.0.1:8088/` for the flow inspector. Paste the bearer
 token; the SPA talks REST only (`POST /v1/session`, cookie + CSRF).
 `spec.ui.enabled: false` 404s `/` and keeps REST/MCP. Production UI assets:

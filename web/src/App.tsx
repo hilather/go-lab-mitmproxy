@@ -3,6 +3,8 @@ import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation } 
 import { InterceptChip, LiveSpecProvider } from "./api/liveSpec";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { SCOPE_ADMIN, SCOPE_AUDIT } from "./auth/scopes";
+import { ConfigurationPage } from "./pages/ConfigurationPage";
+import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { AuditPage } from "./pages/AuditPage";
 import { FlowsWorkspace } from "./pages/FlowsWorkspace";
 import { LoginPage } from "./pages/LoginPage";
@@ -149,6 +151,8 @@ export function AppRoutes() {
             <Route path="/flows/:id" element={<></>} />
           </Route>
           <Route path="/status" element={<StatusPage />} />
+          <Route path="/configuration" element={<ConfigurationPage />} />
+          <Route path="/diagnostics" element={<DiagnosticsPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/reset" element={<ResetPage />} />
         </Route>

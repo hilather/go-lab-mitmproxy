@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { APIError, applyChanges, CA_DOWNLOAD_URL, getFeatures, getState, getStatus } from "../api/client";
+import { APIError, applyChanges, CA_DOWNLOAD_URL, errorMessage, getFeatures, getState, getStatus } from "../api/client";
+import { planConfiguration } from "../api/configuration";
 import { useLiveSpec } from "../api/liveSpec";
 import type {
   AdmissionSpec,
@@ -93,7 +94,7 @@ export function StatusPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof APIError ? err.message : "Could not load status.");
+          setError(errorMessage(err, "Could not load status."));
         }
       }
     })();
@@ -106,7 +107,7 @@ export function StatusPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setFeatureError(err instanceof APIError ? err.message : "Could not load features.");
+          setFeatureError(errorMessage(err, "Could not load features."));
         }
       }
     })();
@@ -119,7 +120,7 @@ export function StatusPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setStateError(err instanceof APIError ? err.message : "Could not load state.");
+          setStateError(errorMessage(err, "Could not load state."));
         }
       }
     })();
@@ -237,12 +238,16 @@ export function StatusPage() {
       const fresh = await getState();
       const expectedRevision = fresh.runtimeRevision || revision;
       const ops = typeof operations === "function" ? await operations(fresh) : operations;
-      const result = await applyChanges({
+      const change = {
         expectedRevision,
         idempotencyKey,
         reason: reason.trim(),
         operations: ops,
-      });
+        force: false,
+      };
+      const plan = await planConfiguration(change);
+      if (!window.confirm(`Review planned change before applying:\n${JSON.stringify({ change, plan }, null, 2)}`)) return false;
+      const result = await applyChanges(change);
       if (result.runtimeRevision) {
         setRevision(result.runtimeRevision);
       }
@@ -250,7 +255,7 @@ export function StatusPage() {
       return true;
     } catch (err) {
       const detail =
-        err instanceof APIError ? err.problem.detail || err.message : "Could not apply change.";
+        errorMessage(err, "Could not apply change.");
       setFeatureError(detail);
       if (err instanceof APIError && err.problem.status === 409) {
         try {
@@ -447,6 +452,7 @@ export function StatusPage() {
     <main className="page">
       <p className="kicker">Status</p>
       <h1>Status</h1>
+      <p><Link to="/configuration">Full configuration, validation, plan review and export</Link></p>
       <p className="banner-warn">
         Lab-only intercepting proxy. Install the lab CA only on systems under test and uninstall it
         after use. LabMITM is not a public MITM product.

@@ -187,7 +187,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: REST/MCP parity
+      - name: Frontend and REST/MCP parity
         run: make test-parity
 
   container-test:
@@ -213,7 +213,7 @@ jobs:
           node-version: "22.14.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Flow-inspector SPA tests
+      - name: Operator UI tests and parity evidence
         run: |
           make web-install
           make web-test

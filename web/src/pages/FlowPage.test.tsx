@@ -514,3 +514,21 @@ describe("FlowPage", () => {
   });
 });
 
+it("keeps the returned replay visible after a real inspector action", async () => {
+  const user = userEvent.setup(); vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/v1/session" ? json(200, sessionView()) : String(input).endsWith(":replay") ? json(200, { ...flow, id: "replay-result" }) : json(200, flow)));
+  await renderAppReady(<Routes><Route path="/flows/:id" element={<FlowPage />} /></Routes>, { route: "/flows/01JTEST" });
+  await user.click(screen.getByRole("button", { name: "Replay flow" }));
+  expect(await screen.findByRole("link", { name: "Inspect replay replay-result" })).toHaveAttribute("href", "/flows/replay-result");
+  await waitFor(() => expect(screen.getByLabelText("Replay result")).toHaveTextContent('"request"'));
+  vi.restoreAllMocks();
+});
+it("exposes complete timestamps and rule IDs as escaped flow JSON", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/v1/session" ? json(200, sessionView()) : json(200, { ...flow, ruleIds: ["<script>rule</script>"], completedAt: "2026-10-03T12:00:00Z" })));
+  await renderAppReady(<Routes><Route path="/flows/:id" element={<FlowPage />} /></Routes>, { route: "/flows/01JTEST" });
+  const user = userEvent.setup();
+  await user.click(screen.getByText("Complete flow metadata"));
+  expect(screen.getByLabelText("Complete flow JSON")).toHaveTextContent("2026-10-03T12:00:00Z");
+  expect(screen.getByLabelText("Complete flow JSON")).toHaveTextContent("<script>rule</script>");
+  expect(document.querySelector("script")).toBeNull();
+});

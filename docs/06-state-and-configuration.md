@@ -2,7 +2,7 @@
 
 Status: Proposed normative behavior
 Owners: Configuration, Application
-Last reviewed: 2026-10-03 (Reset listener address conflicts)
+Last reviewed: 2026-10-03 (frontend control-plane parity and regression coverage)
 Related ADRs: 0003, 0008, 0012, 0013, 0014, 0015, 0016, 0017, 0018
 
 Desired state is YAML. The flow store is not. Config revision is a content hash of the canonical spec. Flow store has its own monotonic `storeGeneration`. Reset reloads YAML **and** wipes flows. See [docs/adr/0003-ephemeral-flows-and-gitops.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0003-ephemeral-flows-and-gitops.md).
@@ -312,3 +312,7 @@ Shutdown: `Accepting()=false` (ready goes unready) → drain in-flight proxy ses
 Known adapter reload gap: Reset currently changes listener addresses and management TLS but retains startup MCP mount paths, management origin allowlists, admission/body limits, legacy-client policy, and public metrics routing. Those settings require a process restart until the adapter reload defect in [known limitations](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md#store-and-control-plane-unchanged) is resolved.
 
 `labmitm.dev/v1alpha1` is fail-closed; additive fields only after schema bump or explicit defaulting ADR.
+
+## Embedded UI parity
+
+The [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md) documents the browser equivalents of the existing control-plane operations under ADR 0020 (D79). Browser requests retain the same authorization, validation, preconditions and error contracts. No REST paths, MCP tools, capability IDs, configuration schema or bootstrap ownership change.

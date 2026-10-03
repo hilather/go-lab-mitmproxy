@@ -566,3 +566,74 @@ dt {
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+/* Shared operator inputs and bounded diagnostic output. */
+.page input:not([type="checkbox"]),
+.page select,
+.page textarea,
+.workspace label input:not([type="checkbox"]),
+.workspace label select,
+.workspace label textarea {
+  box-sizing: border-box;
+  max-width: 100%;
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: var(--elev);
+  color: var(--fg);
+}
+.page textarea,
+.workspace textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+.page pre,
+.workspace pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.page .panel {
+  overflow-wrap: anywhere;
+}
+.workspace-list details {
+  margin: 0.75rem 0;
+}
+.workspace-list details form,
+.workspace [aria-label="Flow actions"] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.6rem;
+}
+.workspace-list label,
+.workspace [aria-label="Flow actions"] label {
+  display: block;
+}
+.workspace-list label input,
+.workspace-list label select,
+.workspace [aria-label="Flow actions"] input:not([type="checkbox"]) {
+  display: block;
+  width: 100%;
+}
+.workspace [aria-label="Flow actions"] {
+  border: 1px solid var(--line);
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+summary {
+  cursor: pointer;
+}
+
+.diagnostic-output {
+  max-height: 24rem;
+}

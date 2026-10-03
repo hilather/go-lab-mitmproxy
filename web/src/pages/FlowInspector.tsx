@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  APIError,
   deleteFlow,
+  errorMessage,
   downloadFlowBody,
   flowBodyFilename,
   getFlow,
@@ -21,6 +21,8 @@ import {
   tunnelSubtitle,
 } from "../ui/flowKind";
 import { contentTypeOf, shouldRenderAsText, toHexDump } from "../ui/bodyView";
+
+import { FlowActions } from "./FlowActions";
 
 type Tab = "request" | "response" | "trailers" | "tls" | "frames" | "grpc";
 
@@ -305,22 +307,35 @@ export function FlowInspector({
   id,
   embedded,
   onDeleted,
+  storeGeneration,
 }: {
   id: string;
   embedded?: boolean;
   onDeleted?: () => void;
+  storeGeneration?: number | undefined;
 }) {
   const navigate = useNavigate();
   const { hasScope } = useAuth();
   const canWrite = hasScope(SCOPE_WRITE);
+  const loadedID = useRef("");
+  const activeID = useRef(id);
+  activeID.current = id;
+  const [expectedGeneration, setExpectedGeneration] = useState("");
+  const [showComplete, setShowComplete] = useState(false);
+  const [refreshCounter, setRefreshCounter] = useState(0);
   const [tab, setTab] = useState<Tab>("request");
   const [flow, setFlow] = useState<Flow | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    setTab("request");
-    setFlow(null);
+    if (loadedID.current !== id) {
+      setTab("request");
+      setShowComplete(false);
+      setExpectedGeneration("");
+      setFlow(null);
+      loadedID.current = id;
+    }
     setError("");
     if (id === "") {
       return;
@@ -334,27 +349,28 @@ export function FlowInspector({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof APIError ? err.message : "Flow not found.");
+          setError(errorMessage(err, "Flow not found."));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, refreshCounter, storeGeneration]);
 
   async function onDelete() {
     if (!window.confirm("Delete this flow?")) {
       return;
     }
     try {
-      await deleteFlow(id);
+      await deleteFlow(id, expectedGeneration === "" ? undefined : Number(expectedGeneration));
+      if (activeID.current !== id) return;
       if (onDeleted) {
         onDeleted();
       }
       void navigate("/", { replace: true });
     } catch (err) {
-      setError(err instanceof APIError ? err.message : "Delete failed.");
+      if (activeID.current === id) setError(errorMessage(err, "Delete failed."));
     }
   }
 
@@ -362,7 +378,7 @@ export function FlowInspector({
     try {
       await downloadFlowBody(id, side);
     } catch (err) {
-      setError(err instanceof APIError ? err.message : "Download failed.");
+      if (activeID.current === id) setError(errorMessage(err, "Download failed."));
     }
   }
 
@@ -442,6 +458,12 @@ export function FlowInspector({
           </button>
         ) : null}
       </div>
+      {canWrite ? <label>Delete expected store generation (optional)<input type="number" min="0" step="1" placeholder={storeGeneration === undefined ? "Any generation" : String(storeGeneration)} value={expectedGeneration} onChange={e => setExpectedGeneration(e.target.value)} /></label> : null}
+      <FlowActions key={flow.id} flow={flow} onChanged={() => { if (activeID.current === flow.id) setRefreshCounter(n => n + 1); }} />
+      <details open={showComplete} onToggle={event => setShowComplete(event.currentTarget.open)}>
+        <summary>Complete flow metadata</summary>
+        {showComplete ? <pre className="raw" aria-label="Complete flow JSON">{JSON.stringify(flow, null, 2)}</pre> : null}
+      </details>
       <FlowCaptureMeta flow={flow} />
       {flow.error ? <p className="banner-error">{flow.error}</p> : null}
       {error !== "" ? (

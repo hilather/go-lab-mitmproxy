@@ -40,4 +40,42 @@ describe("ResetPage", () => {
     fireEvent.change(phrase, { target: { value: "RESE" } });
     expect(submit).toBeDisabled();
   });
+
+  it("shows field violations and remediation when reset is rejected", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/session")) {
+          return json(200, sessionView());
+        }
+        if (url.endsWith("/v1/state:reset")) {
+          return json(400, {
+            status: 400,
+            title: "validation failed",
+            detail: "request validation failed",
+            code: "validation_failed",
+            type: "urn:labmitm:error:validation-failed",
+            fieldViolations: [{ path: "reason", message: "unknown field \"reason\"", code: "unknown_field" }],
+            remediation: "Free the listener port and retry.",
+          });
+        }
+        return json(404, {
+          status: 404,
+          title: "not found",
+          detail: "not found",
+          code: "not_found",
+          type: "urn:labmitm:error:not-found",
+        });
+      }),
+    );
+    await renderAppReady(<ResetPage />, { route: "/reset" });
+    fireEvent.change(screen.getByLabelText(/Confirmation phrase/i), { target: { value: "RESET" } });
+    await user.click(screen.getByLabelText(/Wipe the flow store/i));
+    await user.click(screen.getByRole("button", { name: /Reset LabMITM/i }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent('reason: unknown field "reason" [unknown_field]');
+    expect(alert).toHaveTextContent("Remediation: Free the listener port and retry.");
+  });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useMatch, useNavigate } from "react-router-dom";
-import { APIError, clearFlows, listAllFlows } from "../api/client";
-import type { Flow } from "../api/types";
+import { clearFlows, errorMessage, listAllFlows } from "../api/client";
+import type { Flow, FlowListQuery } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE, formatBytes } from "../auth/scopes";
 import { useFlowsLive } from "../hooks/useFlowsLive";
@@ -18,6 +18,8 @@ import {
 } from "../ui/flowKind";
 import { FlowInspector } from "./FlowInspector";
 
+import { FlowFilters } from "./FlowFilters";
+
 export function FlowsWorkspace() {
   const { hasScope } = useAuth();
   const canWrite = hasScope(SCOPE_WRITE);
@@ -27,6 +29,9 @@ export function FlowsWorkspace() {
   selectedRef.current = selected;
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  const queryRef = useRef<FlowListQuery>({});
+  const requestVersion = useRef(0);
+  const [clearGeneration, setClearGeneration] = useState("");
   const [items, setItems] = useState<Flow[]>([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
@@ -36,17 +41,19 @@ export function FlowsWorkspace() {
   // reconnect EventSource (useFlowsLive [enabled, onChange]).
   const refresh = useCallback(() => {
     void (async () => {
+      const version = ++requestVersion.current;
       try {
-        const list = await listAllFlows({});
+        const list = await listAllFlows(queryRef.current);
+        if (version !== requestVersion.current) return;
         setItems(list.items);
         setGeneration(list.storeGeneration);
         setError("");
         const id = selectedRef.current;
-        if (id !== "" && !list.items.some((f) => f.id === id)) {
+        if (Object.keys(queryRef.current).length === 0 && id !== "" && !list.items.some((f) => f.id === id)) {
           navigateRef.current("/", { replace: true });
         }
       } catch (err) {
-        setError(err instanceof APIError ? err.message : "Could not load flows.");
+        if (version === requestVersion.current) setError(errorMessage(err, "Could not load flows.", true));
       }
     })();
   }, []);
@@ -63,11 +70,11 @@ export function FlowsWorkspace() {
       return;
     }
     try {
-      await clearFlows();
+      await clearFlows(clearGeneration === "" ? undefined : Number(clearGeneration));
       navigate("/", { replace: true });
       refresh();
     } catch (err) {
-      setError(err instanceof APIError ? err.message : "Clear failed.");
+      setError(errorMessage(err, "Clear failed."));
     }
   }
 
@@ -97,6 +104,8 @@ export function FlowsWorkspace() {
             </button>
           ) : null}
         </form>
+        <FlowFilters onFilter={query => { queryRef.current = query; setItems([]); setError(""); refresh(); }} />
+        {canWrite ? <label>Clear expected store generation (optional)<input type="number" min="0" step="1" placeholder={generation === null ? "Any generation" : String(generation)} value={clearGeneration} onChange={e => setClearGeneration(e.target.value)} /></label> : null}
         <p className="muted">
           Live update: {mode === "sse" ? "event stream" : mode === "poll" ? "3s poll fallback" : "connecting…"}.
           {generation !== null ? ` Store generation ${generation}.` : ""}
@@ -137,7 +146,7 @@ export function FlowsWorkspace() {
       </section>
       <section className="workspace-inspector" aria-label="Flow inspector">
         {selected !== "" ? (
-          <FlowInspector id={selected} embedded onDeleted={refresh} />
+          <FlowInspector storeGeneration={generation ?? undefined} id={selected} embedded onDeleted={refresh} />
         ) : (
           <p className="muted">Select a captured flow.</p>
         )}

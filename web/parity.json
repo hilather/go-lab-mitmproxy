@@ -1,0 +1,633 @@
+{
+  "contracts": {
+    "internal/capabilities/catalog.go": "1af360ccc9cd51a09aaf4a3502bb13ef80eaa568e2f524ddb64783f18d8d78ba",
+    "internal/capabilities/scopes.go": "9085be914566ebaa3b1df95257c850a770182ac67421254e34b49de84706cf75",
+    "internal/capabilities/errors.go": "d38537afe37a142ff9e43d0d5361f7273d5ab0ae9fd7d8c431c22234934d0591",
+    "internal/model/operation.go": "93b924767be69a5424683fc1c8cff829e9bc60fee480ed28d3787de9947abb49",
+    "internal/model/spec.go": "1f22a9664ca0bc58d8afc10fba59d75aa6103c5384a6e2ea69e685e583173c5c",
+    "internal/model/state.go": "dc25a5311fbb3053b3cabc30f7f974bd1b5d78c771dcbbcbe9ef16241fdfb107",
+    "internal/model/flow.go": "e21c74799507382aa5127fde87d9ba0ba00ba351cfde77a2f1363a64bd8a46ab",
+    "internal/app/types.go": "2f751ef9b18e27f435985b54ddd311565eaa42ad1cdfcde0dca07578d9cb6291",
+    "internal/control/rest/dto.go": "12dbe7198f550b8a5a1c49160f999538590f09a01dc16b001a94b8c9dc547687",
+    "internal/control/rest/request.go": "924b314e529cd4e51b8e980c258612c35bee8bcad5f34461b4116b38601c7140",
+    "internal/control/rest/flows.go": "bee8bcb04a2c0e852ff001f2adad3019c6f0e3768bfacd7e14b94ab375fee082",
+    "internal/control/rest/handlers.go": "4d7183dccec9c2fdea17a9f1ffa86a36ba16327b470498520d14d8ab36d8771b",
+    "internal/control/mcp/dto.go": "0b284d3841690327b88b2492b3a7b4fb85c4569abff72aef8735a654b190ab3a",
+    "internal/control/mcp/tools.go": "bc37da328615b509fa8e7dfe91ab33510f773476f106f9420bfe0af10d724892",
+    "api/jsonschema/labmitm.dev.v1alpha1.json": "80d70254d73e5adbbb064794f9f8a347950610340c5cb0b65eb0bc61abe5f4c1"
+  },
+  "capabilities": {
+    "health.live": {
+      "route": "/diagnostics",
+      "workflow": "Read, refresh and inspect complete diagnostic output.",
+      "evidence": [
+        {
+          "file": "src/pages/DiagnosticsPage.test.tsx",
+          "test": "DiagnosticsPage > reads every diagnostic using cookie credentials, escapes results, and refreshes"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /diagnostics"
+        }
+      ]
+    },
+    "health.ready": {
+      "route": "/diagnostics",
+      "workflow": "Read, refresh and inspect complete diagnostic output.",
+      "evidence": [
+        {
+          "file": "src/pages/DiagnosticsPage.test.tsx",
+          "test": "DiagnosticsPage > reads every diagnostic using cookie credentials, escapes results, and refreshes"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /diagnostics"
+        }
+      ]
+    },
+    "version.get": {
+      "route": "/diagnostics",
+      "workflow": "Read, refresh and inspect complete diagnostic output.",
+      "evidence": [
+        {
+          "file": "src/pages/DiagnosticsPage.test.tsx",
+          "test": "DiagnosticsPage > reads every diagnostic using cookie credentials, escapes results, and refreshes"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /diagnostics"
+        }
+      ]
+    },
+    "capabilities.get": {
+      "route": "/diagnostics",
+      "workflow": "Read, refresh and inspect complete diagnostic output.",
+      "evidence": [
+        {
+          "file": "src/pages/DiagnosticsPage.test.tsx",
+          "test": "DiagnosticsPage > reads every diagnostic using cookie credentials, escapes results, and refreshes"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /diagnostics"
+        }
+      ]
+    },
+    "schema.get": {
+      "route": "/diagnostics",
+      "workflow": "Read, refresh and inspect complete diagnostic output.",
+      "evidence": [
+        {
+          "file": "src/pages/DiagnosticsPage.test.tsx",
+          "test": "DiagnosticsPage > reads every diagnostic using cookie credentials, escapes results, and refreshes"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /diagnostics"
+        }
+      ]
+    },
+    "metrics.get": {
+      "route": "/diagnostics",
+      "workflow": "Read, refresh and inspect complete diagnostic output.",
+      "evidence": [
+        {
+          "file": "src/pages/DiagnosticsPage.test.tsx",
+          "test": "DiagnosticsPage > reads every diagnostic using cookie credentials, escapes results, and refreshes"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /diagnostics"
+        }
+      ]
+    },
+    "status.get": {
+      "route": "/status",
+      "workflow": "Read readiness, listeners, store, CA and revisions.",
+      "evidence": [
+        {
+          "file": "src/pages/StatusPage.test.tsx",
+          "test": "StatusPage > refetches GET /v1/status after replaceTLS"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /status"
+        }
+      ]
+    },
+    "features.get": {
+      "route": "/status",
+      "workflow": "Read feature catalog, current flags and apply boundaries.",
+      "evidence": [
+        {
+          "file": "src/pages/StatusPage.test.tsx",
+          "test": "StatusPage > renders the feature catalog with on/off and live/reset"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /status"
+        }
+      ]
+    },
+    "state.get": {
+      "route": "/configuration",
+      "workflow": "Read complete canonical state and revisions.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > validates candidate with operations and refreshes state for readers"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "state.validate": {
+      "route": "/configuration",
+      "workflow": "Validate candidate, operations or both; display result and errors.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > validates candidate with operations and refreshes state for readers"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "state.export": {
+      "route": "/configuration",
+      "workflow": "Export JSON or YAML with consistent revision and drift metadata.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > exports JSON with revisions, drift and human diff"
+        },
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > exports YAML with revisions, drift and human diff"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "state.reset": {
+      "route": "/reset",
+      "workflow": "Confirm rereading bootstrap and wiping flows with a reason.",
+      "evidence": [
+        {
+          "file": "src/pages/ResetPage.test.tsx",
+          "test": "ResetPage > keeps reset disabled until RESET is typed and confirmed"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /reset"
+        }
+      ]
+    },
+    "changes.plan": {
+      "route": "/configuration",
+      "workflow": "Review then apply the identical revision, key, operations, force and reason.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > pins the reviewed payload, revision, reason, force and key through apply"
+        },
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > refreshes a conflict and requires a new explicit plan without retrying apply"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "changes.apply": {
+      "route": "/configuration",
+      "workflow": "Review then apply the identical revision, key, operations, force and reason.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > pins the reviewed payload, revision, reason, force and key through apply"
+        },
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > refreshes a conflict and requires a new explicit plan without retrying apply"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "session.create": {
+      "route": "/login",
+      "workflow": "Sign in using bearer exchange; cookie and in-memory CSRF.",
+      "evidence": [
+        {
+          "file": "src/pages/LoginPage.test.tsx",
+          "test": "LoginPage > signs in with a token and never stores it"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /login"
+        }
+      ]
+    },
+    "session.get": {
+      "route": "/",
+      "workflow": "Restore authenticated session and scopes.",
+      "evidence": [
+        {
+          "file": "src/App.test.tsx",
+          "test": "operator chrome > shows skip-link, LabMITM, live and :443 chips, and keeps Flows active on a flow"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /"
+        }
+      ]
+    },
+    "session.delete": {
+      "route": "/",
+      "workflow": "Sign out and clear in-memory CSRF.",
+      "evidence": [
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > signs out through the session adapter and clears the CSRF secret"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /"
+        }
+      ]
+    },
+    "events.stream": {
+      "route": "/",
+      "workflow": "Keep list and selected inspector live over SSE with polling fallback.",
+      "evidence": [
+        {
+          "file": "src/pages/FlowsPage.test.tsx",
+          "test": "refreshes selected pause actions on SSE without losing replay results"
+        },
+        {
+          "file": "src/hooks/useFlowsLive.test.ts",
+          "test": "useFlowsLive > closes EventSource on error and switches exclusively to poll"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /"
+        }
+      ]
+    },
+    "flows.list": {
+      "route": "/",
+      "workflow": "Filter on the server and traverse all cursor pages.",
+      "evidence": [
+        {
+          "file": "src/pages/FlowFilters.test.tsx",
+          "test": "applies every server list filter and sends only supported wait inputs"
+        },
+        {
+          "file": "src/api/flowParity.test.ts",
+          "test": "walks past sixteen pages preserving all supported filters"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /"
+        }
+      ]
+    },
+    "flows.get": {
+      "route": "/flows/:id",
+      "workflow": "Inspect captured metadata, headers, bodies and protocol details.",
+      "evidence": [
+        {
+          "file": "src/pages/FlowPage.test.tsx",
+          "test": "FlowPage > loads a flow and renders HTML as escaped text"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /flows/:id"
+        }
+      ]
+    },
+    "flows.request": {
+      "route": "/flows/:id",
+      "workflow": "Download bodies as attachments; confirm delete with optional generation.",
+      "evidence": [
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > downloads both bodies from the inspector and deletes with a generation precondition"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /flows/:id"
+        }
+      ]
+    },
+    "flows.response": {
+      "route": "/flows/:id",
+      "workflow": "Download bodies as attachments; confirm delete with optional generation.",
+      "evidence": [
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > downloads both bodies from the inspector and deletes with a generation precondition"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /flows/:id"
+        }
+      ]
+    },
+    "flows.delete": {
+      "route": "/flows/:id",
+      "workflow": "Download bodies as attachments; confirm delete with optional generation.",
+      "evidence": [
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > downloads both bodies from the inspector and deletes with a generation precondition"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /flows/:id"
+        }
+      ]
+    },
+    "flows.clear": {
+      "route": "/",
+      "workflow": "Confirm clearing captured flows with optional generation.",
+      "evidence": [
+        {
+          "file": "src/pages/FlowsPage.test.tsx",
+          "test": "FlowsWorkspace > clears selection when Clear succeeds without reconnecting EventSource"
+        },
+        {
+          "file": "src/api/flowParity.test.ts",
+          "test": "sends optional zero generation and CSRF for delete and clear"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /"
+        }
+      ]
+    },
+    "flows.wait": {
+      "route": "/",
+      "workflow": "Wait with supported filters and timeout; cancel pending wait.",
+      "evidence": [
+        {
+          "file": "src/pages/FlowFilters.test.tsx",
+          "test": "applies every server list filter and sends only supported wait inputs"
+        },
+        {
+          "file": "src/pages/FlowFilters.test.tsx",
+          "test": "cancels a pending wait with AbortSignal"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /"
+        }
+      ]
+    },
+    "flows.resume": {
+      "route": "/flows/:id",
+      "workflow": "Resume paused exchange unchanged or edit headers/body including explicit empty.",
+      "evidence": [
+        {
+          "file": "src/pages/FlowActions.test.tsx",
+          "test": "preserves omitted edits and sends explicitly empty headers/body"
+        },
+        {
+          "file": "src/pages/FlowActions.test.tsx",
+          "test": "sends edited header rows/body and displays server errors"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /flows/:id"
+        }
+      ]
+    },
+    "flows.drop": {
+      "route": "/flows/:id",
+      "workflow": "Confirm dropping a pause or one guarded replay; inspect replay result.",
+      "evidence": [
+        {
+          "file": "src/pages/FlowActions.test.tsx",
+          "test": "confirms drop/replay and exposes the complete replay result"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /flows/:id"
+        }
+      ]
+    },
+    "flows.replay": {
+      "route": "/flows/:id",
+      "workflow": "Confirm dropping a pause or one guarded replay; inspect replay result.",
+      "evidence": [
+        {
+          "file": "src/pages/FlowActions.test.tsx",
+          "test": "confirms drop/replay and exposes the complete replay result"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /flows/:id"
+        }
+      ]
+    },
+    "ca.get": {
+      "route": "/status",
+      "workflow": "Read CA identity and download only its public certificate.",
+      "evidence": [
+        {
+          "file": "src/pages/StatusPage.test.tsx",
+          "test": "StatusPage > shows ca.spkiSha256 and a cert-only CA download"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /status"
+        }
+      ]
+    },
+    "audit.list": {
+      "route": "/audit",
+      "workflow": "Query audit limit and inspect full event by ID or table selection.",
+      "evidence": [
+        {
+          "file": "src/pages/AuditPage.test.tsx",
+          "test": "Audit read parity > sends the limit and encoded event ID, shows complete escaped detail, clears stale detail on errors"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /audit"
+        }
+      ]
+    },
+    "audit.get": {
+      "route": "/audit",
+      "workflow": "Query audit limit and inspect full event by ID or table selection.",
+      "evidence": [
+        {
+          "file": "src/pages/AuditPage.test.tsx",
+          "test": "Audit read parity > sends the limit and encoded event ID, shows complete escaped detail, clears stale detail on errors"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /audit"
+        }
+      ]
+    }
+  },
+  "operations": {
+    "replaceStoreCaps": {
+      "route": "/configuration",
+      "workflow": "Initialize and edit complete operation; validate, plan, then apply.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > initializes and validates every field for replaceStoreCaps"
+        },
+        {
+          "file": "src/api/configuration.test.ts",
+          "test": "configuration API wire contract > preserves every replaceStoreCaps input in identical plan and apply bodies"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "replaceAdmission": {
+      "route": "/configuration",
+      "workflow": "Initialize and edit complete operation; validate, plan, then apply.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > initializes and validates every field for replaceAdmission"
+        },
+        {
+          "file": "src/api/configuration.test.ts",
+          "test": "configuration API wire contract > preserves every replaceAdmission input in identical plan and apply bodies"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "replaceTLS": {
+      "route": "/configuration",
+      "workflow": "Initialize and edit complete operation; validate, plan, then apply.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > initializes and validates every field for replaceTLS"
+        },
+        {
+          "file": "src/api/configuration.test.ts",
+          "test": "configuration API wire contract > preserves every replaceTLS input in identical plan and apply bodies"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "replaceRules": {
+      "route": "/configuration",
+      "workflow": "Initialize and edit complete operation; validate, plan, then apply.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > initializes and validates every field for replaceRules"
+        },
+        {
+          "file": "src/api/configuration.test.ts",
+          "test": "configuration API wire contract > preserves every replaceRules input in identical plan and apply bodies"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "replaceTargets": {
+      "route": "/configuration",
+      "workflow": "Initialize and edit complete operation; validate, plan, then apply.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > initializes and validates every field for replaceTargets"
+        },
+        {
+          "file": "src/api/configuration.test.ts",
+          "test": "configuration API wire contract > preserves every replaceTargets input in identical plan and apply bodies"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "replaceCompat": {
+      "route": "/configuration",
+      "workflow": "Initialize and edit complete operation; validate, plan, then apply.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > initializes and validates every field for replaceCompat"
+        },
+        {
+          "file": "src/api/configuration.test.ts",
+          "test": "configuration API wire contract > preserves every replaceCompat input in identical plan and apply bodies"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "setFeature": {
+      "route": "/configuration",
+      "workflow": "Initialize and edit complete operation; validate, plan, then apply.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > initializes and validates every field for setFeature"
+        },
+        {
+          "file": "src/api/configuration.test.ts",
+          "test": "configuration API wire contract > preserves every setFeature input in identical plan and apply bodies"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    },
+    "replaceHTTPAuth": {
+      "route": "/configuration",
+      "workflow": "Initialize and edit complete operation; validate, plan, then apply.",
+      "evidence": [
+        {
+          "file": "src/pages/ConfigurationPage.test.tsx",
+          "test": "ConfigurationPage > initializes and validates every field for replaceHTTPAuth"
+        },
+        {
+          "file": "src/api/configuration.test.ts",
+          "test": "configuration API wire contract > preserves every replaceHTTPAuth input in identical plan and apply bodies"
+        },
+        {
+          "file": "src/parity.test.tsx",
+          "test": "frontend parity routes > renders /configuration"
+        }
+      ]
+    }
+  }
+}

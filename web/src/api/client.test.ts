@@ -215,3 +215,31 @@ describe("API client", () => {
     expect(revokeObjectURL).toHaveBeenCalled();
   });
 });
+
+describe("problemMessage", () => {
+  it("includes every field violation and remediation after the detail", async () => {
+    const { problemMessage } = await import("./client");
+    expect(
+      problemMessage({
+        type: "urn:labmitm:error:validation-failed",
+        title: "Validation failed",
+        status: 400,
+        detail: "unknown fields",
+        code: "validation_failed",
+        fieldViolations: [
+          { path: "reason", code: "unknown_field", message: 'unknown field "reason"' },
+          { path: "", code: "invalid_value", message: "request body is required" },
+        ],
+        remediation: "Remove the field.",
+      }),
+    ).toBe(
+      'unknown fields (reason: unknown field "reason" [unknown_field]; (body): request body is required [invalid_value]) Remediation: Remove the field.',
+    );
+  });
+  it("keeps detail-only problems unchanged", async () => {
+    const { problemMessage } = await import("./client");
+    expect(
+      problemMessage({ type: "t", title: "Conflict", status: 409, detail: "No longer paused", code: "breakpoint_inactive" }),
+    ).toBe("No longer paused");
+  });
+});
