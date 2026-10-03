@@ -11,14 +11,16 @@
 // SETTINGS) and must not ReadFull ClientPreface from the raw conn after
 // Hijack (D61).
 // websocket uses ServeConn with a TunnelHandler (D63). Origin h2 (D64)
-// multiplexes inner streams on that one TCP via OriginConn (request DATA
-// is sent when Body is non-nil, including ContentLength 0; the inner
+// multiplexes inner streams on that one TCP via OriginConn. Stream allocation
+// and opening HEADERS share the writer lock so concurrent requests open
+// monotonically increasing stream IDs; bodies and responses remain multiplexed.
+// Request DATA is sent when Body is non-nil, including ContentLength 0; the inner
 // stream stays readable after the handler returns until client END_STREAM;
 // trailing HEADERS land on Response.Trailer; 1xx informational HEADERS are skipped;
 // RST / forget must not let take mint a new stream window and drain the
 // connection send window; DATA after RST still WINDOW_UPDATE the connection
 // receive window; unread DATA discarded on RST / silent-close also
 // WINDOW_UPDATE stream 0; HPACK blocks that span CONTINUATION still set
-// END_STREAM on the opening HEADERS);
+// END_STREAM on the opening HEADERS.
 // PUSH_PROMISE is capture-only when CapturePush (D65). Inner EnablePush stays 0.
 package http2x

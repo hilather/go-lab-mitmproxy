@@ -111,7 +111,9 @@ jobs:
         if: failure()
         with:
           name: fuzz-smoke-logs
-          path: fuzz-smoke.log
+          path: |
+            fuzz-smoke.log
+            internal/**/testdata/fuzz/**
           retention-days: 14
 
   documentation:

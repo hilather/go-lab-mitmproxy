@@ -15,6 +15,8 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- CI fuzz smoke uses 500,000 executions for each existing target instead of a five-second deadline, avoiding a Go coordinator deadline-propagation race that can report `context deadline exceeded` at normal completion. Coverage-guided fuzzing and existing package/job timeouts remain intact, without retries; failure artifacts include saved corpus inputs alongside logs.
+- Concurrent origin HTTP/2 requests allocate stream IDs in opening-HEADERS wire order. This prevents intermittent origin `PROTOCOL_ERROR` disconnects and proxy 502 responses while retaining multiplexed request/response bodies. Already-closed origin connections still refuse new requests immediately. The unread-response RST regression synchronizes header delivery and verifies window credit before closing the body, eliminating a fixture race and preventing a false pass through body cleanup.
 - Reset reports an occupied listener address as non-retryable `validation_failed` on REST and MCP, with recovery guidance. Same-port changes that overlap an active bind require a restart or an intermediate free port; failed Reset preserves listeners, state, and flows.
 - REST unknown-field errors name the rejected field instead of reporting valid JSON as malformed.
 - HTTP/2 responses omit empty trailer HEADERS while preserving actual trailers, including values populated after streaming the body.
