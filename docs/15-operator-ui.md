@@ -2,7 +2,7 @@
 
 Status: Implemented
 Owners: Frontend, Control Plane
-Last reviewed: 2026-10-04 (oct03 mock redesign: in-page confirms, plan review, tiles, local times)
+Last reviewed: 2026-10-05 (v1.7.1: #87/#89 popover focus, Reset snapshot wording)
 Related ADRs: 0004, 0005, 0018, 0020, 0021
 
 The embedded UI uses the authenticated native REST API. [ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md) requires parity with all operator-facing REST/MCP capabilities. The capability registry remains 31 entries and the live mutation catalog remains eight verbs.
