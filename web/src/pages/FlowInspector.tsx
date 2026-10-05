@@ -21,10 +21,12 @@ import {
   tunnelSubtitle,
 } from "../ui/flowKind";
 import { contentTypeOf, shouldRenderAsText, toHexDump } from "../ui/bodyView";
+import { useConfirm } from "../ui/ConfirmDialog";
+import { localTime } from "../ui/time";
 
 import { FlowActions } from "./FlowActions";
 
-type Tab = "request" | "response" | "trailers" | "tls" | "frames" | "grpc";
+type Tab = "request" | "response" | "trailers" | "tls" | "frames" | "grpc" | "raw";
 
 function FlowCaptureMeta({ flow }: { flow: Flow }) {
   const socksDest = flow.socks?.dest ?? "";
@@ -291,6 +293,15 @@ function protocolChip(protocol: string): string {
   return protocol || "?";
 }
 
+export function SelectFlowEmpty() {
+  return (
+    <div className="empty-state">
+      <h2 className="empty-title">Select a captured flow.</h2>
+      <p>Pick a row to open it here. Paused flows wait for Resume or Drop until their breakpoint timeout.</p>
+    </div>
+  );
+}
+
 function TunnelSummary({ flow }: { flow: Flow }) {
   return (
     <section className="tunnel-summary">
@@ -321,7 +332,11 @@ export function FlowInspector({
   const activeID = useRef(id);
   activeID.current = id;
   const [expectedGeneration, setExpectedGeneration] = useState("");
-  const [showComplete, setShowComplete] = useState(false);
+  // Read after the confirm resolves; the dialog edits it while onDelete awaits.
+  const expectedGenerationRef = useRef(expectedGeneration);
+  expectedGenerationRef.current = expectedGeneration;
+  const [renderConfirm, confirm] = useConfirm();
+  const [actionsHost, setActionsHost] = useState<HTMLSpanElement | null>(null);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [tab, setTab] = useState<Tab>("request");
   const [flow, setFlow] = useState<Flow | null>(null);
@@ -331,7 +346,6 @@ export function FlowInspector({
     let cancelled = false;
     if (loadedID.current !== id) {
       setTab("request");
-      setShowComplete(false);
       setExpectedGeneration("");
       setFlow(null);
       loadedID.current = id;
@@ -359,11 +373,18 @@ export function FlowInspector({
   }, [id, refreshCounter, storeGeneration]);
 
   async function onDelete() {
-    if (!window.confirm("Delete this flow?")) {
+    const ok = await confirm({
+      title: "Delete this flow?",
+      body: <p>Removes this captured flow from the store. This cannot be undone.</p>,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok || activeID.current !== id) {
       return;
     }
     try {
-      await deleteFlow(id, expectedGeneration === "" ? undefined : Number(expectedGeneration));
+      const expected = expectedGenerationRef.current;
+      await deleteFlow(id, expected === "" ? undefined : Number(expected));
       if (activeID.current !== id) return;
       if (onDeleted) {
         onDeleted();
@@ -386,7 +407,7 @@ export function FlowInspector({
     embedded ? <div className="inspector">{node}</div> : <main className="page">{node}</main>;
 
   if (id === "") {
-    return wrap(<p className="muted">Select a captured flow.</p>);
+    return wrap(<SelectFlowEmpty />);
   }
   if (error !== "" && flow === null) {
     return wrap(
@@ -425,6 +446,8 @@ export function FlowInspector({
   if (flow.grpc != null) {
     tabs.push({ id: "grpc", label: "gRPC" });
   }
+  tabs.push({ id: "raw", label: "Raw JSON" });
+  const paused = flow.state === "paused";
 
   const title = flow.url !== "" ? `${flow.method} ${flow.url}` : `${flow.method} ${flowAuthority(flow)}`;
 
@@ -436,34 +459,56 @@ export function FlowInspector({
         </p>
       )}
       <div className="inspector-head">
-        <div>
-          <h1>{title}</h1>
+        <div style={{ minWidth: 0 }}>
+          <h1 className="mono wrap-anywhere">{title}</h1>
           <p className="inspector-summary">
-            {flow.status > 0 ? flow.status : flow.state} · {listTimingLabel(flow)} ·{" "}
+            {flow.status > 0 ? flow.status : flow.state}
+            {paused && flow.pausedPhase ? ` · ${flow.pausedPhase} phase` : ""} · {listTimingLabel(flow)} ·{" "}
             {formatBytes(flow.requestBytes)} in · {formatBytes(flow.responseBytes)} out
+            {flow.startedAt ? (
+              <>
+                {" "}
+                · started <time dateTime={flow.startedAt} title={flow.startedAt}>{localTime(flow.startedAt)}</time>
+              </>
+            ) : null}
           </p>
-          <p>
+          <p className="chip-row">
+            {paused ? (
+              <span className="chip chip-accent chip-fill">
+                paused{flow.pausedPhase ? ` · ${flow.pausedPhase}` : ""}
+              </span>
+            ) : null}
             <span className="badge">{protocolChip(flow.protocol)}</span>
             {flow.http2 != null ? <span className="badge">stream {flow.http2.streamId}</span> : null}
             {flow.websocket != null ? <span className="badge">{flow.websocket.frameCount} frames</span> : null}
             {flow.grpc != null ? <span className="badge">grpc</span> : null}
+            {(flow.ruleIds ?? []).map((rule) => (
+              <span key={rule} className="chip" title={`rule ${rule}`}>
+                rule {rule}
+              </span>
+            ))}
             {flow.intercepted ? <span className="chip chip-accent">intercepted</span> : null}
             {tunnel ? <span className="chip chip-tunnel">tunnel-not-decrypt</span> : null}
             {flow.truncated ? <span className="badge">truncated</span> : null}
           </p>
         </div>
-        {canWrite ? (
-          <button type="button" className="btn-danger" onClick={() => void onDelete()}>
-            Delete
-          </button>
-        ) : null}
+        <div className="inspector-actions">
+          <span ref={setActionsHost} style={{ display: "contents" }} />
+          {canWrite ? (
+            <button type="button" className="btn-danger" onClick={() => void onDelete()}>
+              Delete<span aria-hidden="true">…</span>
+            </button>
+          ) : null}
+        </div>
       </div>
-      {canWrite ? <label>Delete expected store generation (optional)<input type="number" min="0" step="1" placeholder={storeGeneration === undefined ? "Any generation" : String(storeGeneration)} value={expectedGeneration} onChange={e => setExpectedGeneration(e.target.value)} /></label> : null}
-      <FlowActions key={flow.id} flow={flow} onChanged={() => { if (activeID.current === flow.id) setRefreshCounter(n => n + 1); }} />
-      <details open={showComplete} onToggle={event => setShowComplete(event.currentTarget.open)}>
-        <summary>Complete flow metadata</summary>
-        {showComplete ? <pre className="raw" aria-label="Complete flow JSON">{JSON.stringify(flow, null, 2)}</pre> : null}
-      </details>
+      <FlowActions
+        key={flow.id}
+        flow={flow}
+        replayHost={actionsHost}
+        onChanged={() => {
+          if (activeID.current === flow.id) setRefreshCounter((n) => n + 1);
+        }}
+      />
       <FlowCaptureMeta flow={flow} />
       {flow.error ? <p className="banner-error">{flow.error}</p> : null}
       {error !== "" ? (
@@ -501,8 +546,12 @@ export function FlowInspector({
                 Download request body
               </a>
             </p>
-            <pre className="raw">{formatMessageRaw(flow, "request")}</pre>
-            <MessageBody msg={flow.request} />
+            <div className="msg-grid">
+              <pre className="raw">{formatMessageRaw(flow, "request")}</pre>
+              <div>
+                <MessageBody msg={flow.request} />
+              </div>
+            </div>
           </>
         )
       ) : null}
@@ -523,14 +572,23 @@ export function FlowInspector({
                 Download response body
               </a>
             </p>
-            <pre className="raw">{formatMessageRaw(flow, "response")}</pre>
-            <MessageBody msg={flow.response} />
+            <div className="msg-grid">
+              <pre className="raw">{formatMessageRaw(flow, "response")}</pre>
+              <div>
+                <MessageBody msg={flow.response} />
+              </div>
+            </div>
           </>
         )
       ) : null}
       {tab === "trailers" ? <TrailersPanel request={flow.request} response={flow.response} /> : null}
       {tab === "frames" ? <FramesPanel flow={flow} /> : null}
       {tab === "grpc" ? <GRPCPanel flow={flow} /> : null}
+      {tab === "raw" ? (
+        <pre className="raw" aria-label="Complete flow JSON">
+          {JSON.stringify(flow, null, 2)}
+        </pre>
+      ) : null}
       {tab === "tls" ? (
         flow.tls ? (
           <dl>
@@ -563,6 +621,21 @@ export function FlowInspector({
           <p>No TLS metadata. Cleartext hop or intercept did not run.</p>
         )
       ) : null}
+      {renderConfirm(
+        canWrite ? (
+          <label>
+            Delete expected store generation (optional)
+            <input
+              type="number"
+              min="0"
+              step="1"
+              placeholder={storeGeneration === undefined ? "Any generation" : `Current ${storeGeneration}`}
+              value={expectedGeneration}
+              onChange={(e) => setExpectedGeneration(e.target.value)}
+            />
+          </label>
+        ) : null,
+      )}
     </>,
   );
 }

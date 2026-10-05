@@ -1,5 +1,6 @@
-import { FormEvent, useState } from "react";
-import { errorMessage, resetState } from "../api/client";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage, getStatus, resetState } from "../api/client";
+import { localTime } from "../ui/time";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_ADMIN } from "../auth/scopes";
 import { RESET_PHRASE, canSubmitReset } from "../ui/forbidden";
@@ -14,6 +15,26 @@ export function ResetPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const ok = canSubmitReset(phrase, confirmed, allowed);
+  // Impact line from the existing GET /v1/status: read on mount, when the confirm box is ticked,
+  // and after a successful reset. A failed read hides the line without an alert.
+  const [impact, setImpact] = useState<{ at: string; flows: number; generation: number } | null>(null);
+  const impactGeneration = useRef(0);
+  const readImpact = useCallback(async () => {
+    const mine = ++impactGeneration.current;
+    try {
+      const status = await getStatus();
+      if (mine === impactGeneration.current)
+        setImpact({ at: new Date().toISOString(), flows: status.store.flowCount, generation: status.store.storeGeneration });
+    } catch {
+      if (mine === impactGeneration.current) setImpact(null);
+    }
+  }, []);
+  useEffect(() => {
+    void readImpact();
+    return () => {
+      impactGeneration.current++;
+    };
+  }, [readImpact]);
 
   async function onSubmit(ev: FormEvent) {
     ev.preventDefault();
@@ -28,6 +49,7 @@ export function ResetPage() {
       setNotice("Reset completed. Bootstrap was reread and the flow store was wiped.");
       setPhrase("");
       setConfirmed(false);
+      void readImpact();
     } catch (err) {
       setError(errorMessage(err, "Reset failed."));
     } finally {
@@ -66,10 +88,25 @@ export function ResetPage() {
           <input id="reset-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
         <label>
-          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> Wipe
+          <input
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => {
+              setConfirmed(e.target.checked);
+              if (e.target.checked) void readImpact();
+            }}
+          /> Wipe
           the flow store and reload bootstrap
         </label>
-        <button type="submit" disabled={!ok || busy}>
+        {impact ? (
+          <p className="note note-danger" data-testid="reset-impact">
+            <span>
+              At <time dateTime={impact.at}>{localTime(impact.at)}</time>: {impact.flows} {impact.flows === 1 ? "flow" : "flows"} · store generation{" "}
+              {impact.generation}
+            </span>
+          </p>
+        ) : null}
+        <button type="submit" className="btn-danger-fill" disabled={!ok || busy}>
           {busy ? "Resetting…" : "Reset LabMITM"}
         </button>
       </form>

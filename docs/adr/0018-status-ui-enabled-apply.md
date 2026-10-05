@@ -3,6 +3,7 @@
 Status: Accepted
 Date: 2026-08-30
 Decisions: D77
+Amended by [ADR 0021](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0021-in-page-confirms-and-plan-review.md) (2026-10-04): an in-page confirm replaces `window.confirm`; D77 unchanged.
 Plan: [docs/tasks/plans/spa-live-apply-controls.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/tasks/plans/spa-live-apply-controls.md)
 
 ## Context
@@ -41,7 +42,7 @@ Does not supersede: D6, D7, D13, D22 carve, D51' live vs Reset table, D76.
 
 - Keep Status exclusion forever: rejected. The API already allows live `setFeature`; operators had no in-SPA path and no confirm that the 404 is total.
 - Confirm on turn-on as well: rejected. Enabling the inspector is not destructive.
-- A new modal kit: rejected. Match existing `window.confirm` on Flows delete.
+- A new modal kit: rejected. Match existing `window.confirm` on Flows delete. (Superseded 2026-10-04 by ADR 0021 / D80: one shared in-page confirm.)
 - Make `ui.enabled` Reset-only: rejected. That would invert ADR 0013.
 
 ## Review triggers

@@ -62,4 +62,38 @@ describe("operator chrome lock", () => {
     expect(reset).not.toMatch(/tunnel-not-decrypt/);
     expect(login).not.toMatch(/tunnel-not-decrypt/);
   });
+
+  it("keeps the 56px masthead, an unclipped Sign out, and no blanket panel wrapping", () => {
+    const css = read("styles.css");
+    const app = read("App.tsx");
+    expect(css).toMatch(/\.topbar\s*\{[^}]*height:\s*56px/);
+    expect(css).toMatch(/\.topbar\s*\{[^}]*min-height:\s*56px/);
+    expect(css).toMatch(/\.topbar-chips\s*\{[^}]*flex-wrap:\s*nowrap/);
+    expect(css).toMatch(/\.topbar-chips \.chip\s*\{[^}]*white-space:\s*nowrap/);
+    expect(css).not.toMatch(/\.page\s+\.panel\s*\{[^}]*overflow-wrap:\s*anywhere/);
+    expect(css).toMatch(/\.wrap-anywhere\s*\{[^}]*overflow-wrap:\s*anywhere/);
+    const chips = app.slice(app.indexOf('className="topbar-chips"'));
+    const chipsBlock = chips.slice(0, chips.indexOf("</div>"));
+    expect(chipsBlock).not.toMatch(/Sign out/);
+    expect(app).toMatch(/topbar-signout/);
+  });
+
+  it("uses one danger text colour", () => {
+    const css = read("styles.css");
+    expect(css).toMatch(/--danger-text:\s*#e38a8a/);
+    expect(css).toMatch(/--err-fg:\s*#e38a8a/);
+    expect(css).not.toContain("#e8b4b4");
+    expect(css).not.toContain("#c47a7a");
+  });
+
+  it("has no window.confirm left in product code", () => {
+    for (const rel of ["pages/FlowsWorkspace.tsx", "pages/FlowActions.tsx", "pages/FlowInspector.tsx", "pages/StatusPage.tsx", "pages/ConfigurationPage.tsx"]) {
+      expect(read(rel)).not.toMatch(/window\.confirm\(/);
+    }
+  });
+
+  it("bounds the filter popover above the footer with internal scroll", () => {
+    const css = read("styles.css");
+    expect(css).toMatch(/\.popover\s*\{[^}]*max-height:[^}]*overflow:\s*auto/);
+  });
 });

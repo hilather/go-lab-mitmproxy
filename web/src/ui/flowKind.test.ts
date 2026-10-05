@@ -4,9 +4,13 @@ import {
   isLDAPSAuthority,
   isTunnelNotDecrypt,
   listStatusLabel,
+  listStatusText,
   matchesFlowSearch,
   methodLabel,
+  statusBucket,
+  statusTone,
   tunnelSubtitle,
+  type StatusTone,
 } from "./flowKind";
 
 function base(over: Partial<Flow> = {}): Flow {
@@ -217,5 +221,34 @@ describe("list labels", () => {
     expect(matchesFlowSearch(f, "CONN")).toBe(true);
     expect(matchesFlowSearch(f, "tunnel")).toBe(true);
     expect(matchesFlowSearch(f, "maildev")).toBe(false);
+  });
+});
+
+describe("status tone and buckets", () => {
+  const cases: [Partial<Flow>, StatusTone, string | null, string][] = [
+    [{ status: 200 }, "ok", "2xx", "200"],
+    [{ status: 200, state: "dropped" }, "danger", "5xx", "200"],
+    [{ status: 0, state: "dropped" }, "danger", "5xx", "dropped"],
+    [{ status: 0, state: "completed", error: "breakpoint_timeout" }, "danger", "5xx", "bp timeout"],
+    [{ status: 302 }, "ok", null, "302"],
+    [{ status: 403 }, "warn", "4xx", "403"],
+    [{ status: 404 }, "warn", "4xx", "404"],
+    [{ status: 502 }, "danger", "5xx", "502"],
+    [{ status: 0, state: "error", error: "breakpoint_timeout" }, "danger", "5xx", "bp timeout"],
+    [{ status: 0, state: "paused", pausedPhase: "request" }, "paused", "paused", "paused"],
+    [{ status: 0, state: "open" }, "muted", null, "open"],
+  ];
+  for (const [patch, tone, bucket, text] of cases) {
+    it(`classifies ${JSON.stringify(patch)}`, () => {
+      const flow = base({ intercepted: true, ...patch });
+      expect(statusTone(flow)).toBe(tone);
+      expect(statusBucket(flow)).toBe(bucket);
+      expect(listStatusText(flow)).toBe(text);
+    });
+  }
+  it("keeps tunnels out of the 2xx bucket (All only) with the tunnel tone", () => {
+    const flow = base({ intercepted: false, error: "", state: "completed", status: 200, protocol: "connect", method: "CONNECT" });
+    expect(statusTone(flow)).toBe("tunnel");
+    expect(statusBucket(flow)).toBeNull();
   });
 });

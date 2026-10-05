@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "./App";
 import { getMemoryCSRF } from "./api/client";
@@ -136,7 +136,7 @@ describe("frontend parity routes", () => {
     const click = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => {});
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, "confirm");
     await renderAppReady(<AppRoutes />, { route: `/flows/${flow.id}` });
     fireEvent.click(
       screen.getByRole("link", { name: "Download request body" }),
@@ -154,11 +154,14 @@ describe("frontend parity routes", () => {
       );
     }
     expect(document.querySelector("main script")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete this flow?" });
     fireEvent.change(
-      screen.getByLabelText("Delete expected store generation (optional)"),
+      within(dialog).getByLabelText("Delete expected store generation (optional)"),
       { target: { value: "1" } },
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(nativeConfirm).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(mock).toHaveBeenCalledWith(
         `/v1/flows/${flow.id}?expectedStoreGeneration=1`,

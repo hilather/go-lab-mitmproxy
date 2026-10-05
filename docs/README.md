@@ -85,6 +85,7 @@ The numbered pack is the source of truth.
 | [0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) | Status may apply `ui.enabled` after gated off-confirm (D77); recovery is REST/MCP |
 | [0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md) | Bounded HTTP/2 response streaming (D78); oversized HTTP/1.1-origin breakpoint reservation |
 | [0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md) | Frontend control-plane parity policy (D79); operator workflows and mandatory gate implemented by UI-PARITY-001 |
+| [0021](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0021-in-page-confirms-and-plan-review.md) | In-page confirms and plan review (D80); amends the ADR 0018 confirm surface, D77 unchanged |
 
 ## Post-GA plans
 

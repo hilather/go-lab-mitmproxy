@@ -54,10 +54,13 @@ function SignedInChrome({
           <span className="status-dot" aria-hidden="true" />
           LabMITM
         </NavLink>
-        <div className="topbar-chips">
-          <span className="chip chip-accent">live</span>
-          <InterceptChip />
-          <button type="button" className="linkish" onClick={() => void logout()}>
+        <div className="topbar-right">
+          <div className="topbar-chips">
+            <span className="chip chip-accent">live</span>
+            <InterceptChip />
+          </div>
+          {/* Sign out sits outside the clipped chip row so it can never be hidden. */}
+          <button type="button" className="linkish topbar-signout" onClick={() => void logout()}>
             Sign out
           </button>
         </div>

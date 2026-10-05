@@ -64,7 +64,7 @@ ADR 0013 closed product call #3 and the review trigger: *“when Status toggling
 
 **D77 — Status may apply `ui.enabled` via the existing `setFeature` verb after a gated confirm.** Disabling 404s `/` on the next UI request and leaves REST/MCP up. Recovery is REST/MCP `setFeature` `ui.enabled: true` or bootstrap YAML + Reset. This does **not** change apply mode (still live). It does **not** make Reset-only IDs live.
 
-Confirm UX (match existing `window.confirm` on Flows delete; no new modal kit):
+Confirm UX (match existing `window.confirm` on Flows delete; no new modal kit — superseded 2026-10-04 by ADR 0021 / D80, D77 text unchanged):
 
 1. Confirm **only when turning off** (`enabled: true` → `false`). Turning on is a normal `setFeature` with no confirm.
 2. Off-confirm text must say **all inspector routes** (`/`, `/status`, `/flows/…`) 404. `tryUI` declines when UI is disabled (`spa.go` 15–17); `server.go` writes `404` `not_found`. Recovery is REST/MCP `setFeature ui.enabled: true` (or bootstrap + Reset).

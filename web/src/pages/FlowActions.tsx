@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { APIError, dropFlow, replayFlow, resumeFlow } from "../api/client";
+import { dropFlow, replayFlow, resumeFlow } from "../api/client";
 import type { Flow, Header } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE } from "../auth/scopes";
+import { useConfirm } from "../ui/ConfirmDialog";
+import { ProblemBanner } from "../ui/ProblemBanner";
 
 export function FlowActions({
   flow,
   onChanged,
+  replayHost = null,
 }: {
   flow: Flow;
   onChanged: () => void;
+  /** Inspector-head slot for the Replay trigger; state and result stay here. */
+  replayHost?: HTMLElement | null;
 }) {
   const { hasScope } = useAuth();
   const [headersEnabled, setHeadersEnabled] = useState(false);
@@ -18,8 +24,9 @@ export function FlowActions({
   const [headers, setHeaders] = useState<Header[]>([]);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [result, setResult] = useState<Flow | null>(null);
+  const [renderConfirm, confirm] = useConfirm();
   const mounted = useRef(true);
   const busyRef = useRef(false);
   useEffect(() => {
@@ -33,15 +40,25 @@ export function FlowActions({
   async function act(kind: "resume" | "drop" | "replay") {
     if (busyRef.current) return;
     if (kind !== "resume") {
-      const warning =
+      const ok = await confirm(
         kind === "drop"
-          ? "Drop this paused flow and close its exchange?"
-          : "Replay this captured request once against its origin?";
-      if (!window.confirm(warning)) return;
+          ? {
+              title: "Drop this paused flow and close its exchange?",
+              body: <p>The client connection is closed without forwarding. This cannot be undone.</p>,
+              confirmLabel: "Drop flow",
+              danger: true,
+            }
+          : {
+              title: "Replay this captured request once against its origin?",
+              body: <p>Sends one request through the guarded replay operation and records a new flow.</p>,
+              confirmLabel: "Replay flow",
+            },
+      );
+      if (!ok || busyRef.current) return;
     }
     busyRef.current = true;
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       if (kind === "resume") {
         await resumeFlow(flow.id, {
@@ -56,14 +73,7 @@ export function FlowActions({
       }
       if (mounted.current && kind !== "replay") onChanged();
     } catch (err) {
-      if (mounted.current)
-        setError(
-          err instanceof APIError
-            ? JSON.stringify(err.problem, null, 2)
-            : err instanceof Error
-              ? err.message
-              : "Flow action failed.",
-        );
+      if (mounted.current) setError(err ?? new Error("Flow action failed."));
     } finally {
       busyRef.current = false;
       if (mounted.current) setBusy(false);
@@ -84,119 +94,164 @@ export function FlowActions({
     setHeaders(message.headers?.map((header) => ({ ...header })) ?? []);
   }
 
+  const phase = flow.pausedPhase || "exchange";
+  const replayButton = (
+    <button type="button" disabled={busy} onClick={() => void act("replay")}>
+      Replay flow<span aria-hidden="true">…</span>
+    </button>
+  );
+
   return (
-    <section aria-label="Flow actions">
+    <section aria-label="Flow actions" className="flow-actions">
+      {replayHost ? createPortal(replayButton, replayHost) : replayButton}
       {flow.state === "paused" ? (
-        <>
-          <h2>Paused {flow.pausedPhase || "exchange"}</h2>
-          <p>
-            Unchecked edits preserve the original. Checked empty fields
-            explicitly clear headers or body.
-          </p>
-          <label>
-            <input
-              type="checkbox"
-              checked={headersEnabled}
-              onChange={(event) => setHeadersEnabled(event.target.checked)}
-            />
-            Replace headers
-          </label>
-          {headersEnabled ? (
+        <div className="bp-card">
+          <div className="card-h">
+            <h2>Breakpoint · paused {phase}</h2>
+            <span className="hint">Unchanged sections forward exactly as captured.</span>
+          </div>
+          <div className="card-b bp-grid">
             <div>
-              {headers.map((header, index) => (
-                <div key={index}>
-                  <label>
-                    Header name {index + 1}
-                    <input
-                      value={header.name}
-                      onChange={(event) =>
-                        editHeader(index, "name", event.target.value)
+              <div className="list-head-row">
+                <label className="switch">
+                  <input
+                    type="checkbox"
+                    checked={headersEnabled}
+                    onChange={(event) => setHeadersEnabled(event.target.checked)}
+                  />
+                  Replace headers
+                </label>
+                <span className="hint mono">
+                  {headersEnabled ? `replacing · ${headers.length} rows` : "keeping captured"}
+                </span>
+              </div>
+              {headersEnabled ? (
+                <div style={{ marginTop: "0.5rem" }}>
+                  {headers.map((header, index) => (
+                    <div className="header-row" key={index}>
+                      <input
+                        aria-label={`Header name ${index + 1}`}
+                        value={header.name}
+                        onChange={(event) =>
+                          editHeader(index, "name", event.target.value)
+                        }
+                      />
+                      <input
+                        aria-label={`Header value ${index + 1}`}
+                        value={header.value}
+                        onChange={(event) =>
+                          editHeader(index, "value", event.target.value)
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="btn-sm btn-ghost"
+                        aria-label={`Remove header ${index + 1}`}
+                        onClick={() =>
+                          setHeaders(
+                            headers.filter((_, current) => current !== index),
+                          )
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {headers.length === 0 ? (
+                    <p className="hint">On with no rows sends an empty header list.</p>
+                  ) : null}
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="btn-sm"
+                      onClick={() =>
+                        setHeaders([...headers, { name: "", value: "" }])
                       }
-                    />
-                  </label>
-                  <label>
-                    Header value {index + 1}
-                    <input
-                      value={header.value}
-                      onChange={(event) =>
-                        editHeader(index, "value", event.target.value)
-                      }
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setHeaders(
-                        headers.filter((_, current) => current !== index),
-                      )
-                    }
-                  >
-                    Remove header {index + 1}
-                  </button>
+                    >
+                      Add header
+                    </button>
+                    <button type="button" className="btn-sm" onClick={copyHeaders}>
+                      Copy captured headers
+                    </button>
+                    <button type="button" className="btn-sm" onClick={() => setHeaders([])}>
+                      Clear replacement headers
+                    </button>
+                  </div>
                 </div>
-              ))}
-              <button type="button" onClick={copyHeaders}>
-                Copy captured headers
-              </button>
-              <button type="button" onClick={() => setHeaders([])}>
-                Clear replacement headers
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setHeaders([...headers, { name: "", value: "" }])
-                }
-              >
-                Add header
-              </button>
+              ) : (
+                <p className="hint">Off keeps the captured headers.</p>
+              )}
             </div>
-          ) : null}
-          <label>
-            <input
-              type="checkbox"
-              checked={bodyEnabled}
-              onChange={(event) => setBodyEnabled(event.target.checked)}
-            />
-            Replace body
-          </label>
-          {bodyEnabled ? (
-            <label>
-              Replacement body
-              <textarea
-                value={body}
-                onChange={(event) => setBody(event.target.value)}
-              />
-            </label>
-          ) : null}
-          <button disabled={busy} onClick={() => void act("resume")}>
-            Resume flow
-          </button>
-          <button disabled={busy} onClick={() => void act("drop")}>
-            Drop flow
-          </button>
-        </>
+            <div>
+              <div className="list-head-row">
+                <label className="switch">
+                  <input
+                    type="checkbox"
+                    checked={bodyEnabled}
+                    onChange={(event) => setBodyEnabled(event.target.checked)}
+                  />
+                  Replace body
+                </label>
+                <span className="hint mono">{bodyEnabled ? "replacing" : "keeping captured"}</span>
+              </div>
+              {bodyEnabled ? (
+                <textarea
+                  rows={5}
+                  aria-label="Replacement body"
+                  style={{ marginTop: "0.5rem" }}
+                  value={body}
+                  onChange={(event) => setBody(event.target.value)}
+                />
+              ) : null}
+              <p className="note" style={{ marginTop: "0.5rem" }}>
+                <span className="mono">i</span>
+                <span>On with an empty body clears the body. Off keeps the captured body.</span>
+              </p>
+            </div>
+          </div>
+          <div className="bp-foot">
+            <button type="button" className="primary" disabled={busy} onClick={() => void act("resume")}>
+              Resume flow
+            </button>
+            <button type="button" className="btn-danger" disabled={busy} onClick={() => void act("drop")}>
+              Drop flow<span aria-hidden="true">…</span>
+            </button>
+            <p className="hint">
+              {flow.pausedPhase === "request" ? (
+                <>
+                  Request-phase resume forwards a completed capture under a <strong>new ID</strong>. This record stays
+                  open.{" "}
+                </>
+              ) : flow.pausedPhase === "response" ? (
+                <>Response-phase resume completes this record. </>
+              ) : null}
+              Drop closes the exchange.
+            </p>
+          </div>
+        </div>
       ) : null}
-      <button disabled={busy} onClick={() => void act("replay")}>
-        Replay flow
-      </button>
       {busy ? <p role="status">Flow action pending…</p> : null}
-      {error ? (
-        <pre className="banner-error" role="alert">
-          {error}
-        </pre>
-      ) : null}
+      <ProblemBanner error={error} fallback="Flow action failed." />
       {result ? (
-        <section aria-label="Replay result">
-          <h2>Replay result</h2>
-          <Link to={`/flows/${encodeURIComponent(result.id)}`}>
-            Inspect replay {result.id}
-          </Link>
-          <p>
-            {result.method} {result.url} · {result.status || result.state}
-          </p>
-          <pre className="raw">{JSON.stringify(result, null, 2)}</pre>
+        <section aria-label="Replay result" className="card">
+          <div className="card-h">
+            <h2>Replay result</h2>
+            <Link to={`/flows/${encodeURIComponent(result.id)}`}>
+              Inspect replay {result.id}
+            </Link>
+          </div>
+          <div className="card-b">
+            <p className="mono">
+              {result.method} {result.url} · {result.status || result.state}
+            </p>
+            <details>
+              <summary>Complete replayed flow JSON</summary>
+              <pre className="raw">{JSON.stringify(result, null, 2)}</pre>
+            </details>
+          </div>
         </section>
       ) : null}
+      {renderConfirm()}
     </section>
   );
 }

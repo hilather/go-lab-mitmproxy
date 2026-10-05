@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   json,
@@ -81,10 +81,11 @@ describe("AuditPage", () => {
       }),
     );
     await renderAppReady(<AuditPage />, { route: "/audit" });
-    expect(await screen.findByText("flows.delete")).toBeInTheDocument();
-    expect(screen.getByText("admin")).toBeInTheDocument();
-    expect(screen.getByText("ok")).toBeInTheDocument();
-    expect(screen.getByText("01J")).toBeInTheDocument();
+    const list = await screen.findByRole("list", { name: "Audit event list" });
+    expect(within(list).getByText("flows.delete")).toBeInTheDocument();
+    expect(within(list).getByText(/admin/)).toBeInTheDocument();
+    expect(within(list).getByText("ok")).toHaveClass("chip-ok");
+    expect(within(list).getByText(/flow 01J/)).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /fuzzer|repeater|exploit|relay/i }),
     ).toBeNull();
@@ -123,10 +124,12 @@ describe("Audit read parity", () => {
       target: { value: "7" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Refresh audit" }));
-    fireEvent.click(await screen.findByRole("button", { name: "event/1" }));
-    expect(await screen.findByText(/"actorClass": "human"/)).toHaveTextContent(
-      '"diff"',
+    fireEvent.click(await screen.findByRole("button", { name: /event\/1/ }));
+    expect(await screen.findByLabelText("Raw audit event JSON")).toHaveTextContent(
+      '"actorClass": "human"',
     );
+    expect(screen.getByLabelText("Raw audit event JSON")).toHaveTextContent('"diff"');
+    expect(screen.getByRole("table", { name: "Audit diff" })).toHaveTextContent("spec.rules");
     expect(document.querySelector("main script")).toBeNull();
     expect(fetch).toHaveBeenCalledWith(
       "/v1/audit?limit=7",
@@ -139,7 +142,7 @@ describe("Audit read parity", () => {
     fireEvent.change(screen.getByLabelText("Event ID"), {
       target: { value: "missing" },
     });
-    expect(screen.queryByText(/"actorClass"/)).toBeNull();
+    expect(screen.queryByLabelText("Raw audit event JSON")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Find event" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "audit event not found",
@@ -179,12 +182,12 @@ it("ignores late detail after switching event IDs", async () => {
     target: { value: "new" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Find event" }));
-  expect(await screen.findByText(/new detail/)).toBeInTheDocument();
+  expect(await screen.findByLabelText("Raw audit event JSON")).toHaveTextContent("new detail");
   await act(async () => {
     finish(json(200, { id: "old", time: "then", reason: "old detail" }));
   });
-  expect(screen.queryByText(/old detail/)).toBeNull();
-  expect(screen.getByText(/new detail/)).toBeInTheDocument();
+  expect(screen.queryAllByText(/old detail/)).toHaveLength(0);
+  expect(screen.getByLabelText("Raw audit event JSON")).toHaveTextContent("new detail");
 });
 
 it("clears detail loading and stale responses when audit permission is revoked and restored", async () => {
@@ -226,11 +229,11 @@ it("clears detail loading and stale responses when audit permission is revoked a
   });
   expect(screen.getByRole("button", { name: "Find event" })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: "Find event" }));
-  expect(await screen.findByText(/fresh detail/)).toBeInTheDocument();
+  expect(await screen.findByLabelText("Raw audit event JSON")).toHaveTextContent("fresh detail");
   await act(async () => {
     finish(json(200, { id: "old", time: "then", reason: "stale detail" }));
   });
-  expect(screen.queryByText(/stale detail/)).toBeNull();
+  expect(screen.queryAllByText(/stale detail/)).toHaveLength(0);
 });
 
 it("shows audit query field violations instead of only the detail", async () => {
@@ -253,4 +256,34 @@ it("shows audit query field violations instead of only the detail", async () => 
   );
   await renderAppReady(<AuditPage />, { route: "/audit" });
   expect(await screen.findByRole("alert")).toHaveTextContent('reason: unknown field "reason" [unknown_field]');
+});
+
+it("filters loaded events by capability family and result chips together, client-side", async () => {
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/v1/session") return json(200, sessionView());
+    return json(200, {
+      events: [
+        { id: "a1", time: "2026-10-03T21:49:07Z", capability: "changes.apply", result: "ok" },
+        { id: "a2", time: "2026-10-03T21:49:11Z", capability: "changes.apply", result: "denied" },
+        { id: "a3", time: "2026-10-03T21:52:22Z", capability: "flows.resume", result: "ok" },
+        { id: "a4", time: "2026-10-03T21:53:00Z", capability: "flows.drop", result: "error" },
+      ],
+    });
+  });
+  vi.stubGlobal("fetch", fetch);
+  await renderAppReady(<AuditPage />);
+  const list = await screen.findByRole("list", { name: "Audit event list" });
+  expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+  const caps = screen.getByRole("group", { name: "Filter by capability" });
+  expect(within(caps).getByRole("button", { name: "changes.apply 2" })).toBeInTheDocument();
+  fireEvent.click(within(caps).getByRole("button", { name: "flows.* 2" }));
+  expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "not ok 1" }));
+  expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+  expect(within(list).getByText("error")).toHaveClass("chip-danger");
+  fireEvent.click(within(caps).getByRole("button", { name: "All 4" }));
+  expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+  expect(within(list).getByText("denied")).toHaveClass("chip-warn");
+  expect(fetch.mock.calls.filter(([p]) => String(p).startsWith("/v1/audit"))).toHaveLength(1);
 });
