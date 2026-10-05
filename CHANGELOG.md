@@ -6,6 +6,26 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.7.0 - 2026-10-04
+
+Minor release after v1.6.3 (the v1.6.3 catch-up tag, `6c5729888bc1`, covers #78 and is tagged first): frontend control-plane parity and the oct03 operator UI, plus proxy, Reset and control-plane fixes from [PR #81](https://github.com/hilather/go-lab-mitmproxy/pull/81), [#84](https://github.com/hilather/go-lab-mitmproxy/pull/84), [#82](https://github.com/hilather/go-lab-mitmproxy/pull/82), [#83](https://github.com/hilather/go-lab-mitmproxy/pull/83) and [#85](https://github.com/hilather/go-lab-mitmproxy/pull/85). Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. Configuration stays `labmitm.dev/v1alpha1`. No new capability IDs or apply verbs. No fuzzer. Management stays bearer. **D7 stands.** REST request envelopes now reject unknown fields, and configured management TLS is enforced. New ADRs: [0019](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.0/docs/adr/0019-bounded-http2-response-streaming.md) (**D78**, bounded HTTP/2 response streaming), [0020](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.0/docs/adr/0020-frontend-control-plane-parity.md) (**D79**, frontend parity) and [0021](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.0/docs/adr/0021-in-page-confirms-and-plan-review.md) (**D80**, in-page confirms and plan review). Notes: [docs/releases/v1.7.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.0/docs/releases/v1.7.0.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.0/docs/known-limitations.md).
+
+### Added
+
 - Frontend flow resume/header-body edit/drop/replay/wait, full server filters and cursor traversal, optional store-generation preconditions, complete escaped flow detail, and selected-flow live updates.
 - Configuration page for all eight live verbs, full TLS/target/store edits, candidate and operation validation, immutable plan review/apply, idempotency-aware retries, and canonical YAML/JSON export with revision/drift details.
 - Diagnostics for version, capabilities, schema, health and metrics; audit limit queries and full event lookup.
@@ -13,7 +33,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- Operator UI redesigned to the approved oct03 mocks: in-page confirms and a plan-review panel/drawer replace `window.confirm` ([ADR 0021](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0021-in-page-confirms-and-plan-review.md), D80; D77 unchanged); Flows status chips, filter popover with chips, Raw JSON tab; Configuration tabs, templates and stepper; Diagnostics tiles and capabilities table; Audit list/inspector with capability and result chips; Reset impact line; local times. Chrome only: no REST paths, request fields, MCP tools or capability IDs change.
+- Operator UI redesigned to the approved oct03 mocks: in-page confirms and a plan-review panel/drawer replace `window.confirm` ([ADR 0021](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0021-in-page-confirms-and-plan-review.md), D80; D77 unchanged); Flows status chips (All / Paused / 2xx / 4xx / 5xx · error) and a paused-request breakpoint card with Resume as the primary action and a danger Drop, filter popover with chips, Raw JSON tab; Configuration tabs, eight operation templates and an Edit → Validate → Review plan → Apply stepper with the plan-review panel; Diagnostics tiles (liveness, readiness, version, protocols, metrics) and a filterable capabilities table; Audit split list/inspector with capability and result chips; Reset danger-filled button with an impact line (flow count and store generation from `GET /v1/status`); local times. Chrome only: no REST paths, request fields, MCP tools or capability IDs change.
 - Policy: ADR 0020 (D79) makes frontend parity with operator-facing REST/MCP capabilities a project requirement. UI-PARITY-001 implements it with the browser workflows and frontend parity gate listed under **Added**. No REST paths, MCP tools, or capability IDs change.
 - HTTP/2 and h2c responses forward incrementally with bounded capture. An oversized response paused on the shared HTTP/1.1 origin connection retains that connection until its unread body is consumed or closed; small paused responses still allow other streams to proceed. See [ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md). No new configuration, persistence, REST capabilities, or MCP tools.
 - REST request envelopes reject unknown fields, including nested apply operations. Clients must remove misspelled or extra fields. Candidate-state byte-size values are coerced once by the strict configuration decoder.
