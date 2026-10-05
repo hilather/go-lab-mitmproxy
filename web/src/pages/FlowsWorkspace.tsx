@@ -258,7 +258,7 @@ export function FlowsWorkspace() {
                       <span className={`method method-${methodTone(f)}`}>{methodLabel(f)}</span>
                       <span className="flow-mid">
                         <span className="subject">{flowAuthority(f)}</span>
-                        <span className="muted">{flowPath(f)}</span>
+                        <span className="muted" title={flowPath(f)}>{flowPath(f)}</span>
                       </span>
                       <span className="flow-meta">
                         <time>{listTimingLabel(f)}</time>

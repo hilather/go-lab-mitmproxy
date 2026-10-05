@@ -11,7 +11,7 @@ GOLANGCI_LINT_MOD ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GO
 .PHONY: help fmt format lint vet build generate verify-generated test test-race \
 	test-fuzz-smoke test-parity test-ui-parity test-config-compat test-docs test-container \
 	test-container-originaldest security-scan test-changelog web-install \
-	web-test web-build web-embed
+	web-test web-browser-test web-build web-embed
 
 help:
 	@printf '%s\n' \
@@ -33,6 +33,7 @@ help:
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
 		'  web-install         npm ci in web/ (Node 22.14.0)' \
 		'  web-test            Vitest flow-inspector SPA tests' \
+		'  web-browser-test    headless Chromium Filters outside-click focus' \
 		'  web-build           production Vite build + copy into internal/web/dist' \
 		'  web-embed           copy web/dist into internal/web/dist' \
 		'  test-container      build ghcr.io/hilather/labmitm and check non-root/read-only/no-caps' \
@@ -93,6 +94,9 @@ web-install:
 web-test:
 	node --test web/scripts/parity-reporter.test.mjs
 	npm --prefix web test -- --reporter=default --reporter=./scripts/parity-reporter.mjs
+
+web-browser-test:
+	npm --prefix web run test:browser
 
 web-build:
 	npm --prefix web run build

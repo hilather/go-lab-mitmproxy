@@ -83,12 +83,23 @@ export function FlowFilters({
   const controller = useRef<AbortController | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const outsideRestoreRef = useRef<(() => void) | null>(null);
   const navigate = useNavigate();
   const ids = useId();
   const { state } = useLiveSpec();
   const rules = ruleOptions(state?.canonical?.spec?.rules?.items);
   // Abort only when the whole component unmounts; closing the popover only hides it.
   useEffect(() => () => controller.current?.abort(), []);
+  // Drop a pending outside-click restore if the component unmounts before click.
+  useEffect(
+    () => () => {
+      if (outsideRestoreRef.current) {
+        document.removeEventListener("click", outsideRestoreRef.current, true);
+        outsideRestoreRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!waiting) return;
@@ -113,9 +124,19 @@ export function FlowFilters({
       setOpen(false);
       const el = target instanceof Element ? target : null;
       if (el?.closest(FOCUSABLE) == null) {
-        // Defer past the completing click so non-focusable targets (body) do not leave focus on body.
+        // Arm restore on the completing click (capture). Do not remove it in this
+        // effect's cleanup: setOpen(false) re-runs the effect before click fires.
         const trigger = triggerRef.current;
-        queueMicrotask(() => trigger?.focus());
+        if (outsideRestoreRef.current) {
+          document.removeEventListener("click", outsideRestoreRef.current, true);
+        }
+        const restore = () => {
+          trigger?.focus();
+          document.removeEventListener("click", restore, true);
+          outsideRestoreRef.current = null;
+        };
+        outsideRestoreRef.current = restore;
+        document.addEventListener("click", restore, true);
       }
     }
     document.addEventListener("mousedown", onDown);

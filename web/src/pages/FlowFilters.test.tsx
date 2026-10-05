@@ -291,10 +291,15 @@ it("moves focus into the popover on open and returns it to the trigger on Escape
   // Reopening focuses the first field again.
   await user.click(trigger);
   expect(fieldInput("host")).toHaveFocus();
-  // Outside click on non-focusable chrome closes and returns focus to the trigger.
-  await user.click(document.body);
+  // Outside click on non-focusable chrome: restore is armed on mousedown and runs on
+  // the completing click (capture). A microtask-only restore would lose to the blur.
+  fireEvent.mouseDown(document.body);
+  await Promise.resolve();
+  trigger.blur();
+  document.body.focus();
+  fireEvent.click(document.body);
   expect(screen.queryByRole("dialog", { name: "Server filters and wait" })).toBeNull();
-  await waitFor(() => expect(trigger).toHaveFocus());
+  expect(trigger).toHaveFocus();
 });
 
 it("outside-click focus follows a focusable target and restores the trigger for native-disabled", async () => {
@@ -333,6 +338,7 @@ it("outside-click focus follows a focusable target and restores the trigger for 
   expect(fieldInput("host")).toHaveFocus();
   // user-event does not dispatch on disabled controls; drive the document mousedown listener directly.
   fireEvent.mouseDown(nativeDisabled);
+  fireEvent.click(nativeDisabled);
   expect(screen.queryByRole("dialog", { name: "Server filters and wait" })).toBeNull();
-  await waitFor(() => expect(trigger).toHaveFocus());
+  expect(trigger).toHaveFocus();
 });

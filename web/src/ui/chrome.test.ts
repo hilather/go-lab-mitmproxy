@@ -184,6 +184,11 @@ describe("operator chrome lock", () => {
     expect(block720).not.toMatch(/workspace-footer/);
   });
 
+  it("ellipsisizes long flow-list paths inside .flow-mid", () => {
+    const css = read("styles.css");
+    expect(css).toMatch(/\.flow-mid \.muted\s*\{[^}]*text-overflow:\s*ellipsis/);
+  });
+
   it("hardens the inspector title and Diagnostics path wrap at any width", () => {
     const css = read("styles.css");
     expect(css).toMatch(/\.inspector-head\s*\{[^}]*flex-wrap:\s*wrap/);

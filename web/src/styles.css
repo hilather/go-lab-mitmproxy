@@ -499,6 +499,13 @@ a.btn-link {
   min-width: 0;
 }
 
+.flow-mid .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .flow-meta {
   display: flex;
   flex-direction: column;

@@ -213,8 +213,14 @@ jobs:
           node-version: "22.14.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Install Chrome for Filters focus browser check
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
       - name: Operator UI tests and parity evidence
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.chrome.outputs.chrome-path }}
         run: |
           make web-install
           make web-test
           make web-build
+          make web-browser-test
