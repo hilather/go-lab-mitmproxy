@@ -118,7 +118,7 @@ export function FlowsWorkspace() {
         <>
           <p>
             {filtered
-              ? `Deletes every flow in the store, not only the ${items.length} that match the current server filters.`
+              ? `Deletes every flow in the store, not only the ${items.length} that ${items.length === 1 ? "matches" : "match"} the current server filters.`
               : `Deletes every flow in the store: ${items.length} as of the last refresh, plus anything captured since.`}
           </p>
           {generation !== null ? <p>Current store generation {generation}.</p> : null}

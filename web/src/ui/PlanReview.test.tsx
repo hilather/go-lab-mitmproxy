@@ -73,12 +73,12 @@ describe("usePlanReview drawer", () => {
         fireEvent.click(apply);
       });
       await act(async () => {});
+      expect(errors).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener("error", onError);
+      consoleError.mockRestore();
     }
-    expect(errors).toEqual([]);
-    expect(consoleError).not.toHaveBeenCalled();
-    consoleError.mockRestore();
     expect(onResult).toHaveBeenCalledTimes(1);
     expect(onResult).toHaveBeenCalledWith(true);
     expect(screen.queryByRole("dialog")).toBeNull();

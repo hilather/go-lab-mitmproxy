@@ -267,7 +267,7 @@ describe("FlowsWorkspace", () => {
     await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => String(u).includes("host=app.lab.test"))).toBe(true));
     await user.click(screen.getByRole("button", { name: /Clear flows/i }));
     const dialog = screen.getByRole("alertdialog", { name: "Clear every captured flow?" });
-    expect(dialog).toHaveTextContent("Deletes every flow in the store, not only the 1 that match the current server filters.");
+    expect(dialog).toHaveTextContent("Deletes every flow in the store, not only the 1 that matches the current server filters.");
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
   });
 
