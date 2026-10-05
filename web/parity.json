@@ -457,7 +457,7 @@
     },
     "audit.list": {
       "route": "/audit",
-      "workflow": "Query audit limit and inspect full event by ID or table selection.",
+      "workflow": "Query audit limit, filter loaded events by capability or result, and inspect the full event by ID or list selection.",
       "evidence": [
         {
           "file": "src/pages/AuditPage.test.tsx",
@@ -471,7 +471,7 @@
     },
     "audit.get": {
       "route": "/audit",
-      "workflow": "Query audit limit and inspect full event by ID or table selection.",
+      "workflow": "Query audit limit, filter loaded events by capability or result, and inspect the full event by ID or list selection.",
       "evidence": [
         {
           "file": "src/pages/AuditPage.test.tsx",

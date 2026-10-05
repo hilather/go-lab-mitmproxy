@@ -96,6 +96,37 @@ export function listStatusLabel(flow: Flow): string {
   return flow.state || "—";
 }
 
+export type StatusTone = "paused" | "tunnel" | "danger" | "warn" | "ok" | "muted";
+
+/** statusTone colours the list status: 4xx warn, 5xx/errors/drops/timeouts danger, paused accent. */
+export function statusTone(flow: Flow): StatusTone {
+  if (flow.state === "paused") return "paused";
+  if (isTunnelNotDecrypt(flow)) return "tunnel";
+  if (flow.status >= 500 || (flow.error ?? "") !== "" || flow.state === "error" || flow.state === "dropped") return "danger";
+  if (flow.status >= 400) return "warn";
+  if (flow.status > 0) return "ok";
+  return "muted";
+}
+
+/** listStatusText is the list status cell text; breakpoint timeouts read "bp timeout". */
+export function listStatusText(flow: Flow): string {
+  if (flow.state === "paused") return "paused";
+  if (flow.status === 0 && flow.error === "breakpoint_timeout") return "bp timeout";
+  return listStatusLabel(flow);
+}
+
+export type StatusBucket = "paused" | "2xx" | "4xx" | "5xx";
+
+/** statusBucket groups loaded flows for the client-side status chips. 1xx, 3xx, tunnels and open rows only appear under All, so the "2xx" label is exact. */
+export function statusBucket(flow: Flow): StatusBucket | null {
+  const tone = statusTone(flow);
+  if (tone === "paused") return "paused";
+  if (tone === "danger") return "5xx";
+  if (tone === "warn") return "4xx";
+  if (tone === "ok" && flow.status >= 200 && flow.status <= 299) return "2xx";
+  return null;
+}
+
 export function listTimingLabel(flow: Flow): string {
   if (isTunnelNotDecrypt(flow) && flow.timings.totalMs === 0) {
     return "-";

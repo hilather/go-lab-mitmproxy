@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CSRF_HEADER } from "../api/client";
 import {
@@ -90,6 +90,27 @@ function fixture(scopes?: string[], conflict = false, conflictCode = "revision_c
   );
   vi.stubGlobal("fetch", fetchMock);
   return { fetchMock, state };
+}
+async function selectTab(label: string) {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("tab", { name: label }));
+  });
+}
+function chooseTemplate(operation: string) {
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "Operation template" })).getByRole("button", {
+      name: new RegExp(`^${operation}\\b`),
+    }),
+  );
+}
+async function confirmDialog(name: RegExp | string, accept: boolean) {
+  const dialog = await screen.findByRole("alertdialog", { name });
+  await act(async () => {
+    fireEvent.click(
+      within(dialog).getAllByRole("button")[accept ? 1 : 0]!,
+    );
+  });
+  return dialog;
 }
 async function click(label: string) {
   await act(async () => {
@@ -245,17 +266,19 @@ const edited: Record<string, unknown> = {
   },
 };
 describe("ConfigurationPage", () => {
+  let nativeConfirm: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    nativeConfirm = vi.spyOn(window, "confirm");
+  });
+  afterEach(() => {
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
   it.each(CONFIGURATION_OPERATIONS)(
     "initializes and validates every field for %s",
     async (operation) => {
       const { fetchMock } = fixture();
       await renderAppReady(<ConfigurationPage />);
-      fireEvent.change(screen.getByLabelText("Operation template"), {
-        target: { value: operation },
-      });
+      chooseTemplate(operation);
       expect(
         JSON.parse(
           (screen.getByLabelText("Operations JSON") as HTMLTextAreaElement)
@@ -353,6 +376,13 @@ describe("ConfigurationPage", () => {
     fixture();
     await renderAppReady(<ConfigurationPage />);
     await click("Plan changes");
+    const stepState = (label: string) =>
+      Array.from(document.querySelectorAll("li[data-state]"))
+        .find((li) => li.textContent?.endsWith(label))
+        ?.getAttribute("data-state");
+    // Planning without "Validate operations" must not mark Validate done.
+    expect(stepState("Review plan")).toBe("current");
+    expect(stepState("Validate")).toBe("todo");
     fireEvent.change(screen.getByLabelText("Reason (optional)"), {
       target: { value: "changed" },
     });
@@ -398,17 +428,34 @@ describe("ConfigurationPage", () => {
     fireEvent.change(screen.getByLabelText("Candidate state JSON"), {
       target: { value: JSON.stringify(candidate) },
     });
+    await selectTab("Validate candidate");
     await click("Validate candidate state");
     expect(body(fetchMock, "/v1/state:validate")).toEqual({ state: candidate });
+  });
+  it("does not mark the Validate step done after candidate-state validation", async () => {
+    const { fetchMock } = fixture();
+    await renderAppReady(<ConfigurationPage />);
+    fireEvent.change(screen.getByLabelText("Candidate state JSON"), {
+      target: { value: JSON.stringify({ apiVersion: "labmitm.dev/v1alpha1", kind: "LabMITM", spec: {} }) },
+    });
+    await selectTab("Validate candidate");
+    await click("Validate candidate state");
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u) === "/v1/state:validate")).toBe(true));
+    const step = Array.from(document.querySelectorAll("li[data-state]")).find((li) =>
+      li.textContent?.endsWith("Validate"),
+    );
+    expect(step?.getAttribute("data-state")).not.toBe("done");
   });
   it.each(["JSON", "YAML"])(
     "exports %s with revisions, drift and human diff",
     async (format) => {
       fixture();
       await renderAppReady(<ConfigurationPage />);
+      await selectTab("Export");
       await click(`Export ${format}`);
-      expect(screen.getByText("spec.tls.hosts changed")).toBeVisible();
-      expect(screen.getByText("sha256:boot")).toBeVisible();
+      const panel = screen.getByRole("tabpanel", { name: "Export" });
+      expect(within(panel).getByText("spec.tls.hosts changed")).toBeVisible();
+      expect(within(panel).getByText("sha256:boot")).toBeVisible();
       expect(
         (
           screen.getByLabelText(
@@ -487,7 +534,6 @@ describe("ConfigurationPage", () => {
   it("requires inspector-off and destructive store confirmation", async () => {
     const { fetchMock } = fixture();
     await renderAppReady(<ConfigurationPage />);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.change(screen.getByLabelText("Operations JSON"), {
       target: {
         value: JSON.stringify([
@@ -497,26 +543,47 @@ describe("ConfigurationPage", () => {
     });
     await click("Plan changes");
     await click("Apply reviewed changes");
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("404"));
+    const off = await confirmDialog("Disable the inspector?", false);
+    expect(off).toHaveTextContent("404");
+    expect(off).toHaveTextContent("REST/MCP remain available");
     expect(
       fetchMock.mock.calls.some(
         (call) => String(call[0]) === "/v1/changes:apply",
       ),
     ).toBe(false);
-    fireEvent.change(screen.getByLabelText("Operation template"), {
-      target: { value: "replaceStoreCaps" },
-    });
+    chooseTemplate("replaceStoreCaps");
     fireEvent.click(screen.getByLabelText("Force store shrink eviction"));
     await click("Plan changes");
     await click("Apply reviewed changes");
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining("permanently evict"),
-    );
+    const evict = await confirmDialog("Apply the reviewed store change?", false);
+    expect(evict).toHaveTextContent("permanently evict");
     expect(
       fetchMock.mock.calls.some(
         (call) => String(call[0]) === "/v1/changes:apply",
       ),
     ).toBe(false);
+  });
+  it("applies an inspector-off change only after the in-page confirm", async () => {
+    const { fetchMock } = fixture();
+    await renderAppReady(<ConfigurationPage />);
+    fireEvent.change(screen.getByLabelText("Operations JSON"), {
+      target: {
+        value: JSON.stringify([
+          { op: "setFeature", feature: { id: "ui.enabled", enabled: false } },
+        ]),
+      },
+    });
+    await click("Plan changes");
+    const review = screen.getByRole("region", { name: "Review planned changes" });
+    expect(within(review).getByRole("table", { name: "Planned diff" })).toHaveTextContent("spec.tls.hosts");
+    expect(within(review).getByText("sha256:next")).toHaveAttribute("title", "sha256:next");
+    expect(review).toHaveTextContent("live_next_connection");
+    await click("Apply reviewed changes");
+    await confirmDialog("Disable the inspector?", true);
+    expect(
+      fetchMock.mock.calls.filter((call) => String(call[0]) === "/v1/changes:apply"),
+    ).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Applied · revision sha256:next · generation 5");
   });
   it("rejects mismatched YAML revision metadata", async () => {
     const { fetchMock } = fixture();
@@ -529,6 +596,7 @@ describe("ConfigurationPage", () => {
           })
         : original(input, init),
     );
+    await selectTab("Export");
     await click("Export YAML");
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Runtime changed during export",
@@ -538,6 +606,10 @@ describe("ConfigurationPage", () => {
   it("validates candidate with operations and refreshes state for readers", async () => {
     const { fetchMock } = fixture();
     await renderAppReady(<ConfigurationPage />);
+    await selectTab("Validate candidate");
+    expect(screen.getByRole("tabpanel", { name: "Validate candidate" })).toHaveTextContent(
+      "1 op from Live changes",
+    );
     await click("Validate candidate with operations");
     expect(body(fetchMock, "/v1/state:validate")).toHaveProperty(
       "state.spec.tls",
@@ -581,16 +653,23 @@ describe("ConfigurationPage", () => {
   it("gates admin workflows for a reader", async () => {
     const { fetchMock } = fixture(["mitm.read"]);
     await renderAppReady(<ConfigurationPage />);
-    for (const label of [
-      "Validate operations",
-      "Plan changes",
-      "Validate candidate state",
-      "Validate candidate with operations",
-      "Export JSON",
-      "Export YAML",
-    ])
-      expect(screen.getByRole("button", { name: label })).toBeDisabled();
+    const byTab: Record<string, string[]> = {
+      "Live changes": ["Validate operations", "Plan changes", "Reset to current", "Add op"],
+      "Validate candidate": ["Validate candidate state", "Validate candidate with operations"],
+      Export: ["Export JSON", "Export YAML"],
+    };
+    for (const [tabName, labels] of Object.entries(byTab)) {
+      await selectTab(tabName);
+      for (const label of labels)
+        expect(screen.getByRole("button", { name: label })).toBeDisabled();
+    }
+    await selectTab("Live changes");
     expect(screen.getByLabelText("Operations JSON")).toBeDisabled();
+    expect(screen.getByLabelText("Candidate state JSON")).toBeDisabled();
+    for (const template of within(
+      screen.getByRole("group", { name: "Operation template" }),
+    ).getAllByRole("button"))
+      expect(template).toBeDisabled();
     expect(
       fetchMock.mock.calls.every(
         (call) => (call[1]?.method ?? "GET") === "GET",

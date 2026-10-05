@@ -3,7 +3,7 @@
 Status: Proposed normative behavior
 Owners: Architecture, Proxy, Control Plane
 Last reviewed: 2026-10-03 (implemented operator workflows and frontend parity gate; D78/D79)
-Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020
+Related ADRs: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021
 
 ## Problem statement
 
@@ -135,6 +135,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D75** | **Rules may include `action.type: throttle`.** The winning item paces that phase’s **body** at `bytesPerSecond` (256 B/s–64 MiB/s). Live `replaceRules`. No daemon, no jitter, no new capability. See [ADR 0016](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md). | Issue #52 QA bandwidth without collapsing into `delay`. ADR 0015 is websocket frame rules (D72–D74); ADR 0017 / D76 is HTTP proxy 407. |
 | **D78** | **HTTP/2 responses stream with bounded capture.** Oversized response breakpoints on a shared HTTP/1.1 origin retain its reservation through pause and unread-tail forwarding; bounded response breakpoints remain independent. | [ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md); narrow D37 exception preserves D44 without spool or a second Dial. |
 | **D79** | **The frontend must provide functional parity with every operator-facing REST/MCP capability.** Supported inputs and outcomes, authorization and preconditions remain those of the existing capability. UI-PARITY-001 implements the required workflows and mandatory automated gate. | [ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md); REST/MCP parity alone does not prove browser usability. |
+| **D80** | **The SPA uses one shared in-page confirm and one plan-review panel instead of `window.confirm`.** Chrome only; request bodies unchanged; D77 confirm text and semantics unchanged. | [ADR 0021](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0021-in-page-confirms-and-plan-review.md); amends the ADR 0018 confirm surface after the approved oct03 mocks. |
 
 HTTP/2 response forwarding uses bounded capture and preserves incremental delivery. Oversized response breakpoints sharing one HTTP/1.1 origin connection retain that connection until the pause and unread body finish ([ADR 0019](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md), D78); ordinary bounded response breakpoints remain independent.
 

@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CSRF_HEADER } from "../api/client";
@@ -119,19 +119,43 @@ function applyButton(name: string) {
   return button;
 }
 
+// Review drawer: assert what it shows (full candidate revision, the exact
+// planned request) before choosing Apply or Discard. Never auto-approves.
+async function reviewDrawer(candidate = "sha256:next") {
+  const drawer = await screen.findByRole("dialog", { name: "Review planned change" });
+  expect(within(drawer).getByTitle(candidate)).toBeInTheDocument();
+  expect(drawer).toHaveTextContent(`"candidateRevision": "${candidate}"`);
+  expect(drawer).toHaveTextContent('"expectedRevision"');
+  return drawer;
+}
+async function approvePlan(candidate?: string) {
+  const drawer = await reviewDrawer(candidate);
+  await act(async () => {
+    fireEvent.click(within(drawer).getByRole("button", { name: "Apply reviewed changes" }));
+  });
+}
+async function discardPlan() {
+  const drawer = await reviewDrawer();
+  await act(async () => {
+    fireEvent.click(within(drawer).getByRole("button", { name: "Discard plan" }));
+  });
+}
+
 describe("StatusPage", () => {
-  beforeEach(() => { vi.spyOn(window, "confirm").mockReturnValue(true); });
+  let nativeConfirm: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => { nativeConfirm = vi.spyOn(window, "confirm"); });
   it("reviews the exact planned request and cancellation does not apply", async () => {
     const {fetchMock} = stubPageFetch();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     await renderAppReady(<StatusPage />, {route:"/status"});
     await act(async () => { fireEvent.click(screen.getByLabelText("Toggle protocols.http2")); });
     const planned = fetchMock.mock.calls.find((call) => String(call[0]).endsWith("/v1/changes:plan"));
     expect(planned).toBeDefined();
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("candidateRevision"));
+    await discardPlan();
+    expect(screen.queryByRole("dialog", { name: "Review planned change" })).toBeNull();
     expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/v1/changes:apply"))).toBe(false);
-    confirm.mockReturnValue(true);
     await act(async () => { fireEvent.click(screen.getByLabelText("Toggle protocols.http2")); });
+    await approvePlan();
+    expect(nativeConfirm).not.toHaveBeenCalled();
     const plans = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith("/v1/changes:plan"));
     const applied = fetchMock.mock.calls.find((call) => String(call[0]).endsWith("/v1/changes:apply"));
     expect(applied?.[1]?.body).toBe(plans.at(-1)?.[1]?.body);
@@ -164,6 +188,7 @@ describe("StatusPage", () => {
     it("applies on HTTP when randomUUID is unavailable", async () => {
       const { getRandomValues, fetchMock, toggle } = fixture;
       await act(async () => { fireEvent.click(toggle); });
+      await approvePlan();
       await waitFor(() => {
         expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/v1/changes:apply"))).toBe(true);
       });
@@ -183,6 +208,7 @@ describe("StatusPage", () => {
       expect(fetchMock.mock.calls.every((call) => !String(call[0]).endsWith("/v1/changes:apply"))).toBe(true);
       vi.stubGlobal("crypto", { randomUUID: () => "recovered-key" });
       await act(async () => { fireEvent.click(toggle); });
+      await approvePlan();
       await waitFor(() => {
         expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/v1/changes:apply"))).toBe(true);
       });
@@ -228,12 +254,16 @@ describe("StatusPage", () => {
   it("confirms only when turning ui.enabled off; cancel posts nothing", async () => {
     const user = userEvent.setup();
     const { fetchMock } = stubPageFetch();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     await renderAppReady(<StatusPage />, { route: "/status" });
     const toggle = await findSwitch("Toggle ui.enabled");
     await user.click(toggle);
-    expect(confirm).toHaveBeenCalled();
-    expect(String(confirm.mock.calls[0]?.[0])).toMatch(/404/);
+    const dialog = await screen.findByRole("alertdialog", { name: "Disable the inspector?" });
+    expect(dialog).toHaveTextContent(/404/);
+    expect(dialog).toHaveTextContent("(/, /status, /flows/…)");
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" })); });
+    expect(screen.queryByRole("dialog", { name: "Review planned change" })).toBeNull();
+    expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:plan"))).toBe(true);
+    expect(nativeConfirm).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.every((c) => !String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
   });
 
@@ -245,10 +275,10 @@ describe("StatusPage", () => {
     }
     const user = userEvent.setup();
     const { fetchMock } = stubPageFetch({ features: catalog });
-    const confirm = vi.spyOn(window, "confirm");
     await renderAppReady(<StatusPage />, { route: "/status" });
     await user.click(await findSwitch("Toggle ui.enabled"));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Review planned change"));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    await approvePlan();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     });
@@ -260,10 +290,12 @@ describe("StatusPage", () => {
   it("posts setFeature for ui.enabled after confirm", async () => {
     const user = userEvent.setup();
     const { fetchMock } = stubPageFetch();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(crypto, "randomUUID").mockReturnValue("11111111-1111-4111-8111-111111111111");
     await renderAppReady(<StatusPage />, { route: "/status" });
     await user.click(await findSwitch("Toggle ui.enabled"));
+    const off = await screen.findByRole("alertdialog", { name: "Disable the inspector?" });
+    await act(async () => { fireEvent.click(within(off).getByRole("button", { name: "Disable inspector" })); });
+    await approvePlan();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     });
@@ -323,6 +355,7 @@ describe("StatusPage", () => {
     const toggle = await findSwitch("Toggle protocols.websocket");
     expect(toggle).toBeChecked();
     await user.click(toggle);
+    await approvePlan();
     await waitFor(() => expect(toggle).toBeDisabled());
     expect(getSwitch("Toggle protocols.http2")).toBeDisabled();
     release();
@@ -398,6 +431,7 @@ describe("StatusPage", () => {
     await renderAppReady(<StatusPage />, { route: "/status" });
     const toggle = await findSwitch("Toggle protocols.http2");
     await user.click(toggle);
+    await approvePlan();
     expect(await screen.findByRole("alert")).toHaveTextContent("revision has changed");
     await waitFor(() => expect(toggle).toBeEnabled());
     await waitFor(() => expect(featureGets).toBeGreaterThan(1));
@@ -408,6 +442,7 @@ describe("StatusPage", () => {
     expect(JSON.parse(applyBodies[0] ?? "").expectedRevision).toBe("sha256:abc");
 
     await user.click(toggle);
+    await approvePlan();
     await waitFor(() => expect(applyBodies).toHaveLength(2));
     expect(JSON.parse(applyBodies[1] ?? "").idempotencyKey).toBe(
       "22222222-2222-4222-8222-222222222222",
@@ -440,6 +475,7 @@ describe("StatusPage", () => {
     fireEvent.change(ports, { target: { value: "443,8443" } });
     expect(applyButton("Apply TLS")).toBeEnabled();
     fireEvent.click(applyButton("Apply TLS"));
+    await approvePlan();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     });
@@ -496,6 +532,7 @@ describe("StatusPage", () => {
     await user.clear(ports);
     await user.type(ports, "443,8443");
     await user.click(applyButton("Apply TLS"));
+    await approvePlan();
     await waitFor(() => expect(applyBodies).toHaveLength(1));
     const sent = JSON.parse(applyBodies[0] ?? "");
     expect(sent.expectedRevision).toBe("sha256:other");
@@ -598,6 +635,7 @@ describe("StatusPage", () => {
     await renderAppReady(<StatusPage />, { route: "/status" });
     expect(await screen.findByText("deadbeef")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /Apply TLS/i }));
+    await approvePlan();
     expect(await screen.findByText("cafebabe")).toBeInTheDocument();
     expect(screen.getByText(/Intercept:/)).toHaveTextContent(/off/);
   });
@@ -630,6 +668,7 @@ describe("StatusPage", () => {
       });
       expect(apply).toBeEnabled();
       await act(async () => { fireEvent.click(apply); });
+      await approvePlan();
       await waitFor(() => {
         expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
       });
@@ -670,6 +709,7 @@ describe("StatusPage", () => {
     });
     expect(rulesButton).toBeEnabled();
     await act(async () => { fireEvent.click(rulesButton); });
+    await approvePlan();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/changes:apply"))).toBe(true);
     });
@@ -682,6 +722,7 @@ describe("StatusPage", () => {
     await waitFor(() => expect(admissionButton).toBeEnabled());
     expect(admissionButton).toBeEnabled();
     await act(async () => { fireEvent.click(admissionButton); });
+    await approvePlan();
     await waitFor(() => {
       expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply"))).toHaveLength(2);
     });
@@ -705,6 +746,7 @@ describe("StatusPage", () => {
     fireEvent.change(screen.getByLabelText("pathPrefix"), { target: { value: "/compat-qa" } });
     expect(compatButton).toBeEnabled();
     await act(async () => { fireEvent.click(compatButton); });
+    await approvePlan();
     await waitFor(() => {
       expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v1/changes:apply"))).toHaveLength(3);
     });
@@ -724,7 +766,6 @@ describe("StatusPage apply errors", () => {
     vi.restoreAllMocks();
   });
   it("shows apply field violations instead of only the detail", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -752,6 +793,7 @@ describe("StatusPage apply errors", () => {
     );
     await renderAppReady(<StatusPage />, { route: "/status" });
     await user.click(await findSwitch("Toggle protocols.http2"));
+    await approvePlan();
     expect(await screen.findByRole("alert")).toHaveTextContent('reason: unknown field "reason" [unknown_field]');
   });
 });

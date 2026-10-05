@@ -16,6 +16,9 @@ import type {
 } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_ADMIN, formatBytes } from "../auth/scopes";
+import { ProblemBanner } from "../ui/ProblemBanner";
+import { useConfirm } from "../ui/ConfirmDialog";
+import { usePlanReview } from "../ui/PlanReview";
 
 const FEATURE_UI_ENABLED = "ui.enabled";
 const FEATURE_RULES_ENABLED = "rules.enabled";
@@ -71,9 +74,12 @@ export function StatusPage() {
   const [revision, setRevision] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
-  const [featureError, setFeatureError] = useState("");
+  // API problems keep the APIError (ProblemBanner shows code/status chips); local validation stays a plain string.
+  const [featureError, setFeatureError] = useState<unknown>("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const [planDrawer, reviewPlan] = usePlanReview();
+  const [renderConfirm, confirm] = useConfirm();
 
   const [tlsIntercept, setTlsIntercept] = useState(true);
   const [tlsPorts, setTlsPorts] = useState("443");
@@ -246,7 +252,8 @@ export function StatusPage() {
         force: false,
       };
       const plan = await planConfiguration(change);
-      if (!window.confirm(`Review planned change before applying:\n${JSON.stringify({ change, plan }, null, 2)}`)) return false;
+      // busyRef stays set while the review drawer is open (no double submits).
+      if (!(await reviewPlan(change, plan))) return false;
       const result = await applyChanges(change);
       if (result.runtimeRevision) {
         setRevision(result.runtimeRevision);
@@ -254,9 +261,7 @@ export function StatusPage() {
       await refreshAll();
       return true;
     } catch (err) {
-      const detail =
-        errorMessage(err, "Could not apply change.");
-      setFeatureError(detail);
+      setFeatureError(err instanceof APIError ? err : errorMessage(err, "Could not apply change."));
       if (err instanceof APIError && err.problem.status === 409) {
         try {
           await refreshAll();
@@ -276,7 +281,13 @@ export function StatusPage() {
       return;
     }
     if (feature.id === FEATURE_UI_ENABLED && feature.enabled) {
-      if (!window.confirm(UI_OFF_CONFIRM)) {
+      const ok = await confirm({
+        title: "Disable the inspector?",
+        body: <p>{UI_OFF_CONFIRM}</p>,
+        confirmLabel: "Disable inspector",
+        danger: true,
+      });
+      if (!ok || busyRef.current) {
         return;
       }
     }
@@ -450,9 +461,15 @@ export function StatusPage() {
 
   return (
     <main className="page">
-      <p className="kicker">Status</p>
-      <h1>Status</h1>
-      <p><Link to="/configuration">Full configuration, validation, plan review and export</Link></p>
+      <div className="page-head">
+        <div>
+          <p className="kicker">Status</p>
+          <h1>Status</h1>
+        </div>
+        <Link className="btn-link" to="/configuration">
+          Full configuration, validation, plan review and export
+        </Link>
+      </div>
       <p className="banner-warn">
         Lab-only intercepting proxy. Install the lab CA only on systems under test and uninstall it
         after use. LabMITM is not a public MITM product.
@@ -472,12 +489,12 @@ export function StatusPage() {
           <div>
             <dt>SPKI SHA-256</dt>
             <dd>
-              <code>{status.ca.spkiSha256 || "—"}</code>
+              <code className="wrap-anywhere">{status.ca.spkiSha256 || "—"}</code>
             </dd>
           </div>
           <div>
             <dt>Subject</dt>
-            <dd>{status.ca.subject || "—"}</dd>
+            <dd className="wrap-anywhere">{status.ca.subject || "—"}</dd>
           </div>
           <div>
             <dt>Not after</dt>
@@ -574,11 +591,7 @@ export function StatusPage() {
       </section>
       <section className="panel">
         <h2>Features</h2>
-        {featureError !== "" ? (
-          <p className="banner-error" role="alert">
-            {featureError}
-          </p>
-        ) : null}
+        {featureError !== "" ? <ProblemBanner error={featureError} fallback="Could not apply change." /> : null}
         {features === null && featureError === "" ? (
           <p className="muted" role="status">
             Loading features…
@@ -608,7 +621,7 @@ export function StatusPage() {
             <tbody>
               {features.items.map((f) => (
                 <tr key={f.id}>
-                  <td>
+                  <td className="nowrap">
                     <code>{f.id}</code>
                   </td>
                   <td>
@@ -845,6 +858,8 @@ export function StatusPage() {
         <h2>Revisions</h2>
         <pre className="raw">{JSON.stringify(status.revisions, null, 2)}</pre>
       </section>
+      {planDrawer}
+      {renderConfirm()}
     </main>
   );
 }

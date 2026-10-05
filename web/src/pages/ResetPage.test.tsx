@@ -78,4 +78,47 @@ describe("ResetPage", () => {
     expect(alert).toHaveTextContent('reason: unknown field "reason" [unknown_field]');
     expect(alert).toHaveTextContent("Remediation: Free the listener port and retry.");
   });
+
+  it("shows the impact line from GET /v1/status and re-reads it on tick and after reset", async () => {
+    const user = userEvent.setup();
+    let flows = 12;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/v1/session")) return json(200, sessionView());
+      if (url.endsWith("/v1/status"))
+        return json(200, { store: { flowCount: flows, storeBytes: 0, storeGeneration: flows === 0 ? 4 : 3, epoch: 1 } });
+      if (url.endsWith("/v1/state:reset")) {
+        flows = 0;
+        return json(200, {});
+      }
+      return json(404, { status: 404, code: "not_found", detail: "not found" });
+    });
+    vi.stubGlobal("fetch", fetch);
+    await renderAppReady(<ResetPage />, { route: "/reset" });
+    expect(await screen.findByTestId("reset-impact")).toHaveTextContent(/: 12 flows · store generation 3$/);
+    const statusCalls = () => fetch.mock.calls.filter(([p]) => String(p).endsWith("/v1/status")).length;
+    expect(statusCalls()).toBe(1);
+    fireEvent.change(screen.getByLabelText(/Confirmation phrase/i), { target: { value: "RESET" } });
+    await user.click(screen.getByLabelText(/Wipe the flow store/i));
+    expect(statusCalls()).toBe(2);
+    const submit = screen.getByRole("button", { name: /Reset LabMITM/i });
+    expect(submit).toHaveClass("btn-danger-fill");
+    await user.click(submit);
+    expect(await screen.findByTestId("reset-impact")).toHaveTextContent(/: 0 flows · store generation 4$/);
+    expect(statusCalls()).toBe(3);
+  });
+
+  it("hides the impact line without an alert when /v1/status fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith("/v1/session")
+          ? json(200, sessionView())
+          : json(404, { status: 404, code: "not_found", detail: "not found" }),
+      ),
+    );
+    await renderAppReady(<ResetPage />, { route: "/reset" });
+    await vi.waitFor(() => expect(screen.queryByTestId("reset-impact")).toBeNull());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });

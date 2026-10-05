@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../App";
@@ -191,7 +191,7 @@ describe("FlowsWorkspace", () => {
 
   it("clears selection when Clear succeeds without reconnecting EventSource", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, "confirm");
     let wiped = false;
     vi.stubGlobal("EventSource", RecordingEventSource);
     vi.stubGlobal(
@@ -229,7 +229,14 @@ describe("FlowsWorkspace", () => {
     expect(await screen.findByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeInTheDocument();
     expect(RecordingEventSource.instances).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /Clear flows/i }));
+    const dialog = screen.getByRole("alertdialog", { name: "Clear every captured flow?" });
+    expect(dialog).toHaveTextContent("2 loaded here");
+    expect(dialog).toHaveTextContent("Current store generation 4.");
+    expect(within(dialog).getByLabelText("Clear expected store generation (optional)")).toHaveValue(null);
+    await user.click(within(dialog).getByRole("button", { name: "Clear flows" }));
+    expect(nativeConfirm).not.toHaveBeenCalled();
     expect(await screen.findByText("Select a captured flow.")).toBeInTheDocument();
+    expect(await screen.findByText("Flows cleared")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeNull();
     expect(RecordingEventSource.instances).toHaveLength(1);
   });
@@ -280,7 +287,6 @@ it("refreshes selected pause actions on SSE without losing replay results", asyn
   let paused = false;
   let generation = 4;
   const current = () => ({ ...httpFlow, state: paused ? "paused" : "completed" });
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === "/v1/session") return json(200, sessionView());
@@ -297,6 +303,7 @@ it("refreshes selected pause actions on SSE without losing replay results", asyn
   await act(async () => RecordingEventSource.instances[0]?.dispatch("flow.paused"));
   expect(await screen.findByRole("button", { name: "Resume flow" })).toBeEnabled();
   await user.click(screen.getByRole("button", { name: "Replay flow" }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Replay flow" }));
   expect(await screen.findByRole("link", { name: "Inspect replay replayed" })).toBeVisible();
   generation++;
   await act(async () => RecordingEventSource.instances[0]?.dispatch("flow.inserted"));
@@ -341,5 +348,80 @@ describe("flow list errors", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "invalid status (status: status must be an integer [invalid_value])",
     );
+  });
+});
+
+describe("flow status chips", () => {
+  afterEach(() => {
+    resetClientState();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    RecordingEventSource.instances = [];
+  });
+
+  const mk = (id: string, host: string, patch: Record<string, unknown>) => ({
+    ...httpFlow,
+    id,
+    host,
+    url: `https://${host}/`,
+    ...patch,
+  });
+  const items = [
+    mk("01OK", "ok200.lab", { status: 200 }),
+    mk("01REDIR", "redir302.lab", { status: 302 }),
+    mk("01NF", "nf404.lab", { status: 404 }),
+    mk("01BAD", "bad502.lab", { status: 502 }),
+    mk("01DROP", "drop0.lab", { status: 0, state: "dropped" }),
+    mk("01PAUSE", "pause.lab", { status: 0, state: "paused", pausedPhase: "request" }),
+    connectFlow,
+  ];
+
+  it("filters loaded rows by status chip with counts, sends no request, and clears from the no-match state", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("EventSource", RecordingEventSource);
+    const base = mockAPI();
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/v1/flows") && !url.includes("/v1/flows/"))
+        return json(200, { revision: "r1", storeGeneration: 4, nextCursor: null, items });
+      void init;
+      return base(input);
+    });
+    vi.stubGlobal("fetch", fetch);
+    await renderAppReady(<AppRoutes />, { route: "/" });
+    expect(await screen.findByText("ok200.lab")).toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Status filter" });
+    const chip = (name: string) => within(group).getByRole("button", { name: new RegExp(`^${name}`) });
+    expect(chip("All")).toHaveTextContent("7");
+    expect(chip("All")).toHaveAttribute("aria-pressed", "true");
+    expect(chip("Paused")).toHaveTextContent("1");
+    expect(chip("2xx")).toHaveTextContent("1");
+    expect(chip("4xx")).toHaveTextContent("1");
+    expect(chip("5xx")).toHaveTextContent("2");
+    const listCalls = () => fetch.mock.calls.filter(([u]) => String(u).includes("/v1/flows") && !String(u).includes("/v1/flows/")).length;
+    const before = listCalls();
+    const list = screen.getByRole("region", { name: "Captured flows" });
+
+    await user.click(chip("2xx"));
+    expect(chip("2xx")).toHaveAttribute("aria-pressed", "true");
+    expect(within(list).getByText("ok200.lab")).toBeInTheDocument();
+    expect(within(list).queryByText("redir302.lab")).toBeNull();
+    expect(within(list).queryByText("directory")).toBeNull();
+    expect(within(list).getByText(/^1 of 7$/)).toBeInTheDocument();
+
+    await user.click(chip("5xx"));
+    expect(within(list).getByText("bad502.lab")).toBeInTheDocument();
+    expect(within(list).getByText("drop0.lab")).toBeInTheDocument();
+    expect(within(list).queryByText("nf404.lab")).toBeNull();
+
+    await user.click(chip("Paused"));
+    expect(within(list).getByText("pause.lab")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("Host, method, or status"), "nomatch");
+    expect(within(list).getByText("No flows match")).toBeInTheDocument();
+    await user.click(within(list).getByRole("button", { name: "Clear search and status" }));
+    expect(chip("All")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByPlaceholderText("Host, method, or status")).toHaveValue("");
+    expect(within(list).getByText("redir302.lab")).toBeInTheDocument();
+    expect(listCalls()).toBe(before);
   });
 });

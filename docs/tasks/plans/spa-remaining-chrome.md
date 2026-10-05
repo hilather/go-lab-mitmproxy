@@ -24,7 +24,7 @@ PR #67 shipped Flows split-pane + dark **tokens** on `:root` (`web/src/styles.cs
 | Reset | `ResetPage.tsx` 39–75 `.page.page--narrow` + `.stack` / `.field` | Form sits on bare bg; submit uses global `button[type=submit]` |
 | Login | `LoginPage.tsx` 41–69 `.page.page--narrow` | Same; signed-out `Shell` has **no** live / `:443` chips (`App.tsx` 52–60) — keep that |
 | UA buttons | `styles.css` 280–283 `button { font: inherit; cursor: pointer }` only | Non-submit buttons (Flows **Clear flows**, any future control) keep browser default — paper/gray on many engines. Old navy topbar / Segoe / paper `#eef2f4` / `#fffdf8` / accent `#16324f` are **already gone** from `:root` (`git show f6f38a6:web/src/styles.css`) |
-| Modals | Status/Audit/Reset/Login have **no** `<dialog>` / `window.confirm` | Only Flows Clear/Delete use `window.confirm` (`FlowsWorkspace.tsx` 62, `FlowInspector.tsx` 341). Do not add a modal kit |
+| Modals | Status/Audit/Reset/Login have **no** `<dialog>` / `window.confirm` | Only Flows Clear/Delete use `window.confirm` (`FlowsWorkspace.tsx` 62, `FlowInspector.tsx` 341). Do not add a modal kit (superseded 2026-10-04 by ADR 0021 / D80) |
 
 `:root` already has `color-scheme: dark`. Remaining pages inherit tokens but do not look like the money-view inspector (panel `#181a1f`, rounded bordered boxes, chip-like controls, IBM Plex throughout).
 
@@ -39,7 +39,7 @@ PR #67 shipped Flows split-pane + dark **tokens** on `:root` (`web/src/styles.cs
 - Fuzzer, repeater, exploit, HTML preview `innerHTML`.
 - Live `GET /v1/state` `tls.ports`. Header **:443 intercept only** stays overlay copy.
 - Putting **tunnel-not-decrypt** on Status / Audit / Reset / Login. That chip is a flow classification (`isTunnelNotDecrypt` in `web/src/ui/flowKind.ts`) only.
-- Custom modal / `<dialog>` component. Remaining pages have no confirms. Do not replace Flows `window.confirm`.
+- Custom modal / `<dialog>` component. Remaining pages have no confirms. Do not replace Flows `window.confirm`. (Superseded 2026-10-04 by ADR 0021 / D80.)
 - New npm runtime dependencies. No Google Fonts CDN. No ADR (chrome only).
 - Other repos. New PR.
 
