@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -291,8 +291,54 @@ it("moves focus into the popover on open and returns it to the trigger on Escape
   // Reopening focuses the first field again.
   await user.click(trigger);
   expect(fieldInput("host")).toHaveFocus();
-  // An outside click hides the popover; focus follows the click and is never left inside the hidden popover.
-  await user.click(document.body);
+  // Outside click on non-focusable chrome: restore is armed on mousedown and runs on
+  // the completing click (capture). A microtask-only restore would lose to the blur.
+  fireEvent.mouseDown(document.body);
+  await Promise.resolve();
+  trigger.blur();
+  document.body.focus();
+  fireEvent.click(document.body);
   expect(screen.queryByRole("dialog", { name: "Server filters and wait" })).toBeNull();
-  expect(document.querySelector(".popover")?.contains(document.activeElement)).toBe(false);
+  expect(trigger).toHaveFocus();
+});
+
+it("outside-click focus follows a focusable target and restores the trigger for native-disabled", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(200, sessionView())));
+  const user = userEvent.setup();
+  await renderAppReady(
+    <div>
+      <button type="button">Sibling</button>
+      <button type="button" aria-disabled="true">
+        Aria disabled
+      </button>
+      <button type="button" disabled>
+        Native disabled
+      </button>
+      <FlowFilters onFilter={vi.fn()} />
+    </div>,
+  );
+  const trigger = screen.getByRole("button", { name: "Filters & wait" });
+  const sibling = screen.getByRole("button", { name: "Sibling" });
+  const ariaDisabled = screen.getByRole("button", { name: "Aria disabled" });
+  const nativeDisabled = screen.getByRole("button", { name: "Native disabled" });
+
+  await user.click(trigger);
+  expect(fieldInput("host")).toHaveFocus();
+  await user.click(sibling);
+  expect(screen.queryByRole("dialog", { name: "Server filters and wait" })).toBeNull();
+  expect(sibling).toHaveFocus();
+
+  await user.click(trigger);
+  expect(fieldInput("host")).toHaveFocus();
+  await user.click(ariaDisabled);
+  expect(screen.queryByRole("dialog", { name: "Server filters and wait" })).toBeNull();
+  expect(ariaDisabled).toHaveFocus();
+
+  await user.click(trigger);
+  expect(fieldInput("host")).toHaveFocus();
+  // user-event does not dispatch on disabled controls; drive the document mousedown listener directly.
+  fireEvent.mouseDown(nativeDisabled);
+  fireEvent.click(nativeDisabled);
+  expect(screen.queryByRole("dialog", { name: "Server filters and wait" })).toBeNull();
+  expect(trigger).toHaveFocus();
 });

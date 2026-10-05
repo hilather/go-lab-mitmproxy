@@ -13,7 +13,8 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build && node ./scripts/check-bundle.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json --pretty false",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:browser": "vite build --config vite.harness.config.ts && TMPDIR=/tmp node ./scripts/browser-filters-focus.mjs"
   },
   "dependencies": {
     "react": "^19.1.1",
@@ -29,6 +30,7 @@
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^6.0.5",
     "jsdom": "^30.0.1",
+    "playwright-core": "^1.48.2",
     "typescript": "~5.9.2",
     "vite": "^8.2.1",
     "vitest": "^4.1.10"

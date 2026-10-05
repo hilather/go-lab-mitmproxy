@@ -43,9 +43,10 @@
   --warn: #e0a060;
   --panel2: #1d2026;
   --line2: #3a3e46;
-  /* Danger: #c45c5c for borders, #b04c4c for fills under white text (5.27:1), #e38a8a for text. */
+  /* Danger: #c45c5c for borders, #b04c4c for fills under white text (5.27:1), #5c3033 for disabled fills (white 10.91:1), #e38a8a for text. */
   --danger-line: #c45c5c;
   --danger-fill: #b04c4c;
+  --danger-fill-disabled: #5c3033;
   --danger-text: #e38a8a;
   --danger: var(--danger-text);
   --accent-soft: color-mix(in oklab, #6ea8d1 14%, #181a1f);
@@ -302,14 +303,21 @@ button.linkish {
 
 .inspector-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
 }
 
+.inspector-title {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
 .inspector-head h1 {
   margin: 0 0 0.25rem;
   font-size: 1.15rem;
+  overflow-wrap: break-word;
 }
 
 .inspector-summary {
@@ -384,6 +392,12 @@ button:disabled {
   padding: 0.35rem 0.7rem;
 }
 
+button.btn-danger:disabled {
+  opacity: 1;
+  color: var(--danger-text);
+  border-color: var(--danger-line);
+}
+
 button.btn-danger-fill,
 button[type="submit"].btn-danger-fill {
   background: var(--danger-fill);
@@ -391,6 +405,14 @@ button[type="submit"].btn-danger-fill {
   border: 1px solid var(--danger-fill);
   font-weight: 500;
   padding: 0.45rem 0.9rem;
+}
+
+button.btn-danger-fill:disabled,
+button[type="submit"].btn-danger-fill:disabled {
+  opacity: 1;
+  background: var(--danger-fill-disabled);
+  border-color: var(--danger-fill-disabled);
+  color: #fff;
 }
 
 button.btn-sm {
@@ -475,6 +497,13 @@ a.btn-link {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.flow-mid .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .flow-meta {
@@ -927,6 +956,11 @@ table.data th.nowrap {
 
 .list-head-row .kicker {
   margin: 0;
+}
+
+.list-head-row code {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .list-head .search-row {
@@ -1575,33 +1609,8 @@ table.data th.nowrap {
   align-self: start;
 }
 
-/* Narrow viewports (phones, ~390-400px): one column, rail on top, list above the inspector. */
-@media (max-width: 720px) {
-  .app {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  /* Only the signed-in shell has a rail row; the login shell keeps its two rows. */
-  .app:has(.sidenav) {
-    grid-template-rows: 56px auto minmax(0, 1fr);
-    grid-template-areas:
-      "topbar"
-      "sidenav"
-      "main";
-  }
-
-  .sidenav {
-    flex-direction: row;
-    overflow-x: auto;
-    padding: 0.4rem 0.65rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .sidenav a {
-    white-space: nowrap;
-  }
-
+/* Mid-width (~768 tablets / small windows): stack crushers without phone chrome. */
+@media (max-width: 900px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(12rem, 45%) minmax(0, 1fr) auto;
@@ -1651,6 +1660,34 @@ table.data th.nowrap {
 
   .list-head-row {
     flex-wrap: wrap;
+  }
+}
+
+/* Phones (~390-400px): one column, rail on top, full-width popover. */
+@media (max-width: 720px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Only the signed-in shell has a rail row; the login shell keeps its two rows. */
+  .app:has(.sidenav) {
+    grid-template-rows: 56px auto minmax(0, 1fr);
+    grid-template-areas:
+      "topbar"
+      "sidenav"
+      "main";
+  }
+
+  .sidenav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 0.4rem 0.65rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sidenav a {
+    white-space: nowrap;
   }
 
   .page {

@@ -11,7 +11,7 @@ export type ConfirmOptions = {
 
 type Pending = ConfirmOptions & { resolve: (ok: boolean) => void; opener: Element | null; seq: number };
 
-const FOCUSABLE =
+export const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
@@ -30,7 +30,24 @@ export function useInertBackground(open: boolean, host: HTMLElement | null, open
     }
     return () => {
       for (const { el, had } of touched) if (!had) el.removeAttribute("inert");
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+      if (!(opener instanceof HTMLElement) || !opener.isConnected) return;
+      const ariaDisabled = opener.getAttribute("aria-disabled") === "true";
+      const nativeDisabled =
+        (opener instanceof HTMLButtonElement ||
+          opener instanceof HTMLInputElement ||
+          opener instanceof HTMLSelectElement ||
+          opener instanceof HTMLTextAreaElement) &&
+        opener.disabled;
+      if (!nativeDisabled && !ariaDisabled) {
+        opener.focus();
+        return;
+      }
+      // Main content container (plain div, not a landmark); make it programmatically focusable once.
+      const main = document.getElementById("app-main");
+      if (main instanceof HTMLElement) {
+        if (!main.hasAttribute("tabindex")) main.tabIndex = -1;
+        main.focus();
+      }
     };
     // The opener is fixed for the life of one surface.
   }, [open, host]);

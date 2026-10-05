@@ -2,6 +2,7 @@ import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { json, renderAppReady, resetClientState, sessionView } from "../test/render";
+import { localTime } from "../ui/time";
 import { ResetPage } from "./ResetPage";
 
 describe("ResetPage", () => {
@@ -122,6 +123,11 @@ describe("ResetPage", () => {
     const impact = await screen.findByTestId("reset-impact");
     expect(impact).toHaveTextContent(/Snapshot at .*: 5 flows · store generation 2\./);
     expect(impact).toHaveTextContent("Not live: Reset wipes whatever the store holds when it runs.");
+    const time = impact.querySelector("time");
+    expect(time).not.toBeNull();
+    expect(time!.getAttribute("title")).toBe(time!.getAttribute("dateTime"));
+    expect(Number.isFinite(Date.parse(time!.getAttribute("title")!))).toBe(true);
+    expect(time!.textContent).toBe(localTime(time!.getAttribute("title")!));
     const statusCalls = () => fetch.mock.calls.filter(([p]) => String(p).endsWith("/v1/status")).length;
     expect(statusCalls()).toBe(1);
     flows = 1;

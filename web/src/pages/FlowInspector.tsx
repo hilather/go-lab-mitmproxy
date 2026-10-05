@@ -460,8 +460,8 @@ export function FlowInspector({
         </p>
       )}
       <div className="inspector-head">
-        <div style={{ minWidth: 0 }}>
-          <h1 className="mono wrap-anywhere">{title}</h1>
+        <div className="inspector-title">
+          <h1 className="mono">{title}</h1>
           <p className="inspector-summary">
             {flow.status > 0 ? flow.status : flow.state}
             {paused && flow.pausedPhase ? ` · ${flow.pausedPhase} phase` : ""} · {listTimingLabel(flow)} ·{" "}

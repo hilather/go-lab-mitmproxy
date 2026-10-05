@@ -112,4 +112,62 @@ describe("useConfirm", () => {
     await act(async () => view.unmount());
     expect(onResult).toHaveBeenCalledWith(false, "");
   });
+
+  it("falls back to #app-main when the opener is aria-disabled", async () => {
+    const user = userEvent.setup();
+    function AriaHarness() {
+      const [renderDialog, confirm] = useConfirm();
+      return (
+        <div id="app-main">
+          <button
+            type="button"
+            aria-disabled="true"
+            onClick={async () => {
+              await confirm({ title: "Clear?", confirmLabel: "Clear", danger: true });
+            }}
+          >
+            Open aria
+          </button>
+          {renderDialog()}
+        </div>
+      );
+    }
+    const view = render(<AriaHarness />);
+    await user.click(screen.getByRole("button", { name: "Open aria" }));
+    await screen.findByRole("alertdialog", { name: "Clear?" });
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(document.getElementById("app-main")).toHaveFocus();
+    await act(async () => view.unmount());
+  });
+
+  it("falls back to #app-main when the opener is natively disabled at close", async () => {
+    const user = userEvent.setup();
+    function NativeHarness() {
+      const [renderDialog, confirm] = useConfirm();
+      const [disabled, setDisabled] = useState(false);
+      return (
+        <div id="app-main">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={async () => {
+              setDisabled(true);
+              await confirm({ title: "Wipe?", confirmLabel: "Wipe", danger: true });
+            }}
+          >
+            Open native
+          </button>
+          {renderDialog()}
+        </div>
+      );
+    }
+    const view = render(<NativeHarness />);
+    await user.click(screen.getByRole("button", { name: "Open native" }));
+    await screen.findByRole("alertdialog", { name: "Wipe?" });
+    expect(screen.getByRole("button", { name: "Open native" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(document.getElementById("app-main")).toHaveFocus();
+    await act(async () => view.unmount());
+  });
+
 });

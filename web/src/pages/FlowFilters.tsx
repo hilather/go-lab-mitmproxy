@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { errorMessage, waitFlow } from "../api/client";
 import { useLiveSpec } from "../api/liveSpec";
 import type { FlowListQuery, WaitFilter } from "../api/types";
+import { FOCUSABLE } from "../ui/ConfirmDialog";
 
 const shared = [
   "host",
@@ -82,12 +83,23 @@ export function FlowFilters({
   const controller = useRef<AbortController | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const outsideRestoreRef = useRef<(() => void) | null>(null);
   const navigate = useNavigate();
   const ids = useId();
   const { state } = useLiveSpec();
   const rules = ruleOptions(state?.canonical?.spec?.rules?.items);
   // Abort only when the whole component unmounts; closing the popover only hides it.
   useEffect(() => () => controller.current?.abort(), []);
+  // Drop a pending outside-click restore if the component unmounts before click.
+  useEffect(
+    () => () => {
+      if (outsideRestoreRef.current) {
+        document.removeEventListener("click", outsideRestoreRef.current, true);
+        outsideRestoreRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!waiting) return;
@@ -110,6 +122,22 @@ export function FlowFilters({
       if (target === null) return;
       if (popoverRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
       setOpen(false);
+      const el = target instanceof Element ? target : null;
+      if (el?.closest(FOCUSABLE) == null) {
+        // Arm restore on the completing click (capture). Do not remove it in this
+        // effect's cleanup: setOpen(false) re-runs the effect before click fires.
+        const trigger = triggerRef.current;
+        if (outsideRestoreRef.current) {
+          document.removeEventListener("click", outsideRestoreRef.current, true);
+        }
+        const restore = () => {
+          trigger?.focus();
+          document.removeEventListener("click", restore, true);
+          outsideRestoreRef.current = null;
+        };
+        outsideRestoreRef.current = restore;
+        document.addEventListener("click", restore, true);
+      }
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);

@@ -22,3 +22,4 @@ web/coverage/
 *.swp
 *.swo
 .DS_Store
+web/harness-dist/
