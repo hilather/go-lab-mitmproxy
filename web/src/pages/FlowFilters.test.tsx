@@ -272,3 +272,27 @@ it("shows Wait cancelled after cancelling from the list head with the popover cl
   expect(await screen.findByRole("status")).toHaveTextContent("Wait cancelled.");
   expect(screen.getAllByRole("status")).toHaveLength(1);
 });
+
+it("moves focus into the popover on open and returns it to the trigger on Escape", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json(200, sessionView())));
+  const user = userEvent.setup();
+  await renderAppReady(<FlowFilters onFilter={vi.fn()} />);
+  const trigger = screen.getByRole("button", { name: "Filters & wait" });
+  await user.click(trigger);
+  const host = fieldInput("host");
+  expect(host).toHaveFocus();
+  expect(screen.getByRole("dialog", { name: "Server filters and wait" })).toContainElement(host);
+  // Typing while open is not interrupted by a re-render.
+  await user.keyboard("lab");
+  expect(host).toHaveValue("lab");
+  expect(host).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(trigger).toHaveFocus();
+  // Reopening focuses the first field again.
+  await user.click(trigger);
+  expect(fieldInput("host")).toHaveFocus();
+  // An outside click hides the popover; focus follows the click and is never left inside the hidden popover.
+  await user.click(document.body);
+  expect(screen.queryByRole("dialog", { name: "Server filters and wait" })).toBeNull();
+  expect(document.querySelector(".popover")?.contains(document.activeElement)).toBe(false);
+});

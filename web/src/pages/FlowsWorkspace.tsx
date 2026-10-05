@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useMatch, useNavigate } from "react-router-dom";
 import { clearFlows, errorMessage, listAllFlows } from "../api/client";
 import type { Flow, FlowListQuery } from "../api/types";
@@ -67,6 +67,7 @@ export function FlowsWorkspace() {
   const [triggerHost, setTriggerHost] = useState<HTMLSpanElement | null>(null);
   const [popoverHost, setPopoverHost] = useState<HTMLDivElement | null>(null);
   const [renderConfirm, confirm] = useConfirm();
+  const clearGenerationId = useId();
 
   // useCallback(..., []) only — selected/navigate/search/generation in deps
   // reconnect EventSource (useFlowsLive [enabled, onChange]).
@@ -116,8 +117,9 @@ export function FlowsWorkspace() {
       body: (
         <>
           <p>
-            Deletes every flow in the store ({items.length} loaded here
-            {filtered ? " under the current server filters" : ""}; the server may hold more).
+            {filtered
+              ? `Deletes every flow in the store, not only the ${items.length} that ${items.length === 1 ? "matches" : "match"} the current server filters.`
+              : `Deletes every flow in the store: ${items.length} as of the last refresh, plus anything captured since.`}
           </p>
           {generation !== null ? <p>Current store generation {generation}.</p> : null}
         </>
@@ -288,9 +290,10 @@ export function FlowsWorkspace() {
       <p className="workspace-footer muted">{FLOWS_FOOTER}</p>
       {renderConfirm(
         canWrite ? (
-          <label>
-            Clear expected store generation (optional)
+          <>
+            <label htmlFor={clearGenerationId}>Clear expected store generation (optional)</label>
             <input
+              id={clearGenerationId}
               type="number"
               min="0"
               step="1"
@@ -298,7 +301,7 @@ export function FlowsWorkspace() {
               value={clearGeneration}
               onChange={(e) => setClearGeneration(e.target.value)}
             />
-          </label>
+          </>
         ) : null,
       )}
     </main>

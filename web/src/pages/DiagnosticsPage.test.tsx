@@ -123,6 +123,10 @@ it("shows the designed metrics-disabled state with the restart instruction for 4
   expect(metrics).toHaveTextContent(
     "Set observability.metrics.publicPath: true in bootstrap YAML and restart labmitm.",
   );
+  // The key breaks only after its dots (<wbr>), never mid-token in a narrow tile.
+  const key = within(metrics).getByText("observability.metrics.publicPath: true", { selector: "code" });
+  expect(key.querySelectorAll("wbr")).toHaveLength(2);
+  expect(key.innerHTML).toBe("observability.<wbr>metrics.<wbr>publicPath: true");
   expect(metrics.textContent).not.toMatch(/Reset/);
   expect(within(metrics).queryByRole("alert")).toBeNull();
 });

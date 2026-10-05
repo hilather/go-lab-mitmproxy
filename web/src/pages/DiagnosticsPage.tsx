@@ -8,6 +8,15 @@ import {
 } from "../api/diagnostics";
 import { localTime } from "../ui/time";
 
+/** The bootstrap key, with break points after each dot so narrow tiles never split a word. */
+const PUBLIC_PATH_KEY = (
+  <>
+    observability.<wbr />
+    metrics.<wbr />
+    publicPath: true
+  </>
+);
+
 type ReadState = {
   result: unknown;
   error: string;
@@ -185,7 +194,7 @@ function MetricsTile({ read, token }: { read: DiagnosticRead; token: number }) {
         <div className="note note-warn" role="status">
           <span className="mono">Metrics are disabled.</span>
           <span>
-            Set <code>observability.metrics.publicPath: true</code> in bootstrap YAML and restart labmitm.
+            Set <code>{PUBLIC_PATH_KEY}</code> in bootstrap YAML and restart labmitm.
           </span>
         </div>
       ) : (

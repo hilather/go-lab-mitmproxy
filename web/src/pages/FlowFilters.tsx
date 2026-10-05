@@ -95,6 +95,14 @@ export function FlowFilters({
     return () => window.clearInterval(t);
   }, [waiting]);
 
+  // Opening moves focus into the popover (first field); Escape/close returns it to the trigger.
+  // Runs only on the closed -> open transition, so re-renders while open never steal focus.
+  useEffect(() => {
+    if (!open) return;
+    const first = document.getElementById(`${ids}-${fields[0]!.key}`);
+    (first ?? popoverRef.current)?.focus();
+  }, [open, ids]);
+
   useEffect(() => {
     if (!open) return;
     function onDown(event: MouseEvent) {
@@ -244,6 +252,7 @@ export function FlowFilters({
       className="popover"
       role="dialog"
       aria-label="Server filters and wait"
+      tabIndex={-1}
       hidden={!open}
       onKeyDown={(event) => {
         if (event.key === "Escape") {

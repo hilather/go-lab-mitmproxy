@@ -96,4 +96,52 @@ describe("operator chrome lock", () => {
     const css = read("styles.css");
     expect(css).toMatch(/\.popover\s*\{[^}]*max-height:[^}]*overflow:\s*auto/);
   });
+
+  it("fills white-text danger buttons with a colour that meets 4.5:1", () => {
+    const css = read("styles.css");
+    const fill = /--danger-fill:\s*(#[0-9a-f]{6})/i.exec(css)?.[1];
+    expect(fill).toBeDefined();
+    const rule = /button\.btn-danger-fill,\s*button\[type="submit"\]\.btn-danger-fill\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toMatch(/background:\s*var\(--danger-fill\)/);
+    expect(rule).toMatch(/color:\s*#fff/);
+    const lum = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => {
+        const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const ratio = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    expect(ratio("#ffffff", fill!)).toBeGreaterThanOrEqual(4.5);
+    // Still reads as a danger control (non-text contrast >= 3:1) on every surface it sits on.
+    for (const token of ["--bg", "--elev", "--panel"]) {
+      const surface = new RegExp(`${token}:\\s*(#[0-9a-f]{6})`, "i").exec(css)?.[1];
+      expect(surface, token).toBeDefined();
+      expect(ratio(fill!, surface!), token).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("has a narrow-viewport block that stacks the shell and the flows workspace", () => {
+    const css = read("styles.css");
+    const start = css.indexOf("@media (max-width: 720px)");
+    expect(start).toBeGreaterThan(-1);
+    const block = css.slice(start);
+    expect(block).toMatch(/\.app\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+    // The rail row is only added where a rail exists; the login shell keeps topbar + main.
+    expect(block).toMatch(/\.app:has\(\.sidenav\)\s*\{[^}]*"sidenav"/);
+    expect(block).not.toMatch(/(^|[\s,}])\.app\s*\{[^}]*grid-template-rows/);
+    expect(block).toMatch(/\.workspace-footer\s*\{[^}]*grid-row:\s*3/);
+    expect(block).toMatch(/\.panel:has\(table\.data\)\s*\{[^}]*overflow-x:\s*auto/);
+    expect(block).toMatch(/\.card-h\s*\{[^}]*flex-wrap:\s*wrap/);
+    expect(block).toMatch(/\.split,\s*\.config-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(block).toMatch(/\.sidenav\s*\{[^}]*flex-direction:\s*row/);
+    expect(block).toMatch(/\.workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+  });
+
+  it("declares an inline icon so browsers do not request /favicon.ico", () => {
+    expect(read("../index.html")).toMatch(/<link rel="icon" href="data:," \/>/);
+  });
 });
