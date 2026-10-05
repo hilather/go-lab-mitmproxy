@@ -14,8 +14,28 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- Operator UI mid-width follow-up: inspector title no longer collapses beside actions (`break-word` + flex basis); stack/config-grid/table/popover-grid rules move to ≤900px so ~768 viewports stop crushing; Diagnostics paths wrap in tiles; Diagnostics/Reset `<time>` tooltips carry the ISO value; disabled danger controls keep ≥4.5:1 without opacity dimming; Filters outside-click on non-focusable chrome returns focus to the trigger on the completing click; long flow-list paths ellipsize; confirm/plan-review fall back to `#app-main` when the opener is disabled.
-- Operator UI polish after post-merge QA: white-on-danger buttons use a darker fill (#b04c4c, 5.27:1); the Clear confirm states what it deletes with and without server filters; the Reset count is labelled as a snapshot with **Refresh count**; the Filters popover takes focus when it opens; the `observability.metrics.publicPath` key no longer breaks mid-word; narrow viewports (≤720px) stack the rail and the flows list above the inspector instead of clipping; the Delete/Clear generation inputs use explicit label associations; and the page declares an inline icon so browsers stop requesting `/favicon.ico`.
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.7.1 - 2026-10-05
+
+Patch of two Unreleased operator-UI fixes after v1.7.0 from [PR #87](https://github.com/hilather/go-lab-mitmproxy/pull/87) and [#89](https://github.com/hilather/go-lab-mitmproxy/pull/89): contrast, focus and narrow/mid-width viewport polish after the #85 redesign. UI chrome and accessibility only, and request bodies are byte-identical. Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. Configuration stays `labmitm.dev/v1alpha1`. There are no new capability IDs, apply verbs, REST fields, MCP tools or ADRs. ADR 0021 / D80 is unchanged. **D7 stands.** Notes: [docs/releases/v1.7.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.1/docs/releases/v1.7.1.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.1/docs/known-limitations.md).
+
+### Added
+
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- Operator UI polish after post-merge QA: white-on-danger buttons use a darker fill (#b04c4c, 5.27:1); the Clear confirm states what it deletes with and without server filters; the Reset count is labelled as a snapshot with **Refresh count**; the Filters popover takes focus when it opens; the `observability.metrics.publicPath` key no longer breaks mid-word; narrow viewports (≤720px) stack the rail and the flows list above the inspector instead of clipping; the Delete/Clear generation inputs use explicit label associations; and the page declares an inline icon so browsers stop requesting `/favicon.ico` ([PR #87](https://github.com/hilather/go-lab-mitmproxy/pull/87)).
+- Operator UI mid-width follow-up: inspector title no longer collapses beside actions (`break-word` + flex basis); stack/config-grid/table/popover-grid rules move to ≤900px so ~768 viewports stop crushing; Diagnostics paths wrap in tiles; Diagnostics/Reset `<time>` tooltips carry the ISO value; disabled danger controls keep ≥4.5:1 without opacity dimming; Filters outside-click on non-focusable chrome returns focus to the trigger on the completing click; long flow-list paths ellipsize; confirm/plan-review fall back to `#app-main` when the opener is disabled ([PR #89](https://github.com/hilather/go-lab-mitmproxy/pull/89)).
 
 ### Removed or deprecated
 
