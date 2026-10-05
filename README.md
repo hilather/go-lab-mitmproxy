@@ -456,6 +456,9 @@ Cross-file links below are absolute.
 | [docs/13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md) | Image, compose, CLI |
 | [docs/14-integration-lab.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/14-integration-lab.md) | Overlay BOM for mcp-integration-lab |
 | [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) | 1.0 defaults + 1.2 residuals |
+| [docs/releases/v1.7.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.7.0.md) | 1.7.0 tag notes (frontend parity D79 + oct03 operator UI D80 + strict REST envelopes + management TLS/Reset fixes) |
+| [docs/releases/v1.6.3.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.3.md) | 1.6.3 tag notes (h2 unread buffered DATA window credit on stream abort) |
+| [docs/releases/v1.6.2.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.2.md) | 1.6.2 tag notes (CONTINUATION END_STREAM + post-RST window credit) |
 | [docs/releases/v1.6.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.1.md) | 1.6.1 tag notes (replaceTLS OCC + origin-h2 early response + h2 RST window) |
 | [docs/releases/v1.6.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.0.md) | 1.6.0 tag notes (Status live-apply + D77 + origin-h2 DATA/trailers) |
 | [docs/releases/v1.5.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.5.0.md) | 1.5.0 tag notes (operator SPA split-pane + leftover Login/Status/Audit/Reset chrome) |
@@ -486,6 +489,9 @@ Cross-file links below are absolute.
 - [0016 Rules throttle action](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0016-rules-throttle-action.md)
 - [0017 HTTP proxy 407](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0017-http-proxy-407.md)
 - [0018 Status may apply ui.enabled](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md)
+- [0019 Bounded HTTP/2 response streaming](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0019-bounded-http2-response-streaming.md)
+- [0020 Frontend control-plane parity](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md)
+- [0021 In-page confirms and plan review](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0021-in-page-confirms-and-plan-review.md)
 
 ### Task lists and program board
 
