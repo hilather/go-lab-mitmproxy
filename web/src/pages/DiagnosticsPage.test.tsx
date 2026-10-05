@@ -6,6 +6,7 @@ import {
   resetClientState,
   sessionView,
 } from "../test/render";
+import { localTime } from "../ui/time";
 import { DiagnosticsPage } from "./DiagnosticsPage";
 import { diagnosticReads } from "../api/diagnostics";
 afterEach(() => {
@@ -34,6 +35,11 @@ describe("DiagnosticsPage", () => {
         expect.objectContaining({ credentials: "same-origin" }),
       );
     expect(screen.getByText(/"httpStatus": 503/)).toBeInTheDocument();
+    const checked = document.querySelector("time[datetime][title]");
+    expect(checked).not.toBeNull();
+    expect(checked!.getAttribute("title")).toBe(checked!.getAttribute("dateTime"));
+    expect(Number.isFinite(Date.parse(checked!.getAttribute("title")!))).toBe(true);
+    expect(checked!.textContent).toBe(localTime(checked!.getAttribute("title")!));
     expect(document.querySelector("main img, main script")).toBeNull();
     expect(
       screen.getByRole("link", { name: "Download configuration schema" }),

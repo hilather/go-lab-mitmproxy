@@ -116,7 +116,7 @@ function DiagnosticFrame({
         </button>
         {d.checkedAt ? (
           <span className="hint">
-            checked <time dateTime={d.checkedAt}>{localTime(d.checkedAt)}</time>
+            checked <time dateTime={d.checkedAt} title={d.checkedAt}>{localTime(d.checkedAt)}</time>
           </span>
         ) : null}
       </div>

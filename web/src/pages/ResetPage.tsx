@@ -102,7 +102,7 @@ export function ResetPage() {
         {impact ? (
           <p className="note note-danger reset-impact" data-testid="reset-impact">
             <span>
-              Snapshot at <time dateTime={impact.at}>{localTime(impact.at)}</time>: {impact.flows}{" "}
+              Snapshot at <time dateTime={impact.at} title={impact.at}>{localTime(impact.at)}</time>: {impact.flows}{" "}
               {impact.flows === 1 ? "flow" : "flows"} · store generation {impact.generation}.
             </span>
             <span>Not live: Reset wipes whatever the store holds when it runs.</span>

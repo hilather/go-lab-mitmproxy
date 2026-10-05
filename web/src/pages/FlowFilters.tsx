@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { errorMessage, waitFlow } from "../api/client";
 import { useLiveSpec } from "../api/liveSpec";
 import type { FlowListQuery, WaitFilter } from "../api/types";
+import { FOCUSABLE } from "../ui/ConfirmDialog";
 
 const shared = [
   "host",
@@ -110,6 +111,12 @@ export function FlowFilters({
       if (target === null) return;
       if (popoverRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
       setOpen(false);
+      const el = target instanceof Element ? target : null;
+      if (el?.closest(FOCUSABLE) == null) {
+        // Defer past the completing click so non-focusable targets (body) do not leave focus on body.
+        const trigger = triggerRef.current;
+        queueMicrotask(() => trigger?.focus());
+      }
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);

@@ -14,6 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- Operator UI mid-width follow-up: inspector title no longer collapses beside actions (`break-word` + flex basis); stack/config-grid/table/popover-grid rules move to ≤900px so ~768 viewports stop crushing; Diagnostics paths wrap in tiles; Diagnostics/Reset `<time>` tooltips carry the ISO value; disabled danger controls keep ≥4.5:1 without opacity dimming; Filters outside-click on non-focusable chrome returns focus to the trigger; confirm/plan-review fall back to `#app-main` when the opener is disabled.
 - Operator UI polish after post-merge QA: white-on-danger buttons use a darker fill (#b04c4c, 5.27:1); the Clear confirm states what it deletes with and without server filters; the Reset count is labelled as a snapshot with **Refresh count**; the Filters popover takes focus when it opens; the `observability.metrics.publicPath` key no longer breaks mid-word; narrow viewports (≤720px) stack the rail and the flows list above the inspector instead of clipping; the Delete/Clear generation inputs use explicit label associations; and the page declares an inline icon so browsers stop requesting `/favicon.ico`.
 
 ### Removed or deprecated
