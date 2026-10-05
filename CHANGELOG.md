@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- Operator UI polish after post-merge QA: white-on-danger buttons use a darker fill (#b04c4c, 5.27:1); the Clear confirm states what it deletes with and without server filters; the Reset count is labelled as a snapshot with **Refresh count**; the Filters popover takes focus when it opens; the `observability.metrics.publicPath` key no longer breaks mid-word; narrow viewports (≤720px) stack the rail and the flows list above the inspector instead of clipping; the Delete/Clear generation inputs use explicit label associations; and the page declares an inline icon so browsers stop requesting `/favicon.ico`.
 
 ### Removed or deprecated
 
@@ -40,7 +40,6 @@ Minor release after v1.6.3 (the v1.6.3 catch-up tag, `6c5729888bc1`, covers #78 
 
 ### Fixed
 
-- Operator UI polish after post-merge QA: white-on-danger buttons use a darker fill (#b04c4c, 5.27:1); the Clear confirm states what it deletes with and without server filters; the Reset count is labelled as a snapshot with **Refresh count**; the Filters popover takes focus when it opens; the `observability.metrics.publicPath` key no longer breaks mid-word; narrow viewports (≤720px) stack the rail and the flows list above the inspector instead of clipping; the Delete/Clear generation inputs use explicit label associations; and the page declares an inline icon so browsers stop requesting `/favicon.ico`.
 - Operator UI: the masthead is a fixed 56px with Sign out outside the clipped chip row, long values on Status no longer break mid-word (targeted wrapping only), and danger text uses one colour.
 - CI fuzz smoke uses 500,000 executions for each existing target instead of a five-second deadline, avoiding a Go coordinator deadline-propagation race that can report `context deadline exceeded` at normal completion. Coverage-guided fuzzing and existing package/job timeouts remain intact, without retries; failure artifacts include saved corpus inputs alongside logs.
 - Concurrent origin HTTP/2 requests allocate stream IDs in opening-HEADERS wire order. This prevents intermittent origin `PROTOCOL_ERROR` disconnects and proxy 502 responses while retaining multiplexed request/response bodies. Already-closed origin connections still refuse new requests immediately. The unread-response RST regression synchronizes header delivery and verifies window credit before closing the body, eliminating a fixture race and preventing a false pass through body cleanup.
