@@ -230,15 +230,45 @@ describe("FlowsWorkspace", () => {
     expect(RecordingEventSource.instances).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /Clear flows/i }));
     const dialog = screen.getByRole("alertdialog", { name: "Clear every captured flow?" });
-    expect(dialog).toHaveTextContent("2 loaded here");
+    expect(dialog).toHaveTextContent("Deletes every flow in the store: 2 as of the last refresh, plus anything captured since.");
+    expect(dialog).not.toHaveTextContent("may hold more");
     expect(dialog).toHaveTextContent("Current store generation 4.");
     expect(within(dialog).getByLabelText("Clear expected store generation (optional)")).toHaveValue(null);
+    const generationInput = within(dialog).getByRole("spinbutton", { name: "Clear expected store generation (optional)" });
+    const generationLabel = within(dialog).getByText("Clear expected store generation (optional)");
+    expect(generationLabel.tagName).toBe("LABEL");
+    expect(generationLabel).toHaveAttribute("for", generationInput.id);
     await user.click(within(dialog).getByRole("button", { name: "Clear flows" }));
     expect(nativeConfirm).not.toHaveBeenCalled();
     expect(await screen.findByText("Select a captured flow.")).toBeInTheDocument();
     expect(await screen.findByText("Flows cleared")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /GET https:\/\/app.lab.test\/login/ })).toBeNull();
     expect(RecordingEventSource.instances).toHaveLength(1);
+  });
+
+  it("says Clear deletes more than the filtered rows when server filters are applied", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("EventSource", RecordingEventSource);
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/v1/session")) return json(200, sessionView());
+      if (url.includes("/v1/flows")) {
+        const filtered = url.includes("host=");
+        return json(200, { revision: "r1", storeGeneration: 4, nextCursor: null, items: filtered ? [httpFlow] : [httpFlow, connectFlow] });
+      }
+      return json(404, { status: 404, title: "not found", detail: "not found", code: "not_found", type: "urn:labmitm:error:not-found" });
+    });
+    vi.stubGlobal("fetch", fetch);
+    await renderAppReady(<AppRoutes />, { route: "/" });
+    await user.click(await screen.findByRole("button", { name: /^Filters & wait/ }));
+    const popover = screen.getByRole("dialog", { name: "Server filters and wait" });
+    await user.type(within(popover).getByRole("textbox", { name: /^Host/ }), "app.lab.test");
+    await user.click(within(popover).getByRole("button", { name: "Apply filters" }));
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => String(u).includes("host=app.lab.test"))).toBe(true));
+    await user.click(screen.getByRole("button", { name: /Clear flows/i }));
+    const dialog = screen.getByRole("alertdialog", { name: "Clear every captured flow?" });
+    expect(dialog).toHaveTextContent("Deletes every flow in the store, not only the 1 that match the current server filters.");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
   });
 
   it("drops a deleted selection from SSE without reconnecting EventSource", async () => {

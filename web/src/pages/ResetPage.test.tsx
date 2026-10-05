@@ -95,7 +95,7 @@ describe("ResetPage", () => {
     });
     vi.stubGlobal("fetch", fetch);
     await renderAppReady(<ResetPage />, { route: "/reset" });
-    expect(await screen.findByTestId("reset-impact")).toHaveTextContent(/: 12 flows · store generation 3$/);
+    expect(await screen.findByTestId("reset-impact")).toHaveTextContent(/Snapshot at .*: 12 flows · store generation 3\./);
     const statusCalls = () => fetch.mock.calls.filter(([p]) => String(p).endsWith("/v1/status")).length;
     expect(statusCalls()).toBe(1);
     fireEvent.change(screen.getByLabelText(/Confirmation phrase/i), { target: { value: "RESET" } });
@@ -104,8 +104,30 @@ describe("ResetPage", () => {
     const submit = screen.getByRole("button", { name: /Reset LabMITM/i });
     expect(submit).toHaveClass("btn-danger-fill");
     await user.click(submit);
-    expect(await screen.findByTestId("reset-impact")).toHaveTextContent(/: 0 flows · store generation 4$/);
+    expect(await screen.findByTestId("reset-impact")).toHaveTextContent(/Snapshot at .*: 0 flows · store generation 4\./);
     expect(statusCalls()).toBe(3);
+  });
+
+  it("labels the impact line as a snapshot and re-reads it on Refresh count", async () => {
+    const user = userEvent.setup();
+    let flows = 5;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/v1/session")) return json(200, sessionView());
+      if (url.endsWith("/v1/status")) return json(200, { store: { flowCount: flows, storeBytes: 0, storeGeneration: 2, epoch: 1 } });
+      return json(404, { status: 404, code: "not_found", detail: "not found" });
+    });
+    vi.stubGlobal("fetch", fetch);
+    await renderAppReady(<ResetPage />, { route: "/reset" });
+    const impact = await screen.findByTestId("reset-impact");
+    expect(impact).toHaveTextContent(/Snapshot at .*: 5 flows · store generation 2\./);
+    expect(impact).toHaveTextContent("Not live: Reset wipes whatever the store holds when it runs.");
+    const statusCalls = () => fetch.mock.calls.filter(([p]) => String(p).endsWith("/v1/status")).length;
+    expect(statusCalls()).toBe(1);
+    flows = 1;
+    await user.click(screen.getByRole("button", { name: "Refresh count" }));
+    expect(await screen.findByText(/: 1 flow · store generation 2\./)).toBeInTheDocument();
+    expect(statusCalls()).toBe(2);
   });
 
   it("hides the impact line without an alert when /v1/status fails", async () => {

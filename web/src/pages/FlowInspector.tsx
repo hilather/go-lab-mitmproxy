@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   deleteFlow,
@@ -336,6 +336,7 @@ export function FlowInspector({
   const expectedGenerationRef = useRef(expectedGeneration);
   expectedGenerationRef.current = expectedGeneration;
   const [renderConfirm, confirm] = useConfirm();
+  const expectedGenerationId = useId();
   const [actionsHost, setActionsHost] = useState<HTMLSpanElement | null>(null);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [tab, setTab] = useState<Tab>("request");
@@ -623,9 +624,10 @@ export function FlowInspector({
       ) : null}
       {renderConfirm(
         canWrite ? (
-          <label>
-            Delete expected store generation (optional)
+          <>
+            <label htmlFor={expectedGenerationId}>Delete expected store generation (optional)</label>
             <input
+              id={expectedGenerationId}
               type="number"
               min="0"
               step="1"
@@ -633,7 +635,7 @@ export function FlowInspector({
               value={expectedGeneration}
               onChange={(e) => setExpectedGeneration(e.target.value)}
             />
-          </label>
+          </>
         ) : null,
       )}
     </>,

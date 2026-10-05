@@ -156,6 +156,8 @@ describe("frontend parity routes", () => {
     expect(document.querySelector("main script")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = await screen.findByRole("alertdialog", { name: "Delete this flow?" });
+    const deleteGeneration = within(dialog).getByRole("spinbutton", { name: "Delete expected store generation (optional)" });
+    expect(within(dialog).getByText("Delete expected store generation (optional)")).toHaveAttribute("for", deleteGeneration.id);
     fireEvent.change(
       within(dialog).getByLabelText("Delete expected store generation (optional)"),
       { target: { value: "1" } },

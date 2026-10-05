@@ -43,8 +43,9 @@
   --warn: #e0a060;
   --panel2: #1d2026;
   --line2: #3a3e46;
-  /* Danger: #c45c5c for borders and fills, #e38a8a for text. */
+  /* Danger: #c45c5c for borders, #b04c4c for fills under white text (5.27:1), #e38a8a for text. */
   --danger-line: #c45c5c;
+  --danger-fill: #b04c4c;
   --danger-text: #e38a8a;
   --danger: var(--danger-text);
   --accent-soft: color-mix(in oklab, #6ea8d1 14%, #181a1f);
@@ -385,9 +386,9 @@ button:disabled {
 
 button.btn-danger-fill,
 button[type="submit"].btn-danger-fill {
-  background: var(--danger-line);
+  background: var(--danger-fill);
   color: #fff;
-  border: 1px solid var(--danger-line);
+  border: 1px solid var(--danger-fill);
   font-weight: 500;
   padding: 0.45rem 0.9rem;
 }
@@ -820,6 +821,16 @@ summary {
   color: var(--danger-text);
 }
 
+/* Reset impact: snapshot line, its caveat and Refresh count wrap together. */
+.note.reset-impact {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.note.reset-impact button {
+  margin-left: auto;
+}
+
 .note-warn {
   border-color: color-mix(in oklab, var(--warn) 45%, transparent);
   background: var(--warn-bg);
@@ -1226,10 +1237,14 @@ table.data th.nowrap {
   margin: 0 0 0.4rem;
 }
 
-.modal-extra label {
+/* Label and input are siblings (explicit for/id), stacked. */
+.modal-extra {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+}
+
+.modal-extra label {
   font-size: 0.86rem;
   color: var(--muted);
 }
@@ -1505,10 +1520,15 @@ table.data th.nowrap {
   min-width: 0;
 }
 
-.tile .note > *,
-.tile .note code {
+.tile .note > * {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Config keys break at their <wbr> points (after dots), not mid-token. */
+.tile .note code {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 /* Audit lookup and limit: one compact row each, with a real gap under the Limit label. */
@@ -1553,4 +1573,92 @@ table.data th.nowrap {
 
 .audit-rows button > .chip {
   align-self: start;
+}
+
+/* Narrow viewports (phones, ~390-400px): one column, rail on top, list above the inspector. */
+@media (max-width: 720px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Only the signed-in shell has a rail row; the login shell keeps its two rows. */
+  .app:has(.sidenav) {
+    grid-template-rows: 56px auto minmax(0, 1fr);
+    grid-template-areas:
+      "topbar"
+      "sidenav"
+      "main";
+  }
+
+  .sidenav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 0.4rem 0.65rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sidenav a {
+    white-space: nowrap;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(12rem, 45%) minmax(0, 1fr) auto;
+  }
+
+  .workspace-list {
+    grid-column: 1;
+    grid-row: 1;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .workspace-inspector {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .workspace-footer {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .popover-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Wide data tables scroll inside their own panel, never the page. */
+  .panel:has(table.data) {
+    overflow-x: auto;
+  }
+
+  /* Card headers wrap their actions under the title. */
+  .card-h {
+    flex-wrap: wrap;
+  }
+
+  /* Audit list/inspector and the Configuration templates/editor/plan columns stack. */
+  .split,
+  .config-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Head links and list-head rows wrap instead of widening the page. */
+  a.btn-link {
+    white-space: normal;
+  }
+
+  .list-head-row {
+    flex-wrap: wrap;
+  }
+
+  .page {
+    padding: 0.75rem;
+  }
+
+  .popover {
+    left: 0.5rem;
+    width: calc(100% - 1rem);
+  }
 }

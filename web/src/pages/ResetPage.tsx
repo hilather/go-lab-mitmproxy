@@ -15,8 +15,9 @@ export function ResetPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const ok = canSubmitReset(phrase, confirmed, allowed);
-  // Impact line from the existing GET /v1/status: read on mount, when the confirm box is ticked,
-  // and after a successful reset. A failed read hides the line without an alert.
+  // Impact line from the existing GET /v1/status, shown as a labelled snapshot (not live): read on mount,
+  // when the confirm box is ticked, after a successful reset and on Refresh count. A failed read hides
+  // the line without an alert.
   const [impact, setImpact] = useState<{ at: string; flows: number; generation: number } | null>(null);
   const impactGeneration = useRef(0);
   const readImpact = useCallback(async () => {
@@ -99,11 +100,15 @@ export function ResetPage() {
           the flow store and reload bootstrap
         </label>
         {impact ? (
-          <p className="note note-danger" data-testid="reset-impact">
+          <p className="note note-danger reset-impact" data-testid="reset-impact">
             <span>
-              At <time dateTime={impact.at}>{localTime(impact.at)}</time>: {impact.flows} {impact.flows === 1 ? "flow" : "flows"} · store generation{" "}
-              {impact.generation}
+              Snapshot at <time dateTime={impact.at}>{localTime(impact.at)}</time>: {impact.flows}{" "}
+              {impact.flows === 1 ? "flow" : "flows"} · store generation {impact.generation}.
             </span>
+            <span>Not live: Reset wipes whatever the store holds when it runs.</span>
+            <button type="button" className="btn-sm" onClick={() => void readImpact()}>
+              Refresh count
+            </button>
           </p>
         ) : null}
         <button type="submit" className="btn-danger-fill" disabled={!ok || busy}>
