@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ConfigurationPlan, ReviewedChange } from "../api/configuration";
-import { trapTab, useInertBackground, usePortalHost } from "./ConfirmDialog";
+import { focusTarget, trapTab, useInertBackground, usePortalHost } from "./ConfirmDialog";
 
 /** shortRevision renders sha256:abcd…wxyz; the full value goes in a title. */
 export function shortRevision(rev: string | undefined): string {
@@ -164,34 +164,55 @@ type PendingReview = {
 
 /**
  * usePlanReview opens PlanReview in a modal drawer and resolves true on
- * Apply, false on Discard, Escape, backdrop click or unmount.
+ * Apply, false on Discard, Escape, backdrop click or unmount. The caller
+ * passes the opener it captured before its first await.
  */
-export function usePlanReview(): [ReactNode, (change: ReviewedChange, plan: ConfigurationPlan) => Promise<boolean>] {
+export function usePlanReview(): [
+  ReactNode,
+  (change: ReviewedChange, plan: ConfigurationPlan, opener?: Element | null) => Promise<boolean>,
+] {
   const [pending, setPending] = useState<PendingReview | null>(null);
   const pendingRef = useRef<PendingReview | null>(null);
+  const pendingOpenerRef = useRef<Element | null>(null);
+  // undefined: not decided yet. null: decided, and there is nothing to focus.
+  const restoreRef = useRef<Element | null | undefined>(undefined);
   pendingRef.current = pending;
+  // Do not clear this when pending becomes null. That render runs before the
+  // drawer's passive cleanup, and the getter must still see the opener then.
+  if (pending !== null) pendingOpenerRef.current = pending.opener;
   useEffect(() => () => pendingRef.current?.resolve(false), []);
-  const review = useCallback((change: ReviewedChange, plan: ConfigurationPlan) => {
+  const review = useCallback((change: ReviewedChange, plan: ConfigurationPlan, opener?: Element | null) => {
     return new Promise<boolean>((resolve) => {
       pendingRef.current?.resolve(false);
-      setPending({ change, plan, resolve, opener: document.activeElement });
+      restoreRef.current = undefined;
+      setPending({ change, plan, resolve, opener: opener === undefined ? document.activeElement : opener });
     });
   }, []);
   const close = useCallback((ok: boolean) => {
     const current = pendingRef.current;
     if (current === null) return;
+    // Decide while the caller is still busy. Later re-enables cannot change this.
+    restoreRef.current = focusTarget(current.opener);
     pendingRef.current = null;
     setPending(null);
     current.resolve(ok);
-    // Focus returns to the opener in useInertBackground's cleanup, after inert is removed.
   }, []);
-  const node = pending === null ? null : <PlanDrawer pending={pending} onClose={close} />;
+  const restoreTarget = () => (restoreRef.current !== undefined ? restoreRef.current : pendingOpenerRef.current);
+  const node = pending === null ? null : <PlanDrawer pending={pending} onClose={close} restoreTarget={restoreTarget} />;
   return [node, review];
 }
 
-function PlanDrawer({ pending, onClose }: { pending: PendingReview; onClose: (ok: boolean) => void }) {
+function PlanDrawer({
+  pending,
+  onClose,
+  restoreTarget,
+}: {
+  pending: PendingReview;
+  onClose: (ok: boolean) => void;
+  restoreTarget: () => Element | null;
+}) {
   const host = usePortalHost(true);
-  useInertBackground(true, host, pending.opener);
+  useInertBackground(true, host, restoreTarget);
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (host !== null) ref.current?.querySelector<HTMLElement>("button")?.focus();

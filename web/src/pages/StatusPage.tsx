@@ -225,10 +225,12 @@ export function StatusPage() {
     return fallback;
   }
 
+  // The default opener is document.activeElement at call entry, before setBusy disables the control.
   async function applyOp(
     operations:
       | ChangeOperation[]
       | ((fresh: StateView) => ChangeOperation[] | Promise<ChangeOperation[]>),
+    opener: Element | null = document.activeElement,
   ): Promise<boolean> {
     if (busyRef.current) {
       return false;
@@ -253,7 +255,7 @@ export function StatusPage() {
       };
       const plan = await planConfiguration(change);
       // busyRef stays set while the review drawer is open (no double submits).
-      if (!(await reviewPlan(change, plan))) return false;
+      if (!(await reviewPlan(change, plan, opener))) return false;
       const result = await applyChanges(change);
       if (result.runtimeRevision) {
         setRevision(result.runtimeRevision);
@@ -276,7 +278,7 @@ export function StatusPage() {
     }
   }
 
-  async function onToggle(feature: Feature) {
+  async function onToggle(feature: Feature, opener: Element | null) {
     if (!featureToggleable(feature, canAdmin) || busyRef.current) {
       return;
     }
@@ -291,12 +293,15 @@ export function StatusPage() {
         return;
       }
     }
-    await applyOp([
-      {
-        op: "setFeature",
-        feature: { id: feature.id, enabled: !feature.enabled },
-      },
-    ]);
+    await applyOp(
+      [
+        {
+          op: "setFeature",
+          feature: { id: feature.id, enabled: !feature.enabled },
+        },
+      ],
+      opener,
+    );
   }
 
   async function onApplyTLS(ev: FormEvent) {
@@ -633,7 +638,7 @@ export function StatusPage() {
                         checked={f.enabled}
                         disabled={busy}
                         aria-label={`Toggle ${f.id}`}
-                        onChange={() => void onToggle(f)}
+                        onChange={(e) => void onToggle(f, e.currentTarget)}
                       />
                     ) : null}
                   </td>

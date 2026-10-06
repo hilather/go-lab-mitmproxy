@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ConfigurationPlan, ReviewedChange } from "../api/configuration";
 import { PlanReview, usePlanReview } from "./PlanReview";
@@ -96,5 +97,112 @@ describe("usePlanReview drawer", () => {
     await user.click(await screen.findByRole("button", { name: "Discard plan" }));
     expect(onResult).toHaveBeenLastCalledWith(false);
     expect(onResult).toHaveBeenCalledTimes(2);
+  });
+});
+
+type FocusMode = "escape" | "discard" | "apply" | "ordering" | "enabled" | "capture";
+
+function FocusHarness({ mode }: { mode: FocusMode }) {
+  const [drawer, review] = usePlanReview();
+  const [disabled, setDisabled] = useState(false);
+  const emulateFixup = mode === "escape" || mode === "discard" || mode === "apply";
+  return (
+    <>
+      <div id="app-main" />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={async (e) => {
+          const opener = e.currentTarget;
+          if (mode === "ordering") {
+            setDisabled(true);
+            await review(change, plan, opener);
+            return;
+          }
+          if (emulateFixup) {
+            setDisabled(true);
+            (document.activeElement as HTMLElement).blur();
+          }
+          if (mode === "capture") {
+            await review(change, plan);
+          } else {
+            await review(change, plan, opener);
+          }
+        }}
+      >
+        Open review
+      </button>
+      {drawer}
+    </>
+  );
+}
+
+async function openReview(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Open review" }));
+  await screen.findByRole("dialog", { name: "Review planned change" });
+}
+
+describe("usePlanReview focus restore", () => {
+  it("Escape returns focus to #app-main when the opener was disabled and blurred", async () => {
+    const user = userEvent.setup();
+    render(<FocusHarness mode="escape" />);
+    await openReview(user);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.getElementById("app-main")).toHaveFocus();
+  });
+
+  it("Discard returns focus to #app-main when the opener was disabled and blurred", async () => {
+    const user = userEvent.setup();
+    render(<FocusHarness mode="discard" />);
+    await openReview(user);
+    await user.click(screen.getByRole("button", { name: "Discard plan" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.getElementById("app-main")).toHaveFocus();
+  });
+
+  it("Apply returns focus to #app-main when the opener was disabled and blurred", async () => {
+    const user = userEvent.setup();
+    render(<FocusHarness mode="apply" />);
+    await openReview(user);
+    await user.click(screen.getByRole("button", { name: "Apply reviewed changes" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.getElementById("app-main")).toHaveFocus();
+  });
+
+  it("decides the restore target at close, before a later re-enable", async () => {
+    const user = userEvent.setup();
+    render(<FocusHarness mode="ordering" />);
+    await openReview(user);
+    const opener = screen.getByRole("button", { name: "Open review" });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        (opener as HTMLButtonElement).disabled = false;
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    try {
+      await user.keyboard("{Escape}");
+    } finally {
+      document.removeEventListener("keydown", onKeyDown);
+    }
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.getElementById("app-main")).toHaveFocus();
+  });
+
+  it("returns focus to an opener that is still enabled at close", async () => {
+    const user = userEvent.setup();
+    render(<FocusHarness mode="enabled" />);
+    await openReview(user);
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Open review" })).toHaveFocus();
+  });
+
+  it("review(change, plan) with no third arg still captures document.activeElement", async () => {
+    const user = userEvent.setup();
+    render(<FocusHarness mode="capture" />);
+    await openReview(user);
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Open review" })).toHaveFocus();
   });
 });

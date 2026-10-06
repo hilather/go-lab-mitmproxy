@@ -213,7 +213,7 @@ jobs:
           node-version: "22.14.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install Chrome for Filters focus browser check
+      - name: Install Chrome for browser focus checks
         id: chrome
         uses: browser-actions/setup-chrome@v1
       - name: Operator UI tests and parity evidence

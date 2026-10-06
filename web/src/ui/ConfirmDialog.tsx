@@ -14,12 +14,48 @@ type Pending = ConfirmOptions & { resolve: (ok: boolean) => void; opener: Elemen
 export const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+function nativelyDisabled(opener: HTMLElement): boolean {
+  return (
+    (opener instanceof HTMLButtonElement ||
+      opener instanceof HTMLInputElement ||
+      opener instanceof HTMLSelectElement ||
+      opener instanceof HTMLTextAreaElement) &&
+    opener.disabled
+  );
+}
+
+/**
+ * focusTarget picks where a closing surface should move focus.
+ * A usable opener is a connected HTMLElement other than body/documentElement
+ * that is not natively disabled and not aria-disabled. Otherwise #app-main, or null.
+ * Tabindex is not touched here.
+ */
+export function focusTarget(opener: Element | null): HTMLElement | null {
+  if (
+    opener instanceof HTMLElement &&
+    opener.isConnected &&
+    opener !== document.body &&
+    opener !== document.documentElement &&
+    !nativelyDisabled(opener) &&
+    opener.getAttribute("aria-disabled") !== "true"
+  ) {
+    return opener;
+  }
+  const main = document.getElementById("app-main");
+  return main instanceof HTMLElement ? main : null;
+}
+
 /**
  * useInertBackground marks every body child except the dialog host inert while
  * a modal surface is open, and restores the previous values on close. Focus
- * returns to `opener` only after inert is removed (an inert element cannot take focus).
+ * returns to the opener, or a getter read at cleanup, only after inert is removed
+ * (an inert element cannot take focus).
  */
-export function useInertBackground(open: boolean, host: HTMLElement | null, opener: Element | null = null) {
+export function useInertBackground(
+  open: boolean,
+  host: HTMLElement | null,
+  opener: Element | null | (() => Element | null) = null,
+) {
   useEffect(() => {
     if (!open || host === null) return;
     const touched: { el: Element; had: boolean }[] = [];
@@ -30,26 +66,13 @@ export function useInertBackground(open: boolean, host: HTMLElement | null, open
     }
     return () => {
       for (const { el, had } of touched) if (!had) el.removeAttribute("inert");
-      if (!(opener instanceof HTMLElement) || !opener.isConnected) return;
-      const ariaDisabled = opener.getAttribute("aria-disabled") === "true";
-      const nativeDisabled =
-        (opener instanceof HTMLButtonElement ||
-          opener instanceof HTMLInputElement ||
-          opener instanceof HTMLSelectElement ||
-          opener instanceof HTMLTextAreaElement) &&
-        opener.disabled;
-      if (!nativeDisabled && !ariaDisabled) {
-        opener.focus();
-        return;
-      }
+      const o = typeof opener === "function" ? opener() : opener;
+      const t = focusTarget(o);
       // Main content container (plain div, not a landmark); make it programmatically focusable once.
-      const main = document.getElementById("app-main");
-      if (main instanceof HTMLElement) {
-        if (!main.hasAttribute("tabindex")) main.tabIndex = -1;
-        main.focus();
-      }
+      if (t !== null && t.id === "app-main" && !t.hasAttribute("tabindex")) t.tabIndex = -1;
+      t?.focus();
     };
-    // The opener is fixed for the life of one surface.
+    // opener (or its getter) is read only at cleanup; it is not a dependency because re-running the effect would drop and re-apply inert mid-session (the plan-review getter is a new function every render).
   }, [open, host]);
 }
 

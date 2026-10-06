@@ -16,7 +16,7 @@ Since then the UI gained several destructive or reviewed actions (Clear, Delete,
 
 **D80 — The SPA uses one shared in-page confirm and one plan-review panel instead of `window.confirm`.** Chrome only: no REST path, request field, capability or MCP change; every request body stays byte-identical.
 
-1. One confirm component (`useConfirm`) renders an `alertdialog` in a body-level portal. While open, the rest of the page is `inert`; Cancel has initial focus; Escape and backdrop click cancel; Tab stays inside; focus returns to the opener. Cancel sends nothing.
+1. One confirm component (`useConfirm`) renders an `alertdialog` in a body-level portal. While open, the rest of the page is `inert`; Cancel has initial focus; Escape and backdrop click cancel; Tab stays inside; focus returns to the opener. When the opener is disabled, aria-disabled, detached or the page body, focus falls back to the main content (`#app-main`). Cancel sends nothing.
 2. One plan-review component shows the reviewed request and plan (revisions, kv, diff, warnings, raw JSON). Configuration shows it in-page; Status shows it in a drawer. Apply sends exactly the reviewed request; the drawer settles once.
 3. Every former `window.confirm` (Flows Clear, Delete, Drop, Replay; Status and Configuration `ui.enabled`-off; Configuration store-eviction/force) uses these components. No second confirm kit is added.
 

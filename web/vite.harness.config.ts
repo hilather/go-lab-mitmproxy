@@ -12,7 +12,10 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     rollupOptions: {
-      input: resolve(root, "harness/filters-focus.html"),
+      input: {
+        filters: resolve(root, "harness/filters-focus.html"),
+        planreview: resolve(root, "harness/planreview-focus.html"),
+      },
     },
   },
 });
