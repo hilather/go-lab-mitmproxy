@@ -33,7 +33,7 @@ help:
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
 		'  web-install         npm ci in web/ (Node 22.14.0)' \
 		'  web-test            Vitest flow-inspector SPA tests' \
-		'  web-browser-test    headless Chromium Filters outside-click focus' \
+		'  web-browser-test    headless Chromium focus checks (Filters, plan review)' \
 		'  web-build           production Vite build + copy into internal/web/dist' \
 		'  web-embed           copy web/dist into internal/web/dist' \
 		'  test-container      build ghcr.io/hilather/labmitm and check non-root/read-only/no-caps' \
