@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- Status plan review returns focus correctly: the opener is captured when you click (before the change is planned), so Escape or **Discard plan** after toggling a feature (e.g. `rules.enabled`) lands on the main content (`#app-main`) while the switch is still busy instead of on the page body; confirms and the plan drawer also fall back to `#app-main` when the opener is gone. A headless Chromium check covers the toggle path.
+- Status plan review returns focus correctly: the opener is captured when you click (before the change is planned), so Escape or **Discard plan** after toggling a feature (e.g. `rules.enabled`) lands on the main content (`#app-main`) while the switch is still busy instead of on the page body; confirms and the plan drawer also fall back to `#app-main` when the opener is gone. A headless Chromium check covers the toggle path; a backdrop click on the plan drawer or a confirm no longer drops focus to the page body.
 
 ### Removed or deprecated
 

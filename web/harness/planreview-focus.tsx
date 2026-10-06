@@ -9,10 +9,12 @@ import "../src/styles.css";
 declare global {
   interface Window {
     __applyCalls: number;
+    __planCalls: number;
   }
 }
 
 window.__applyCalls = 0;
+window.__planCalls = 0;
 
 const session = {
   id: "admin",
@@ -75,7 +77,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.includes("/v1/status")) return json(200, sampleStatus());
   if (url.includes("/v1/state") && method === "GET") return json(200, sampleState("sha256:abc"));
   if (url.includes("/v1/features") && method === "GET") return json(200, features);
-  if (url.includes("/v1/changes:plan")) return json(200, plan);
+  if (url.includes("/v1/changes:plan")) {
+    window.__planCalls += 1;
+    return json(200, plan);
+  }
   if (url.includes("/v1/changes:apply")) {
     window.__applyCalls += 1;
     return json(200, { applied: true, runtimeRevision: "sha256:next" });

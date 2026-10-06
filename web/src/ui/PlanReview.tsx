@@ -219,7 +219,7 @@ function PlanDrawer({
   }, [host]);
   if (host === null) return null;
   return createPortal(
-    <div className="modal-backdrop drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose(false)}>
+    <div className="modal-backdrop drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); onClose(false); } }}>
       <div
         ref={ref}
         className="drawer"

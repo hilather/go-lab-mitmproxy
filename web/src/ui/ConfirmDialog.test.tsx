@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -227,6 +227,20 @@ describe("useConfirm", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(document.getElementById("app-main")).toHaveFocus();
     await act(async () => view.unmount());
+  });
+
+  it("backdrop mousedown is default-prevented and cancels", async () => {
+    const user = userEvent.setup();
+    const onResult = vi.fn();
+    render(<Harness onResult={onResult} />);
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Clear every captured flow?" });
+    const backdrop = dialog.parentElement;
+    if (!(backdrop instanceof HTMLElement)) throw new Error("backdrop missing");
+    expect(backdrop).toHaveClass("modal-backdrop");
+    // jsdom has no mousedown focus move, so this only checks preventDefault and that the surface closes.
+    expect(fireEvent.mouseDown(backdrop)).toBe(false);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
 });

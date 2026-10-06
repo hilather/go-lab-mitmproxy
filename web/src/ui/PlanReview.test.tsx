@@ -98,6 +98,20 @@ describe("usePlanReview drawer", () => {
     expect(onResult).toHaveBeenLastCalledWith(false);
     expect(onResult).toHaveBeenCalledTimes(2);
   });
+
+  it("backdrop mousedown is default-prevented and cancels", async () => {
+    const user = userEvent.setup();
+    const onResult = vi.fn();
+    render(<DrawerHarness onResult={onResult} />);
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review planned change" });
+    const backdrop = dialog.parentElement;
+    if (!(backdrop instanceof HTMLElement)) throw new Error("backdrop missing");
+    expect(backdrop).toHaveClass("drawer-backdrop");
+    // jsdom has no mousedown focus move, so this only checks preventDefault and that the surface closes.
+    expect(fireEvent.mouseDown(backdrop)).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
 
 type FocusMode = "escape" | "discard" | "apply" | "ordering" | "enabled" | "capture";
