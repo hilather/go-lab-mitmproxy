@@ -189,7 +189,7 @@ The [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/d
 Open `http://127.0.0.1:8088/` for the flow inspector. Paste the bearer
 token; the SPA talks REST only (`POST /v1/session`, cookie + CSRF).
 `spec.ui.enabled: false` 404s `/` and keeps REST/MCP. Production UI assets:
-`make web-build` (Node **22.14.0**).
+`make web-build` (Node **22.22.2+**; CI pins 22.23.3).
 
 ---
 
@@ -512,7 +512,7 @@ Implementation contracts (not a substitute for the design docs):
 
 ## Build and test
 
-Toolchain: **Go 1.26** (`go1.26.x`). Operator console: **Node 22.14.0**.
+Toolchain: **Go 1.26** (`go1.26.x`). Operator console: **Node 22.22.2+** (Node 22 LTS; CI pins 22.23.3).
 
 ```text
 make format

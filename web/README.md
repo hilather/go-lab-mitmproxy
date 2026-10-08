@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-10-03 (implemented operator workflows and mandatory parity gate)
 
-React + TypeScript + Vite (Node **22.14.0**). The UI talks REST only (`/v1`).
+React + TypeScript + Vite (Node **22.22.2+**, Node 22 LTS; CI pins 22.23.3). The UI talks REST only (`/v1`).
 
 Browser auth is `POST /v1/session` (bearer only — no HTTP Basic) → HttpOnly `labmitm_session` + CSRF in the JSON body / `GET /v1/session` reload recovery. Mutations send `X-LabMITM-CSRF`. The token is never written to `localStorage` or `sessionStorage`.
 

@@ -10,7 +10,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- None.
+- Operator-console toolchain: Node **22.22.2+** (`web/package.json` engines `>=22.22.2 <23`); CI `web` job pins Node 22.23.3. jsdom 30.0.1 requires `^22.22.2 || ^24.15.0 || >=26.0.0` and undici 8.10.0 requires `>=22.19.0`, so Node 22.14.0 produced `EBADENGINE` warnings on `npm ci`.
 
 ### Fixed
 
