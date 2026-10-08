@@ -57,7 +57,7 @@ Family container-internal binds that must not collide:
 1. Single-process Go appliance that accepts HTTP/1.1 absolute-form and CONNECT, optionally intercepts TLS with a lab CA, captures flows, and never wraps or execs Python mitmproxy.
 2. Versioned, fail-closed YAML bootstrap; runtime flows ephemeral; reset rereads bootstrap and wipes the flow store.
 3. Same authorized flow and state operations on REST `/v1` and MCP `POST /mcp` (parity).
-4. Embedded operator UI (React/TS + Vite, Node **22.14.0**) that calls REST only. D79 ([ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md)) requires it to expose every operator-facing capability with equivalent inputs, results, and authorization. UI-PARITY-001 implements this; see [Embedded operator UI](#embedded-operator-ui) and the [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md).
+4. Embedded operator UI (React/TS + Vite, Node **22.22.2+**) that calls REST only. D79 ([ADR 0020](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0020-frontend-control-plane-parity.md)) requires it to expose every operator-facing capability with equivalent inputs, results, and authorization. UI-PARITY-001 implements this; see [Embedded operator UI](#embedded-operator-ui) and the [operator UI guide](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/15-operator-ui.md).
 5. Hardened container: non-root UID 65532, scratch/static, read-only root, `cap_drop: ALL`, no-new-privileges, tmpfs `/tmp`.
 6. In-tree proxy + TLS intercept using stdlib `net/http`, `crypto/tls`, `crypto/x509` only.
 7. Bounded flow store (count + bytes + per-body cap) with fail-closed `fullPolicy`.
@@ -117,7 +117,7 @@ These are closed. Implementers do not re-litigate them without an ADR.
 | **D10** | **Default proxy bind is `127.0.0.1:8888`. Default management bind is `127.0.0.1:8088`.** Explicit LabMail deviation (LabMail defaults are all-interfaces). | An intercepting proxy is an open-proxy loaded gun. |
 | **D11** | **Store is memory-first with stacked caps.** Default `fullPolicy: reject`. Store-full **still forwards**. | Prevents OOM. Capture is best-effort. |
 | **D12** | **No chaos engine in 1.0.** `spec.rules` is deterministic, default-off, first-match-wins. | A capture appliance’s job is explainable behavior. |
-| **D13** | **Embedded flow-inspector UI ships in 1.0.** React + TypeScript + Vite, Node **22.14.0**. Current workflows: [Embedded operator UI](#embedded-operator-ui), including D79 control-plane parity. | Family replacement contract. GA is not done without PR 13. |
+| **D13** | **Embedded flow-inspector UI ships in 1.0.** React + TypeScript + Vite, Node **22.14.0** at 1.0 (current floor **22.22.2+**). Current workflows: [Embedded operator UI](#embedded-operator-ui), including D79 control-plane parity. | Family replacement contract. GA is not done without PR 13. |
 | **D14** | **Go 1.26, official MCP SDK `v1.7.0`, protocol `2026-07-28`, Apache-2.0.** `KnownFields(true)`. CI pin `GO_VERSION=1.26.6`. | Family pins. |
 | **D15** | **`allowLegacyClients` default false; lab overlay sets true.** `subscriptions/listen` stays 2026-07-28. | So MCPJungle can register without a LabMITM patch. |
 | **D16** | **Data-plane Dial is required, isolated, and resolve-then-guard.** Dial only in `internal/proxy`. | Hostname-only guards miss CNAME→IMDS. |
@@ -202,7 +202,7 @@ Required for GA / 1.0 (D13, PR 13). The UI talks REST only. The table below desc
 
 | Item | Choice |
 |---|---|
-| Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
+| Stack | React + TypeScript + Vite (Node 22.22.2+), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` (copy step; `web/` has its own `go.mod` so parent `go test ./...` does not walk `node_modules`) |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie `labmitm_session` + `X-LabMITM-CSRF`. Cookie is REST-only. No Basic form. |
 | Pages | Login, Flows (`/` and `/flows/:id`), Status, Configuration, Diagnostics, Audit (if scoped), and gated Reset. All share the dark lab chrome (IBM Plex, `#0b0c0e` / `#6ea8d1` / `#c4a35a`). The live intercept-ports chip reads `GET /v1/state` `canonical.spec.tls.ports`. |

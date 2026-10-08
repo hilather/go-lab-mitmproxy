@@ -31,7 +31,7 @@ help:
 		'  test-parity         REST/MCP capability parity, MCP goldens, and frontend coverage' \
 		'  test-ui-parity      frontend registry, operation, and contract review gate' \
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
-		'  web-install         npm ci in web/ (Node 22.14.0)' \
+		'  web-install         npm ci in web/ (Node 22.22.2+, CI 22.23.3)' \
 		'  web-test            Vitest flow-inspector SPA tests' \
 		'  web-browser-test    headless Chromium focus checks (Filters, plan review)' \
 		'  web-build           production Vite build + copy into internal/web/dist' \

@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "npm@10.9.2",
   "engines": {
-    "node": ">=22.14.0 <23",
+    "node": ">=22.22.2 <23",
     "npm": ">=10.9.0"
   },
   "scripts": {

@@ -148,7 +148,7 @@ Required for GA / 1.0 (D13). Talks REST only.
 
 | Item | Choice |
 |---|---|
-| Stack | React + TypeScript + Vite (Node 22.14.0), LabMail/TacLab pattern |
+| Stack | React + TypeScript + Vite (Node 22.22.2+), LabMail/TacLab pattern |
 | Embed | `internal/web` `go:embed` of `web/dist` |
 | Auth | Login page: paste bearer. `POST /v1/session`. Cookie + CSRF. No Basic form. |
 | Pages | Flows split-pane (list stays mounted; `/` + `/flows/:id` selection drives Request / Response / TLS). Intercept vs tunnel-not-decrypt chips. Completed raw CONNECT is a tunnel summary, not empty HTTP panes. Header intercept-ports chip reads live `GET /v1/state` `canonical.spec.tls.ports`. Status / Audit / Reset / Login page bodies share that dark lab chrome; tunnel-not-decrypt remains a flow chip only. CA download, status (11-row feature catalog from `GET /v1/features`; `mitm.admin` live `setFeature` including gated `ui.enabled` off-confirm; compact `status.features.httpAuth` + Reset-required 1.2 flags; live `replaceTLS` (hidden `hosts`/`ca`/`upstream` from the OCC `GET /v1/state` snapshot) / `replaceHTTPAuth` / `replaceRules` / `replaceAdmission` / `replaceCompat`; reset-only catalog row links to `/reset`; no `/features` route; no new capabilities), Frames `drop`/`block` badges, audit (if scoped), gated reset |

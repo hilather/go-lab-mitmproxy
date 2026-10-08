@@ -47,7 +47,7 @@ stdio. `labmitm healthcheck --url=http://127.0.0.1:8088/v1/health/ready`
 probes readiness. Set `tls.intercept: true` to mint a lab CA and intercept
 HTTPS on listed ports. The hardened image is `ghcr.io/hilather/labmitm`
 (scratch, UID `65532`, system CA bundle). Compose smoke:
-`examples/compose.smoke.yaml`. `make web-build` (Node **22.14.0**) embeds the
+`examples/compose.smoke.yaml`. `make web-build` (Node **22.22.2+**; CI pins 22.23.3) embeds the
 production SPA.
 
 ## What to read next
