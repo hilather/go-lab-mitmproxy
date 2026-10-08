@@ -10,11 +10,31 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
-- Operator-console toolchain: Node **22.22.2+** (`web/package.json` engines `>=22.22.2 <23`); CI `web` job pins Node 22.23.3. jsdom 30.0.1 requires `^22.22.2 || ^24.15.0 || >=26.0.0` and undici 8.10.0 requires `>=22.19.0`, so Node 22.14.0 produced `EBADENGINE` warnings on `npm ci`.
+- None.
 
 ### Fixed
 
-- Status plan review returns focus correctly: the opener is captured when you click (before the change is planned), so Escape or **Discard plan** after toggling a feature (e.g. `rules.enabled`) lands on the main content (`#app-main`) while the switch is still busy instead of on the page body; confirms and the plan drawer also fall back to `#app-main` when the opener is gone. A headless Chromium check covers the toggle path; a backdrop click on the plan drawer or a confirm no longer drops focus to the page body.
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.7.2 - 2026-10-07
+
+Patch of one Unreleased operator-UI fix and one toolchain change after v1.7.1 from [PR #91](https://github.com/hilather/go-lab-mitmproxy/pull/91) and [#92](https://github.com/hilather/go-lab-mitmproxy/pull/92): Status plan review and confirm focus restore, and the operator-console Node floor 22.22.2+ (CI 22.23.3). The UI fix is focus behaviour only, and request bodies are byte-identical; the Node change touches the build toolchain and CI, not the binary or image. Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. Configuration stays `labmitm.dev/v1alpha1`. There are no new capability IDs, apply verbs, REST fields, MCP tools or ADRs; ADR 0021 / D80 item 1 gains one sentence recording the extended `#app-main` fallback. **D7 stands.** Not in this release: focus after a failed `GET /v1/state` or plan request (stays on the page body), click-time opener capture for Configuration confirms (they still capture at `confirm()` time and reach `#app-main` through the fallback), and an optional `nativelyDisabled` / `:disabled` cleanup. Notes: [docs/releases/v1.7.2.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.2/docs/releases/v1.7.2.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.2/docs/known-limitations.md).
+
+### Added
+
+- None.
+
+### Changed
+
+- Operator-console toolchain: Node **22.22.2+** (`web/package.json` engines `>=22.22.2 <23`); CI `web` job pins Node 22.23.3. jsdom 30.0.1 requires `^22.22.2 || ^24.15.0 || >=26.0.0` and undici 8.10.0 requires `>=22.19.0`, so Node 22.14.0 produced `EBADENGINE` warnings on `npm ci` ([PR #92](https://github.com/hilather/go-lab-mitmproxy/pull/92)).
+
+### Fixed
+
+- Status plan review returns focus correctly: the opener is captured when you click (before the change is planned), so Escape, **Discard plan** or **Apply reviewed changes** after toggling a feature (e.g. `rules.enabled`) or submitting a Status form lands on the main content (`#app-main`) while the control is still busy instead of on the page body; confirms and the plan drawer share one fallback to `#app-main` when the opener is disabled, `aria-disabled`, gone, or the page body or root element. A backdrop click on the plan drawer or a confirm no longer drops focus to the page body. Headless Chromium checks cover Escape, Discard, Apply, form submit, drawer backdrop and confirm backdrop ([PR #91](https://github.com/hilather/go-lab-mitmproxy/pull/91)).
 
 ### Removed or deprecated
 

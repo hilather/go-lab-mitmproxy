@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-10-04
-Last reviewed: 2026-10-04 (operator UI redesign to the approved oct03 mocks)
+Last reviewed: 2026-10-06 (#91: item 1 `#app-main` focus fallback for disabled, aria-disabled, detached or page-body openers)
 Decisions: D80
 Amends: [ADR 0018](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/adr/0018-status-ui-enabled-apply.md) (confirm surface only; D77 unchanged)
 

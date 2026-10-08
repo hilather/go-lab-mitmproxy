@@ -456,6 +456,7 @@ Cross-file links below are absolute.
 | [docs/13-deployment.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/13-deployment.md) | Image, compose, CLI |
 | [docs/14-integration-lab.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/14-integration-lab.md) | Overlay BOM for mcp-integration-lab |
 | [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/known-limitations.md) | 1.0 defaults + 1.2 residuals |
+| [docs/releases/v1.7.2.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.7.2.md) | 1.7.2 tag notes (Status plan review and confirm focus restore; #91 + Node 22.22.2+ toolchain floor, CI 22.23.3; #92) |
 | [docs/releases/v1.7.1.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.7.1.md) | 1.7.1 tag notes (operator UI contrast, focus and narrow/mid-width polish after #85; #87 + #89) |
 | [docs/releases/v1.7.0.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.7.0.md) | 1.7.0 tag notes (frontend parity D79 + oct03 operator UI D80 + strict REST envelopes + management TLS/Reset fixes) |
 | [docs/releases/v1.6.3.md](https://github.com/hilather/go-lab-mitmproxy/blob/main/docs/releases/v1.6.3.md) | 1.6.3 tag notes (h2 unread buffered DATA window credit on stream abort) |
