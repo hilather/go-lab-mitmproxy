@@ -25,7 +25,7 @@ concurrency:
 
 env:
   # Single source for the toolchain pin; keep in sync with go.mod.
-  GO_VERSION: "1.26.6"
+  GO_VERSION: "1.26.8"
   GOTOOLCHAIN: local
   GOPROXY: https://proxy.golang.org,direct
 

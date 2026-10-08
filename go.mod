@@ -2,6 +2,8 @@ module github.com/hilather/go-lab-mitmproxy
 
 go 1.26
 
+toolchain go1.26.8
+
 require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/oklog/ulid/v2 v2.1.1
