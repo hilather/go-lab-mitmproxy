@@ -2,6 +2,15 @@ version: "2"
 
 linters:
   default: standard
+  exclusions:
+    rules:
+      # golang.org/x/net v0.60.0 deprecates the x/net/http2 Transport, Server
+      # and ClientConn API in favor of net/http. The pinned origin pool in
+      # internal/http2x and the h2 tests still use it; moving them to the
+      # net/http API is a separate change, not part of the toolchain bump.
+      - linters: [staticcheck]
+        path: internal/(http2x|proxy)/
+        text: 'SA1019: .*(http2\.|tr\.(NewClientConn|ConnPool|DialTLSContext|RoundTrip)).* is deprecated'
 
 formatters:
   enable:

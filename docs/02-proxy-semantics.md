@@ -80,7 +80,7 @@ Opt-in `spec.proxy.httpAuth` on `listeners.proxy` only ([ADR 0017](https://githu
 | Client-facing h2c RFC 9113 CONNECT | yes (`h2cConnectRequest` copies `Stream.Headers`; return `Tunnel{Status:407}` — do **not** call `writeProxyAuthChallenge`). **Not** `protocols.connect` (HTTP/1.1 CONNECT 403 can coexist with h2c 407). |
 | Absolute-form `https://`, origin-form on `:8888`, orig-dest, PRI flag-off, inner intercept, SOCKS, Replay, h2c Extended CONNECT (`:protocol=websocket`) | no |
 
-`writeProxyAuthChallenge` writes HTTP/1.1 407, `Proxy-Authenticate: Basic realm="…"`, short `text/plain` body, mandatory `Content-Length`, omit `Connection: close`, no chunked. Do **not** reuse `writeProxyError` (that helper always closes and has no length). A 407 CONNECT stays with `http.Server` (D19). Flow `Status=407` `Error=proxy_auth` (no username/password). `rules` `action.status: 407` is a synthetic origin-like response after DNS — not this feature.
+`writeProxyAuthChallenge` writes HTTP/1.1 407, `Proxy-Authenticate: Basic realm="…"`, short `text/plain` body, mandatory `Content-Length`, omit `Connection: close`, no chunked. Exception: on a 407 to CONNECT, Go 1.26.9+ `net/http` itself adds `Connection: close` and closes the connection (it never reuses a connection after a CONNECT it did not hijack), so CONNECT clients retry with credentials on a new TCP connection. Absolute-form 407 still keeps the connection open. Do **not** reuse `writeProxyError` (that helper always closes and has no length). A 407 CONNECT stays with `http.Server` (D19). Flow `Status=407` `Error=proxy_auth` (no username/password). `rules` `action.status: 407` is a synthetic origin-like response after DNS — not this feature.
 
 ## SOCKS CONNECT (opt-in)
 

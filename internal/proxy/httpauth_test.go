@@ -142,6 +142,11 @@ func TestHTTPAuthCONNECTRetryTranscript(t *testing.T) {
 		_ = c.Close()
 	}()
 	px := startHTTPAuthProxy(t, Options{})
+	// The 407 closes its connection (Go 1.26.9+ net/http), so the client
+	// retries CONNECT + Basic on a new TCP connection.
+	proxytest.PlayTranscript(t, px.Addr().String(), testdataProxy(t, "http-auth-connect-407.txt"), map[string]string{
+		"HOST": ln.Addr().String(),
+	})
 	proxytest.PlayTranscript(t, px.Addr().String(), testdataProxy(t, "http-auth-connect-retry.txt"), map[string]string{
 		"HOST":  ln.Addr().String(),
 		"BASIC": httpAuthBasic(),
