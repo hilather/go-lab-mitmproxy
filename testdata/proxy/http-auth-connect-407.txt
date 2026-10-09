@@ -1,4 +1,6 @@
 # CONNECT without creds is 407 via ResponseWriter (no 200, no Hijack).
+# Go 1.26.9+ net/http never reuses a connection after a CONNECT it did not
+# hijack, so the 407 carries Connection: close and the server closes the TCP.
 C: CONNECT {{HOST}} HTTP/1.1
 C: Host: {{HOST}}
 C:
@@ -7,5 +9,6 @@ S: Content-Length: *
 S: Content-Type: text/plain; charset=utf-8
 S: Date: *
 S: Proxy-Authenticate: Basic realm="labmitm-proxy"
+S: Connection: close
 S:
 S: proxy authentication required
