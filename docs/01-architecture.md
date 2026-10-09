@@ -269,6 +269,7 @@ Required for GA / 1.0 (D13, PR 13). The UI talks REST only. The table below desc
 | `gopkg.in/yaml.v3` | Family config |
 | `github.com/modelcontextprotocol/go-sdk v1.7.0` | Family MCP |
 | `github.com/oklog/ulid/v2` | Crockford ULID flow ids (MIT; LabMail pin) |
+| `github.com/moby/patternmatcher` v0.6.1 | Apache-2.0. Test-only `.dockerignore` matcher (BuildKit and the Docker CLI). Not linked into `labmitm`. |
 
 1.1 codec (ADR 0009 / D28): `golang.org/x/net/http2` behind `internal/http2x` only (BSD-3, Apache-2.0 compatible). Not a proxy/MITM library. Dial idents forbidden; `DialTLS` stays nil.
 

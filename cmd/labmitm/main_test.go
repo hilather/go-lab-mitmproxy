@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hilather/go-lab-mitmproxy/internal/config"
+	"github.com/moby/patternmatcher"
+	"github.com/moby/patternmatcher/ignorefile"
 )
 
 func repoRoot(t *testing.T) string {
@@ -239,28 +242,117 @@ func TestDockerfileHardening(t *testing.T) {
 	}
 }
 
-// TestDockerignoreExcludesContext locks the image build context: git
-// metadata, workflows, docs, and every testdata tree (TLS keys and the
-// container token live under testdata) stay out of docker build.
+// TestDockerignoreExcludesContext locks the image build context. Patterns
+// are applied with github.com/moby/patternmatcher, the matcher BuildKit and
+// the Docker CLI use for .dockerignore. Git metadata, workflows, docs, and
+// every testdata directory (TLS keys and the container token live under
+// testdata) stay out. Built Go sources outside testdata stay in.
 func TestDockerignoreExcludesContext(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join(repoRoot(t), ".dockerignore"))
+	root := repoRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, ".dockerignore"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := map[string]bool{}
-	for _, l := range strings.Split(string(body), "\n") {
-		lines[strings.TrimSpace(l)] = true
+	patterns, err := ignorefile.ReadAll(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, want := range []string{".git", ".github", "docs", "**/testdata"} {
-		if !lines[want] {
-			t.Errorf(".dockerignore missing line %q", want)
+	pm, err := patternmatcher.New(patterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, rel := range []string{
+		".git/config",
+		".github/workflows/ci.yml",
+		"docs/x.md",
+		"testdata/tls/server.key",
+		"internal/config/testdata/x",
+	} {
+		matched, err := pm.MatchesOrParentMatches(rel)
+		if err != nil {
+			t.Fatalf("match %s: %v", rel, err)
+		}
+		if !matched {
+			t.Errorf(".dockerignore matcher did not exclude %s", rel)
 		}
 	}
-	for _, keep := range []string{"internal", "internal/web", "cmd", "LICENSE", "go.mod", "go.sum"} {
-		if lines[keep] {
-			t.Errorf(".dockerignore must not exclude %q (the image build needs it)", keep)
+	for _, rel := range []string{
+		"go.mod",
+		"go.sum",
+		"LICENSE",
+		"cmd/labmitm/main.go",
+		"internal/web/dist/index.html",
+		"internal/web/stub/index.html",
+		"Dockerfile",
+	} {
+		matched, err := pm.MatchesOrParentMatches(rel)
+		if err != nil {
+			t.Fatalf("match %s: %v", rel, err)
+		}
+		if matched {
+			t.Errorf(".dockerignore matcher excluded %s (the image build needs it)", rel)
 		}
 	}
+
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		if d.IsDir() && dockerignoreSkipDir(rel) {
+			return filepath.SkipDir
+		}
+		matched, err := pm.MatchesOrParentMatches(rel)
+		if err != nil {
+			return fmt.Errorf("match %s: %w", rel, err)
+		}
+		inTestdata := dockerignorePathSegment(rel, "testdata")
+		if inTestdata && !matched {
+			t.Errorf(".dockerignore matcher did not exclude testdata path %s", rel)
+		}
+		if !d.IsDir() && strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go") && !inTestdata && matched {
+			t.Errorf(".dockerignore matcher excluded built Go file %s", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// dockerignoreSkipDir reports directories the context walk does not enter:
+// VCS internals, tool caches, and generated trees.
+func dockerignoreSkipDir(rel string) bool {
+	base := rel
+	if i := strings.LastIndex(rel, "/"); i >= 0 {
+		base = rel[i+1:]
+	}
+	switch base {
+	case "node_modules", "dist", "bin", "coverage", ".gocache", ".gomodcache", ".git":
+		return true
+	default:
+		return false
+	}
+}
+
+// dockerignorePathSegment reports whether rel, a slash-separated relative
+// path, has a segment equal to name. "under testdata" means a segment
+// exactly testdata.
+func dockerignorePathSegment(rel, name string) bool {
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestComposeSmokeContract(t *testing.T) {
