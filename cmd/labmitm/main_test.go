@@ -266,7 +266,11 @@ func TestDockerignoreExcludesContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertTrackedUIInDockerContext(t, root, pm)
+	// A subtest, so a skip (no git, not a work tree) ends only this check and
+	// the exclusion checks below still run.
+	t.Run("tracked UI files", func(t *testing.T) {
+		assertTrackedUIInDockerContext(t, root, pm)
+	})
 
 	for _, rel := range []string{
 		".git/config",
@@ -345,13 +349,18 @@ func assertTrackedUIInDockerContext(t *testing.T, root string, pm *patternmatche
 	}
 	probe := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree")
 	probe.Dir = root
-	probeOut, err := probe.CombinedOutput()
+	probeOut, err := probe.Output()
 	probeText := strings.TrimSpace(string(probeOut))
 	if err != nil {
-		if strings.Contains(probeText, "not a git repository") || strings.Contains(probeText, "not a work tree") {
+		stderr := ""
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			stderr = string(exitErr.Stderr)
+		}
+		if strings.Contains(stderr, "not a git repository") {
 			t.Skip("not a git work tree")
 		}
-		t.Fatalf("git rev-parse --is-inside-work-tree: %v\n%s", err, probeText)
+		t.Fatalf("git rev-parse --is-inside-work-tree: %v\n%s", err, stderr)
 	}
 	if probeText != "true" {
 		t.Skip("not a git work tree")
