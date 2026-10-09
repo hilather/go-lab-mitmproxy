@@ -5,7 +5,7 @@
 # Container ports stay 8888 (proxy) and 8088 (management). Healthcheck is HTTP
 # ready via the copied binary. No Node stage — UI-001 embeds dist/ on the host.
 
-FROM golang:1.26.8-alpine AS build
+FROM golang:1.26.9-alpine AS build
 WORKDIR /src
 
 RUN apk add --no-cache ca-certificates tzdata
