@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -246,7 +248,9 @@ func TestDockerfileHardening(t *testing.T) {
 // are applied with github.com/moby/patternmatcher, the matcher BuildKit and
 // the Docker CLI use for .dockerignore. Git metadata, workflows, docs, and
 // every testdata directory (TLS keys and the container token live under
-// testdata) stay out. Built Go sources outside testdata stay in.
+// testdata) stay out. Built Go sources outside testdata stay in. Tracked
+// files under internal/web/dist and internal/web/stub stay in, including
+// paths the context walk does not classify as Go sources.
 func TestDockerignoreExcludesContext(t *testing.T) {
 	root := repoRoot(t)
 	body, err := os.ReadFile(filepath.Join(root, ".dockerignore"))
@@ -261,6 +265,8 @@ func TestDockerignoreExcludesContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	assertTrackedUIInDockerContext(t, root, pm)
 
 	for _, rel := range []string{
 		".git/config",
@@ -328,19 +334,82 @@ func TestDockerignoreExcludesContext(t *testing.T) {
 	}
 }
 
-// dockerignoreSkipDir reports directories the context walk does not enter:
-// VCS internals, tool caches, and generated trees.
+// assertTrackedUIInDockerContext requires every git-tracked file under the
+// embedded UI trees to stay in the build context. It is independent of the
+// walk. Skip only when git is not on PATH or rev-parse says this directory
+// is not a work tree; any other git error fails the test.
+func assertTrackedUIInDockerContext(t *testing.T, root string, pm *patternmatcher.PatternMatcher) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	probe := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree")
+	probe.Dir = root
+	probeOut, err := probe.CombinedOutput()
+	probeText := strings.TrimSpace(string(probeOut))
+	if err != nil {
+		if strings.Contains(probeText, "not a git repository") || strings.Contains(probeText, "not a work tree") {
+			t.Skip("not a git work tree")
+		}
+		t.Fatalf("git rev-parse --is-inside-work-tree: %v\n%s", err, probeText)
+	}
+	if probeText != "true" {
+		t.Skip("not a git work tree")
+	}
+
+	ls := exec.Command("git", "-C", root, "ls-files", "-z", "--", "internal/web/dist", "internal/web/stub")
+	ls.Dir = root
+	lsOut, err := ls.Output()
+	if err != nil {
+		msg := ""
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			msg = string(exitErr.Stderr)
+		}
+		t.Fatalf("git ls-files -z internal/web/dist internal/web/stub: %v\n%s", err, msg)
+	}
+	var tracked []string
+	for _, b := range bytes.Split(lsOut, []byte{0}) {
+		if len(b) == 0 {
+			continue
+		}
+		tracked = append(tracked, filepath.ToSlash(string(b)))
+	}
+	if len(tracked) == 0 {
+		t.Fatal("git ls-files -z internal/web/dist internal/web/stub returned no files")
+	}
+	var excluded []string
+	for _, rel := range tracked {
+		matched, matchErr := pm.MatchesOrParentMatches(rel)
+		if matchErr != nil {
+			t.Fatalf("match %s: %v", rel, matchErr)
+		}
+		if matched {
+			excluded = append(excluded, rel)
+		}
+	}
+	if len(excluded) > 0 {
+		t.Errorf(".dockerignore matcher excluded tracked UI files:\n%s", strings.Join(excluded, "\n"))
+	}
+}
+
+// dockerignoreSkipDir reports directories the context walk does not enter.
+// Exact repo-relative paths cover .git, dist, web/dist, and the root bin
+// directory. Local caches match any path segment: node_modules, .gocache,
+// .gomodcache, and coverage. A basename of dist is not a skip, so
+// internal/web/dist is walked.
 func dockerignoreSkipDir(rel string) bool {
-	base := rel
-	if i := strings.LastIndex(rel, "/"); i >= 0 {
-		base = rel[i+1:]
-	}
-	switch base {
-	case "node_modules", "dist", "bin", "coverage", ".gocache", ".gomodcache", ".git":
+	switch rel {
+	case ".git", "dist", "web/dist", "bin":
 		return true
-	default:
-		return false
 	}
+	for _, seg := range strings.Split(rel, "/") {
+		switch seg {
+		case "node_modules", ".gocache", ".gomodcache", "coverage":
+			return true
+		}
+	}
+	return false
 }
 
 // dockerignorePathSegment reports whether rel, a slash-separated relative
