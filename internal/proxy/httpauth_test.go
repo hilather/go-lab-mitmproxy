@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -113,6 +114,37 @@ func TestHTTPAuthAbsoluteOKTranscript(t *testing.T) {
 	assertFlowsHideProxyAuth(t, sink)
 }
 
+// assertCONNECT407Closes sends CONNECT without credentials and asserts the
+// 407 is followed by EOF: Go 1.26.9+ net/http closes the connection after a
+// CONNECT it did not hijack, so the client must retry on a new connection.
+func assertCONNECT407Closes(t *testing.T, addr, host string) {
+	t.Helper()
+	c, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.WriteString(c, "CONNECT "+host+" HTTP/1.1\r\nHost: "+host+"\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(c)
+	resp, err := http.ReadResponse(br, &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusProxyAuthRequired {
+		t.Fatalf("status %d, want 407", resp.StatusCode)
+	}
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if n, err := br.ReadByte(); err != io.EOF {
+		t.Fatalf("after 407 CONNECT: read %v, %v; want io.EOF (connection closed)", n, err)
+	}
+}
+
 func TestHTTPAuthCONNECT407Transcript(t *testing.T) {
 	rec := &recordingDial{}
 	origin, _ := startOrigin(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -122,6 +154,7 @@ func TestHTTPAuthCONNECT407Transcript(t *testing.T) {
 	proxytest.PlayTranscript(t, px.Addr().String(), testdataProxy(t, "http-auth-connect-407.txt"), map[string]string{
 		"HOST": origin,
 	})
+	assertCONNECT407Closes(t, px.Addr().String(), origin)
 	if len(rec.Addrs()) != 0 {
 		t.Fatalf("407 CONNECT dialed %v", rec.Addrs())
 	}
@@ -147,6 +180,7 @@ func TestHTTPAuthCONNECTRetryTranscript(t *testing.T) {
 	proxytest.PlayTranscript(t, px.Addr().String(), testdataProxy(t, "http-auth-connect-407.txt"), map[string]string{
 		"HOST": ln.Addr().String(),
 	})
+	assertCONNECT407Closes(t, px.Addr().String(), ln.Addr().String())
 	proxytest.PlayTranscript(t, px.Addr().String(), testdataProxy(t, "http-auth-connect-retry.txt"), map[string]string{
 		"HOST":  ln.Addr().String(),
 		"BASIC": httpAuthBasic(),
