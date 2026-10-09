@@ -239,6 +239,30 @@ func TestDockerfileHardening(t *testing.T) {
 	}
 }
 
+// TestDockerignoreExcludesContext locks the image build context: git
+// metadata, workflows, docs, and every testdata tree (TLS keys and the
+// container token live under testdata) stay out of docker build.
+func TestDockerignoreExcludesContext(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), ".dockerignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := map[string]bool{}
+	for _, l := range strings.Split(string(body), "\n") {
+		lines[strings.TrimSpace(l)] = true
+	}
+	for _, want := range []string{".git", ".github", "docs", "**/testdata"} {
+		if !lines[want] {
+			t.Errorf(".dockerignore missing line %q", want)
+		}
+	}
+	for _, keep := range []string{"internal", "internal/web", "cmd", "LICENSE", "go.mod", "go.sum"} {
+		if lines[keep] {
+			t.Errorf(".dockerignore must not exclude %q (the image build needs it)", keep)
+		}
+	}
+}
+
 func TestComposeSmokeContract(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(repoRoot(t), "examples", "compose.smoke.yaml"))
 	if err != nil {
