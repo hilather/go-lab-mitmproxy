@@ -10,6 +10,26 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.7.3 - 2026-10-19
+
+Patch after v1.7.2 from [PR #95](https://github.com/hilather/go-lab-mitmproxy/pull/95), [#96](https://github.com/hilather/go-lab-mitmproxy/pull/96), [#97](https://github.com/hilather/go-lab-mitmproxy/pull/97), [#100](https://github.com/hilather/go-lab-mitmproxy/pull/100) and [#101](https://github.com/hilather/go-lab-mitmproxy/pull/101): Go toolchain go1.26.9 and `golang.org/x/net` v0.60.0, a 407 to CONNECT that closes the TCP connection when HTTP proxy auth is enabled, lockfile-only web development dependency bumps, and a `.dockerignore` for the image build context. The embedded SPA (`internal/web/dist`) is byte-identical. Catalog stays 31 `/v1` rows. `features.get` stays 11. MCP stays 2026-07-28. Configuration stays `labmitm.dev/v1alpha1`. There are no new capability IDs, apply verbs, REST fields, MCP tools or ADRs. **D7 stands.** Notes: [docs/releases/v1.7.3.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.3/docs/releases/v1.7.3.md). Operator residual: [docs/known-limitations.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.3/docs/known-limitations.md).
+
+### Added
+
+- None.
+
+### Changed
+
 - Go toolchain pinned to go1.26.9 (go.mod `toolchain`, CI `GO_VERSION`, Dockerfile); 1.26.0–1.26.8 lack current stdlib security fixes (GO-2026-6603–6605, GO-2026-6607–6613 and GO-2026-6617). `golang.org/x/net` moves v0.58.0 to v0.60.0 (GO-2026-6603, GO-2026-6610, GO-2026-6611, GO-2026-6612, GO-2026-6617); it pulls x/sync v0.23.0, x/sys v0.48.0 and x/text v0.42.0, and `go mod tidy` rewrites the go directive `go 1.26` to `go 1.26.0` (same language version).
 - With opt-in HTTP proxy auth (D76), a 407 to `CONNECT` now carries `Connection: close` and the proxy closes that TCP connection; clients retry CONNECT with credentials on a new connection. This comes from Go 1.26.9 `net/http`, which no longer reuses a connection after a CONNECT it did not hijack. Absolute-form 407 is unchanged (keep-alive retry on the same connection).
 - Web development dependency `source-map-js` updates from 1.2.1 to 1.2.2 (GHSA-68fv-2mgg-jv7q, high: event-loop denial of service through indexed source-map section offsets). Lockfile only; the built web assets are byte-identical.
