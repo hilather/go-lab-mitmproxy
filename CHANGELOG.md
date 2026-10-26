@@ -10,6 +10,26 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.7.4 - 2026-10-26
+
+Patch after v1.7.3 from [PR #104](https://github.com/hilather/go-lab-mitmproxy/pull/104): Go toolchain go1.26.10 (GO-2026-6809). No behavior, API, MCP or configuration change. Notes: [docs/releases/v1.7.4.md](https://github.com/hilather/go-lab-mitmproxy/blob/v1.7.4/docs/releases/v1.7.4.md).
+
+### Added
+
+- None.
+
+### Changed
+
 - Go toolchain 1.26.9 → 1.26.10 (`go.mod` `toolchain`, CI `GO_VERSION` in `ci.yml` and `release.yml`, Dockerfile `golang:1.26.10-alpine`, D14 in `docs/01-architecture.md`, `docs/12-testing-strategy.md`, `docs/13-deployment.md`). 1.26.9 lacks the crypto/x509 fix for GO-2026-6809.
 
 ### Fixed
