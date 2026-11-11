@@ -2,7 +2,7 @@ module github.com/hilather/go-lab-mitmproxy
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/moby/patternmatcher v0.6.1
